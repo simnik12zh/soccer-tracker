@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const SK = "soccer-v1";
+const SK = "soccer-v2";
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DL = ["M","T","W","T","F","S","S"];
 const DN = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
