@@ -103,6 +103,8 @@ const TIPS = {
     text:'Full body strength work. Include glute med activation and hip stability in your warm-up. Consistency here is what separates you from where you want to be.' },
   'Pilates': { emoji:'🤸', label:'Pilates', color:'#FF6B9D',
     text:'Core strength, stability, posture. Especially important for hip stability and longevity. This is your injury prevention session — don\'t skip it.' },
+  'Mobility': { emoji:'🧘', label:'Mobility', color:'#FF6B9D',
+    text:'Hips, ankles, T-spine. Dynamic mobility keeps you moving freely and protects that left hip / glute med. Same priority as the gym — this is what keeps you playing into your 40s and 50s.' },
   'Easy run': { emoji:'🏃', label:'Light run', color:'#FF6B9D',
     text:'Easy pace only. This is active recovery, not fitness work. Keep it conversational and short.' },
   'Walking': { emoji:'🚶', label:'Walking', color:'#FF6B9D',
@@ -115,6 +117,7 @@ function getTip(workout) {
   if (w.includes('team training')) return TIPS['Team Training'];
   if (w.includes('futsal')) return TIPS['Futsal'];
   if (w.includes('gym')) return TIPS['Gym'];
+  if (w.includes('mobility')) return TIPS['Mobility'];
   if (w.includes('pilates')) return TIPS['Pilates'];
   if (w.includes('easy run')) return TIPS['Easy run'];
   if (w.includes('walking')) return TIPS['Walking'];
@@ -122,11 +125,12 @@ function getTip(workout) {
 }
 
 // Emoji for a session label (also covers swapped / non-template sessions).
+// Futsal and Team Training both read as ⚽ — they're soccer on the ball.
 const EMOJI = {
-  'Match':'⚽','Team Training':'🏃','Futsal':'🏟️','Gym':'🏋️',
-  'Pilates':'🤸','Walking':'🚶','Easy run':'🏃','Sick/Injured':'🤒',
+  'Match':'⚽','Team Training':'⚽','Futsal':'⚽','Gym':'🏋️',
+  'Pilates':'🤸','Mobility':'🧘','Walking':'🚶','Easy run':'🏃','Sick/Injured':'🤒',
 };
-function workoutEmoji(w) {
+function sessionEmoji(w) {
   if (!w || !w.trim()) return '';
   if (EMOJI[w]) return EMOJI[w];
   if (w.startsWith('⋯')) return '⋯';
@@ -134,18 +138,42 @@ function workoutEmoji(w) {
   return '⚡';
 }
 
-// Bottom-sheet options for changing a session.
+// ─── Multi-session model ─────────────────────────────────────────────────────────
+// A day's entry holds one or two sessions in a `sessions` array. Legacy entries
+// (and the generated plan) carry a single `workout` string — read both shapes
+// through getSessions so old localStorage data keeps working.
+function getSessions(e) {
+  if (!e) return [];
+  if (Array.isArray(e.sessions)) return e.sessions.filter(s=>s&&s.trim());
+  if (e.workout && e.workout.trim()) return [e.workout.trim()];
+  return [];
+}
+function sessionsLabel(e) { return getSessions(e).join(' + '); }
+function sessionsEmojiStr(e) { return getSessions(e).map(sessionEmoji).join(''); }
+
+// Per-phase weekly targets (Gym and Mobility carry equal 2×/week weight). Used by
+// the weekly-targets summary; rest phases have none.
+const PHASE_TARGETS = {
+  'Off-Season':    { Gym:2, Mobility:2 },
+  'Pre-Season':    { Gym:2, Mobility:2 },
+  'Autumn Season': { Gym:2, Mobility:2 },
+  'Winter Break':  { Gym:2, Mobility:2 },
+  'Spring Season': { Gym:2, Mobility:2 },
+  'Summer Break':  {},
+};
+
+// Bottom-sheet options. Core session types are multi-select toggles (max 2);
+// Other / Rest day are single immediate actions handled separately.
 const ALTS = [
   { emoji:'⚽', label:'Match' },
-  { emoji:'🏃', label:'Team Training' },
-  { emoji:'🏟️', label:'Futsal' },
+  { emoji:'⚽', label:'Team Training' },
+  { emoji:'⚽', label:'Futsal' },
   { emoji:'🏋️', label:'Gym' },
   { emoji:'🤸', label:'Pilates' },
+  { emoji:'🧘', label:'Mobility' },
   { emoji:'🚶', label:'Walking' },
   { emoji:'🏃', label:'Easy run' },
-  { emoji:'⋯', label:'Other', action:'other' },
   { emoji:'🤒', label:'Sick/Injured' },
-  { emoji:'😴', label:'Rest day', action:'rest' },
 ];
 
 const FEELINGS = [
@@ -181,16 +209,17 @@ function tacticalFor(dk) {
 }
 
 // ─── Milestone celebrations ──────────────────────────────────────────────────────
-// check(all, entry, phase) → boolean. `all` is every completed session
-// ({...entry, date, phase}); `entry` is the just-logged one. One fires per log.
+// check(all, entry, phase) → boolean. `all` is every completed day
+// ({...entry, date, phase, sessions}); `entry` is the just-logged one. Each day's
+// `sessions` array may hold one or two types. One milestone fires per log.
 const MILESTONES = [
   { id:'first-session', check:(all)=>all.length===1,
     emoji:'⚽', title:'First session logged!',
     message:'Every elite player started somewhere. This is your somewhere.' },
-  { id:'first-match', check:(all,entry)=>entry.workout==='Match'&&all.filter(e=>e.workout==='Match').length===1,
+  { id:'first-match', check:(all,entry)=>entry.sessions.includes('Match')&&all.filter(e=>e.sessions.includes('Match')).length===1,
     emoji:'🏟️', title:'First match logged!',
     message:'Game on. This is what all the training is for.' },
-  { id:'first-gym-week', check:(all)=>all.filter(e=>e.workout==='Gym').length===2,
+  { id:'first-gym-week', check:(all)=>all.filter(e=>e.sessions.includes('Gym')).length===2,
     emoji:'🏋️', title:'First double gym week!',
     message:'Two gym sessions in a week. This is the pattern that changes everything.' },
   { id:'sessions-10', check:(all)=>all.length===10,
@@ -205,10 +234,10 @@ const MILESTONES = [
   { id:'first-preseason', check:(all,entry,phase)=>phase==='Pre-Season'&&all.filter(e=>e.phase==='Pre-Season').length===1,
     emoji:'🚀', title:'Pre-season starts!',
     message:'The work you did in the off-season starts paying off now.' },
-  { id:'first-match-season', check:(all,entry,phase)=>phase==='Autumn Season'&&all.filter(e=>e.workout==='Match'&&e.phase==='Autumn Season').length===1,
+  { id:'first-match-season', check:(all,entry,phase)=>phase==='Autumn Season'&&all.filter(e=>e.sessions.includes('Match')&&e.phase==='Autumn Season').length===1,
     emoji:'🏆', title:'First competitive match!',
     message:'Season is live. Everything you built in the off-season is for this.' },
-  { id:'gym-streak-4', check:(all)=>all.filter(e=>e.workout==='Gym').length>=8,
+  { id:'gym-streak-4', check:(all)=>all.filter(e=>e.sessions.includes('Gym')).length>=8,
     emoji:'🔥', title:'4 weeks of gym consistency!',
     message:'Four straight weeks in the gym. The on/off pattern is broken.' },
 ];
@@ -439,24 +468,42 @@ function useSwipe(onLeft, onRight) {
 }
 
 // ─── Workout bottom sheet ────────────────────────────────────────────────────────
-// "What are you doing today?" grid, shared by Today and Week views. Operates on a
-// single dateKey. Rest clears the day, Other prompts for free text, the rest store
-// the plain session label so tips & emoji resolve cleanly.
+// Shared by Today and Week views. Core session types are MULTI-select (tap up to
+// two — e.g. "Gym + Mobility"); confirm writes a `sessions` array. Other prompts
+// for free text, Rest clears the day — both are single immediate actions. Pre-seeds
+// the selection from the day's current sessions so editing keeps what's there.
+const SHEET_MAX = 2;
 function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
   const [otherMode,setOtherMode]=useState(false);
   const [otherText,setOtherText]=useState("");
+  // Only pre-seed known toggle types; free-text / legacy values start empty.
+  const known=ALTS.map(a=>a.label);
+  const [selected,setSelected]=useState(()=>getSessions(entry).filter(s=>known.includes(s)).slice(0,SHEET_MAX));
+
+  const toggle=(label)=>{
+    setSelected(sel=>{
+      if (sel.includes(label)) return sel.filter(s=>s!==label);
+      if (sel.length>=SHEET_MAX) return sel;          // cap at two
+      return [...sel,label];
+    });
+  };
+  const confirmSelection=()=>{
+    if (!selected.length) return;
+    updDay(dk,{sessions:selected,workout:''});        // keep completed/notes/feeling
+    onClose();
+  };
   const confirmOther=()=>{
     const t=otherText.trim();
     if (!t) return;
-    updDay(dk,{workout:`⋯ ${t}`,completed:false,feeling:null});
+    updDay(dk,{sessions:[`⋯ ${t}`],workout:'',completed:false,feeling:null});
     onClose();
   };
-  const onSheetOption=(opt)=>{
-    if (opt.action==="other") { setOtherMode(true); return; }
-    if (opt.action==="rest") { updDay(dk,{workout:'',completed:false,feeling:null}); onClose(); return; }
-    updDay(dk,{workout:opt.label,completed:false,feeling:null});
-    onClose();
-  };
+  const chooseRest=()=>{ updDay(dk,{sessions:[],workout:'',completed:false,feeling:null}); onClose(); };
+
+  const confirmLabel=selected.length
+    ? `Save ${selected.map(s=>`${sessionEmoji(s)} ${s}`).join(" + ")}`
+    : "Select a session";
+
   return (
     <>
       <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",
@@ -488,22 +535,94 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
           </>
         ) : (
           <>
-            <div style={{fontSize:16,fontWeight:600,color:C.text,margin:"4px 4px 16px"}}>What are you doing today?</div>
+            <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",margin:"4px 4px 14px"}}>
+              <span style={{fontSize:16,fontWeight:600,color:C.text}}>What did you do?</span>
+              <span style={{fontSize:11,color:C.muted}}>pick up to {SHEET_MAX}</span>
+            </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-              {ALTS.map(opt=>(
-                <button key={opt.label} onClick={()=>onSheetOption(opt)}
-                  style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-                    gap:5,minHeight:64,padding:"12px 4px",background:C.bg,border:`1px solid ${C.border}`,
-                    borderRadius:14,cursor:"pointer",fontFamily:"inherit",WebkitTapHighlightColor:"transparent"}}>
-                  <span style={{fontSize:24,lineHeight:1}}>{opt.emoji}</span>
-                  <span style={{fontSize:11,color:C.muted,textAlign:"center",lineHeight:1.15}}>{opt.label}</span>
-                </button>
-              ))}
+              {ALTS.map(opt=>{
+                const on=selected.includes(opt.label);
+                const full=!on&&selected.length>=SHEET_MAX;
+                return (
+                  <button key={opt.label} onClick={()=>toggle(opt.label)} disabled={full}
+                    aria-pressed={on}
+                    style={{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",
+                      justifyContent:"center",gap:5,minHeight:64,padding:"12px 4px",
+                      background:on?C.sageLt:C.bg,border:`${on?2:1}px solid ${on?C.done:C.border}`,
+                      borderRadius:14,cursor:full?"default":"pointer",opacity:full?0.45:1,
+                      fontFamily:"inherit",WebkitTapHighlightColor:"transparent"}}>
+                    {on&&<span style={{position:"absolute",top:4,right:4,width:16,height:16,borderRadius:"50%",
+                      background:C.done,display:"flex",alignItems:"center",justifyContent:"center"}}><Chk size={9}/></span>}
+                    <span style={{fontSize:24,lineHeight:1}}>{opt.emoji}</span>
+                    <span style={{fontSize:11,color:on?C.sageDk:C.muted,fontWeight:on?700:400,
+                      textAlign:"center",lineHeight:1.15}}>{opt.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={confirmSelection} disabled={!selected.length}
+              style={{width:"100%",marginTop:14,padding:"14px",background:selected.length?C.done:C.muted,
+                color:"#fff",border:"none",borderRadius:12,fontFamily:"inherit",fontSize:15,fontWeight:600,
+                cursor:selected.length?"pointer":"default",WebkitTapHighlightColor:"transparent"}}>
+              {confirmLabel}
+            </button>
+            <div style={{display:"flex",gap:10,marginTop:10}}>
+              <button onClick={()=>setOtherMode(true)} style={{flex:1,padding:"11px",background:C.surface,
+                color:C.muted,border:`1px solid ${C.border}`,borderRadius:12,fontFamily:"inherit",fontSize:14,
+                fontWeight:500,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>⋯ Something else</button>
+              <button onClick={chooseRest} style={{flex:1,padding:"11px",background:C.surface,
+                color:C.muted,border:`1px solid ${C.border}`,borderRadius:12,fontFamily:"inherit",fontSize:14,
+                fontWeight:500,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>😴 Rest day</button>
             </div>
           </>
         )}
       </div>
     </>
+  );
+}
+
+// ─── Weekly targets ──────────────────────────────────────────────────────────────
+// Priority session types for the current phase (Gym + Mobility, 2×/week each).
+// Each session in a day's array counts once toward its own target — no double count.
+function WeeklyTargets({plan}) {
+  const phase=phaseForDate(todayStr());
+  const targets=phase?PHASE_TARGETS[phase.name]:null;
+  if (!targets||!Object.keys(targets).length) return null;
+  const counts={};
+  weekOf(0).forEach(dk=>{
+    const e=plan[dk];
+    if (e?.completed) getSessions(e).forEach(s=>{ counts[s]=(counts[s]||0)+1; });
+  });
+  return (
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,
+      padding:"12px 14px",marginBottom:16}}>
+      <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:".06em",marginBottom:9}}>Weekly targets</div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        {Object.entries(targets).map(([type,goal])=>{
+          const got=Math.min(counts[type]||0,goal);
+          const met=(counts[type]||0)>=goal;
+          return (
+            <div key={type} style={{flex:1,minWidth:120,display:"flex",alignItems:"center",gap:9}}>
+              <span style={{fontSize:18,lineHeight:1}}>{sessionEmoji(type)}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
+                  <span style={{fontSize:13,fontWeight:600,color:C.text}}>{type}</span>
+                  <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:met?C.done:C.muted}}>
+                    {counts[type]||0}/{goal}
+                  </span>
+                </div>
+                <div style={{display:"flex",gap:3}}>
+                  {Array.from({length:goal},(_,i)=>(
+                    <div key={i} style={{flex:1,height:5,borderRadius:99,
+                      background:i<got?C.done:C.border}}/>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -532,11 +651,12 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
   const d=new Date(viewKey+"T00:00:00");
   const dayName=d.toLocaleDateString("en-US",{weekday:"long"});
   const dayFull=d.toLocaleDateString("en-US",{month:"long",day:"numeric"});
-  const hasWorkout=!!e.workout?.trim();
+  const sessions=getSessions(e);
+  const hasWorkout=sessions.length>0;
 
   // Weekly / monthly session counts.
   const wk=weekOf(0);
-  const wkPlanned=wk.filter(dk=>plan[dk]?.workout?.trim()).length;
+  const wkPlanned=wk.filter(dk=>getSessions(plan[dk]).length>0).length;
   const wkDone=wk.filter(dk=>plan[dk]?.completed).length;
   const now=new Date();
   const mDays=monthGrid(now.getFullYear(),now.getMonth()).filter(Boolean);
@@ -552,7 +672,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
           { node: hasWorkout
               ? (e.completed
                   ? <span style={{color:C.done}}>✓</span>
-                  : <span style={{fontSize:18}}>{workoutEmoji(e.workout)}</span>)
+                  : <span style={{fontSize:18}}>{sessionsEmojiStr(e)}</span>)
               : 'Rest',
             lbl:"Today" },
           { node: <><span style={{color:wkDone>0?C.done:C.text}}>{wkDone}</span>/{wkPlanned}</>, lbl:"This week" },
@@ -565,6 +685,9 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
           </div>
         ))}
       </div>
+
+      {/* Weekly targets — priority session types for the current phase */}
+      <WeeklyTargets plan={plan}/>
 
       {/* Day content — slides on day change; stats above stay fixed. */}
       <div style={{overflow:"hidden"}}>
@@ -596,7 +719,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
           <div style={{flex:1}}>
             <div style={{fontSize:17,fontWeight:600,lineHeight:1.35,
               color:hasWorkout?C.text:C.muted,fontStyle:hasWorkout?"normal":"italic"}}>
-              {hasWorkout?<><span style={{marginRight:8}}>{workoutEmoji(e.workout)}</span>{e.workout.trim()}</>:"Rest day"}
+              {hasWorkout?<><span style={{marginRight:8}}>{sessionsEmojiStr(e)}</span>{sessionsLabel(e)}</>:"Rest day"}
             </div>
           </div>
           {hasWorkout&&(e.completed
@@ -632,7 +755,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
           </div>
         )}
 
-        <TipCard workout={e.workout}/>
+        {sessions.map(s=><TipCard key={s} workout={s}/>)}
 
         {/* Feeling rating — shown when completed */}
         {e.completed&&(
@@ -704,7 +827,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
 function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
   const days=weekOf(wkOff);
   const fmt=dk=>new Date(dk+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"});
-  const wkPlanned=days.filter(dk=>plan[dk]?.workout?.trim()).length;
+  const wkPlanned=days.filter(dk=>getSessions(plan[dk]).length>0).length;
   const wkDone=days.filter(dk=>plan[dk]?.completed).length;
   const [direction,setDirection]=useState(null);
   const [animating,setAnimating]=useState(false);
@@ -777,10 +900,11 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
         {days.map((dk,i)=>{
           const en=plan[dk]||{};
           const isT=dk===today;
-          const has=!!en.workout?.trim();
+          const ss=getSessions(en);
+          const has=ss.length>0;
           return (
             <button key={dk} onClick={()=>onGoToDay(dk)}
-              aria-label={`${DN[i]}, ${fmt(dk)} — ${en.workout?.trim()||"Rest"}`}
+              aria-label={`${DN[i]}, ${fmt(dk)} — ${sessionsLabel(en)||"Rest"}`}
               style={{display:"block",width:"100%",fontFamily:"inherit",
                 background:en.completed?C.doneLt:isT?C.sageLt:C.surface,
                 border:`1.5px solid ${en.completed?C.done:isT?C.sage:C.border}`,borderRadius:12,
@@ -788,7 +912,9 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
               <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:".04em",
                 color:isT?C.sage:C.muted,fontWeight:isT?600:400,marginBottom:3}}>{DL[i]}</div>
               <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:4}}>{new Date(dk+"T00:00:00").getDate()}</div>
-              <div style={{fontSize:12,lineHeight:1}}>{has?workoutEmoji(en.workout):<span style={{color:C.muted}}>·</span>}</div>
+              <div style={{fontSize:has&&ss.length>1?10:12,lineHeight:1,whiteSpace:"nowrap"}}>
+                {has?sessionsEmojiStr(en):<span style={{color:C.muted}}>·</span>}
+              </div>
             </button>
           );
         })}
@@ -799,7 +925,7 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
         const en=plan[dk]||{};
         const isT=dk===today;
         const d=new Date(dk+"T00:00:00");
-        const has=!!en.workout?.trim();
+        const has=getSessions(en).length>0;
         const picked=swapFrom===dk;
         const flashing=swapConfirmed?.includes(dk);
         return (
@@ -808,7 +934,7 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
             padding:"14px 18px",marginBottom:10,animation:flashing?'swapFlash 1.5s ease forwards':undefined,
             display:"flex",alignItems:"center",gap:8}}>
             <button onClick={(ev)=>{ ev.stopPropagation(); onCardTap(dk); }}
-              aria-label={`${DN[i]}, ${fmt(dk)} — ${en.workout?.trim()||"Rest"}${picked?" (selected — tap another day to swap)":""}`}
+              aria-label={`${DN[i]}, ${fmt(dk)} — ${sessionsLabel(en)||"Rest"}${picked?" (selected — tap another day to swap)":""}`}
               style={{flex:1,minWidth:0,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,
                 background:"none",border:"none",padding:0,textAlign:"left",fontFamily:"inherit",cursor:"pointer",
                 WebkitTapHighlightColor:"transparent"}}>
@@ -819,7 +945,7 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
                 </div>
                 <div style={{fontSize:15,fontWeight:500,color:has?C.text:C.muted,fontStyle:has?"normal":"italic",
                   whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-                  {has?<><span style={{marginRight:7}}>{workoutEmoji(en.workout)}</span>{en.workout.trim()}</>:"Rest"}
+                  {has?<><span style={{marginRight:7}}>{sessionsEmojiStr(en)}</span>{sessionsLabel(en)}</>:"Rest"}
                 </div>
               </div>
               <div style={{width:22,display:"flex",justifyContent:"center",alignItems:"center",flexShrink:0}}>
@@ -858,7 +984,7 @@ function MonthView({today,plan,moOff,setMoOff,onGoToDay}) {
   const y=t.getFullYear(), m=t.getMonth();
   const days=monthGrid(y,m);
   const real=days.filter(Boolean);
-  const mPlanned=real.filter(dk=>plan[dk]?.workout?.trim()).length;
+  const mPlanned=real.filter(dk=>getSessions(plan[dk]).length>0).length;
   const mDone=real.filter(dk=>plan[dk]?.completed).length;
   const [direction,setDirection]=useState(null);
   const [animating,setAnimating]=useState(false);
@@ -902,11 +1028,12 @@ function MonthView({today,plan,moOff,setMoOff,onGoToDay}) {
         {days.map((dk,i)=>{
           if (!dk) return <div key={`e${i}`}/>;
           const en=plan[dk]||{};
-          const has=!!en.workout?.trim();
+          const ss=getSessions(en);
+          const has=ss.length>0;
           const isT=dk===today;
           return (
             <button key={dk} onClick={()=>onGoToDay(dk)}
-              aria-label={`${new Date(dk+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})} — ${en.workout?.trim()||"Rest"}`}
+              aria-label={`${new Date(dk+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})} — ${sessionsLabel(en)||"Rest"}`}
               style={{width:"100%",padding:0,fontFamily:"inherit",aspectRatio:"1",borderRadius:10,display:"flex",
                 flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,cursor:"pointer",
                 background:en.completed?C.doneLt:has?C.surface:"transparent",
@@ -915,7 +1042,8 @@ function MonthView({today,plan,moOff,setMoOff,onGoToDay}) {
               <div style={{fontSize:13,fontWeight:(has||isT)?600:400,color:(has||isT)?C.text:C.borderSt,lineHeight:1}}>
                 {new Date(dk+"T00:00:00").getDate()}
               </div>
-              {has&&<div style={{fontSize:12,lineHeight:1,opacity:en.completed?1:0.9}}>{workoutEmoji(en.workout)}</div>}
+              {has&&<div style={{fontSize:ss.length>1?10:12,lineHeight:1,whiteSpace:"nowrap",
+                opacity:en.completed?1:0.9}}>{sessionsEmojiStr(en)}</div>}
             </button>
           );
         })}
@@ -940,7 +1068,7 @@ function JourneyView({plan,today,onGoToDay}) {
     <div style={{padding:"16px 16px 32px"}}>
       {PHASES.map((phase,pi)=>{
         const days=phaseDays(phase);
-        const planned=days.filter(dk=>plan[dk]?.workout?.trim()).length;
+        const planned=days.filter(dk=>getSessions(plan[dk]).length>0).length;
         const done=days.filter(dk=>plan[dk]?.completed).length;
         const isCurrent=phase===curPhase;
         const isPast=today>phase.end;
@@ -1001,13 +1129,13 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
   const buildCoachContext=()=>{
     const today=todayStr();
     const cut=daysBeforeStr(today,14);
-    const completed=Object.keys(plan).filter(dk=>plan[dk]?.workout?.trim()&&plan[dk].completed).sort();
+    const completed=Object.keys(plan).filter(dk=>getSessions(plan[dk]).length>0&&plan[dk].completed).sort();
     const recentSessions=completed.filter(dk=>dk>=cut).map(dk=>({
-      date:dk, workout:plan[dk].workout.trim(),
+      date:dk, workout:sessionsLabel(plan[dk]),
       feeling:feelingLabel(plan[dk].feeling), notes:plan[dk].notes?.trim()||null,
     }));
     const wk=weekOf(0);
-    const week={ done:wk.filter(dk=>plan[dk]?.completed).length, planned:wk.filter(dk=>plan[dk]?.workout?.trim()).length };
+    const week={ done:wk.filter(dk=>plan[dk]?.completed).length, planned:wk.filter(dk=>getSessions(plan[dk]).length>0).length };
     const curPhase=phaseForDate(today);
     const idx=PHASES.findIndex(p=>p===curPhase);
     const next=curPhase?PHASES[idx+1]:null;
@@ -1016,7 +1144,7 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
       playerName:playerName?.trim()||null,
       phase:curPhase?{name:curPhase.name,description:curPhase.description}:null,
       nextPhase:next?.name||null, daysToNextPhase,
-      today:{date:viewKey,label:`${dayName}, ${dayFull}`,workout:e.workout?.trim()||"Rest day",
+      today:{date:viewKey,label:`${dayName}, ${dayFull}`,workout:sessionsLabel(e)||"Rest day",
         completed:!!e.completed,feeling:feelingLabel(e.feeling)},
       recentSessions, week, tactical:tacticalFor(viewKey),
     };
@@ -1448,10 +1576,11 @@ export default function App() {
   },[celebration]);
 
   // After a session is logged, fire the first not-yet-shown milestone whose check passes.
+  // Each completed day carries a `sessions` array (one or two types) for the checks.
   const checkMilestones=(dk,planState)=>{
     const all=Object.entries(planState)
-      .filter(([k,e])=>e.completed&&e.workout?.trim())
-      .map(([k,e])=>({...e,date:k,phase:phaseForDate(k)?.name}))
+      .filter(([k,e])=>e.completed&&getSessions(e).length>0)
+      .map(([k,e])=>({...e,date:k,phase:phaseForDate(k)?.name,sessions:getSessions(e)}))
       .sort((a,b)=>a.date<b.date?-1:1);
     const entry=all.find(e=>e.date===dk);
     if (!entry) return;
@@ -1471,14 +1600,15 @@ export default function App() {
   const save=(np,nn)=>storeSet(SK,JSON.stringify({ playerName:nn??playerName, plan:np??plan })).catch(()=>{});
   const updDay=(dk,u)=>{
     const np={...plan,[dk]:{...plan[dk],...u}}; setPlan(np); save(np);
-    if (u.completed===true&&np[dk]?.workout?.trim()) checkMilestones(dk,np);
+    if (u.completed===true&&getSessions(np[dk]).length>0) checkMilestones(dk,np);
   };
-  // Swap two days' session in a single atomic update. Logged status/notes/feeling stay with their date.
+  // Swap two days' session(s) in a single atomic update. Logged status/notes/feeling
+  // stay with their own date; only the session list moves.
   const swapDays=(a,b)=>{
     const ea=plan[a]||{}, eb=plan[b]||{};
     const np={...plan,
-      [a]:{...plan[a],workout:eb.workout||''},
-      [b]:{...plan[b],workout:ea.workout||''}};
+      [a]:{...plan[a],sessions:getSessions(eb),workout:''},
+      [b]:{...plan[b],sessions:getSessions(ea),workout:''}};
     setPlan(np); save(np);
   };
   const goToDay=(dk)=>{ setDayOff(daysUntil(dk)??0); setView("today"); };
@@ -1505,7 +1635,7 @@ export default function App() {
 
   // Overall season progress (all sessions).
   const allE=Object.values(plan);
-  const totalPlanned=allE.filter(e=>e.workout?.trim()).length;
+  const totalPlanned=allE.filter(e=>getSessions(e).length>0).length;
   const totalDone=allE.filter(e=>e.completed).length;
   const pct=totalPlanned>0?Math.round(totalDone/totalPlanned*100):0;
   const circ=2*Math.PI*30;

@@ -40,9 +40,13 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 - **`api/assess-decision.js`** — streams the trainer assessment as `text/plain`, same pattern as
   the coach. Both trainer endpoints use `claude-sonnet-4-6` and read the key server-side only.
 - **Storage** — one JSON blob under `soccer-v1`: `{ playerName, plan }`, where `plan` maps
-  `YYYY-MM-DD → { workout, completed, notes, feeling }`. Sessions are done or not done — there
-  is no distance/duration tracking. Per-day coach chats live under `coach-YYYY-MM-DD`;
-  one-time milestone flags under `milestone-<id>`.
+  `YYYY-MM-DD → { sessions, completed, notes, feeling }`. A day holds one or two session
+  types in `sessions` (e.g. `['Gym','Mobility']`); legacy entries with a single `workout`
+  string are still read transparently via `getSessions`. Sessions are done or not done — no
+  distance/duration tracking. Gym and Mobility each carry a 2×/week target (`PHASE_TARGETS`),
+  surfaced in the Today view's weekly-targets card. Per-day coach chats live under
+  `coach-YYYY-MM-DD`; the trainer rep count under `soccer-trainer-count`; one-time milestone
+  flags under `milestone-<id>`.
 
 ## Deploy to Vercel
 
