@@ -42,7 +42,7 @@ const PHASES = [
   { name:'Pre-Season',   start:'2026-08-06', end:'2026-09-06',
     description:'Conditioning ramp-up. Team training resumes. Stay sharp and arrive fit.', color:'#E8174A' },
   { name:'Autumn Season',start:'2026-09-07', end:'2026-11-15',
-    description:'Perform. Recover. Maintain fitness. Matches on Mondays — manage your load around them.', color:'#E8174A' },
+    description:'Perform. Recover. Maintain fitness. Matches on Saturdays — manage your load around them.', color:'#E8174A' },
   { name:'Winter Break', start:'2026-11-16', end:'2027-04-04',
     description:'Prime body composition window. Gym consistency block. Build strength for spring.', color:'#E8174A' },
   { name:'Spring Season',start:'2027-04-05', end:'2027-06-30',
@@ -58,21 +58,31 @@ function phaseForDate(dk) {
   return null;
 }
 
-// Weekly templates per phase — [Mon…Sun].
+// Weekly templates per phase — [Mon…Sun]. A day is a single session string, an
+// array of sessions (e.g. Gym + Mobility — same day so he's already warm), or null
+// (rest). Mobility lands twice a week: paired after Gym, else on an active rest day,
+// never sharing a day with a hard session (Futsal / Team Training / Match).
 const TEMPLATES = {
-  'Off-Season':    ['Pilates','Futsal','Gym',null,'Gym',null,null],
-  'Pre-Season':    ['Pilates','Futsal','Gym','Team Training',null,'Gym',null],
-  'Autumn Season': ['Match','Futsal','Gym','Team Training',null,'Gym','Pilates'],
-  'Winter Break':  ['Gym','Futsal','Gym','Pilates',null,'Gym',null],
-  'Spring Season': ['Match','Futsal','Gym','Team Training',null,'Gym','Pilates'],
+  'Off-Season':    [['Gym','Mobility'],'Futsal',['Gym','Mobility'],null,null,null,null],
+  'Pre-Season':    [['Gym','Mobility'],'Futsal','Gym','Team Training','Mobility',null,null],
+  'Autumn Season': [['Gym','Mobility'],'Futsal',null,'Team Training','Mobility','Match',null],
+  'Winter Break':  [['Gym','Mobility'],'Futsal',['Gym','Mobility'],null,null,null,null],
+  'Spring Season': [['Gym','Mobility'],'Futsal',null,'Team Training','Mobility','Match',null],
   'Summer Break':  [null,null,null,null,null,null,null],
 };
-// Holiday overrides ([Mon…Sun]).
-const TUSCANY_W1 = [null,'Easy run',null,'Easy run',null,null,'Easy run']; // Aug 22–28: light only
-const TUSCANY_W2 = [null,'Easy run',null,null,null,null,null];             // Aug 29–Sep 5: minimal
+// Holiday overrides ([Mon…Sun]). Tuscany week 1: light Mobility every other day
+// (lands on Aug 22 / 24 / 26 / 28); week 2: nothing planned — whatever happens, happens.
+const TUSCANY_W1 = ['Mobility',null,'Mobility',null,'Mobility','Mobility',null];
+const TUSCANY_W2 = [null,null,null,null,null,null,null];
+
+// Holiday windows — no weekly targets are shown during these.
+function isIbiza(dk)   { return dk>='2026-07-10'&&dk<='2026-07-15'; }
+function isTuscany(dk) { return dk>='2026-08-22'&&dk<='2026-09-05'; }
+function isHoliday(dk) { return isIbiza(dk)||isTuscany(dk); }
 
 // Build the full day-by-day plan from SEASON_START through SEASON_END by applying
 // the correct weekly template for each phase, with Ibiza and Tuscany overrides.
+// Each planned day is stored with a `sessions` array (the multi-session model).
 function buildDefaultPlan() {
   const plan={};
   const d=new Date(2026,5,29);
@@ -81,10 +91,10 @@ function buildDefaultPlan() {
     if (phase) {
       const wd=dow0(d);
       let w=TEMPLATES[phase.name][wd];
-      if (dk>='2026-07-10'&&dk<='2026-07-15') w=null;                 // Ibiza: rest
+      if (isIbiza(dk)) w=null;                                        // Ibiza: rest
       else if (dk>='2026-08-22'&&dk<='2026-08-28') w=TUSCANY_W1[wd];  // Tuscany week 1
       else if (dk>='2026-08-29'&&dk<='2026-09-05') w=TUSCANY_W2[wd];  // Tuscany week 2
-      if (w) plan[dk]={ workout:w, completed:false, notes:'', feeling:null };
+      if (w) plan[dk]={ sessions:Array.isArray(w)?w:[w], completed:false, notes:'', feeling:null };
     }
     d.setDate(d.getDate()+1);
   }
@@ -151,14 +161,16 @@ function getSessions(e) {
 function sessionsLabel(e) { return getSessions(e).join(' + '); }
 function sessionsEmojiStr(e) { return getSessions(e).map(sessionEmoji).join(''); }
 
-// Per-phase weekly targets (Gym and Mobility carry equal 2×/week weight). Used by
-// the weekly-targets summary; rest phases have none.
+// Per-phase weekly targets, matched to what each template actually plans so the
+// counters are always achievable in a normal week. Mobility is 2× everywhere;
+// Gym is 2× in the body-comp phases and 1× in-season (Wednesday stays light to
+// protect the legs for the weekend match). Rest phases have none.
 const PHASE_TARGETS = {
   'Off-Season':    { Gym:2, Mobility:2 },
   'Pre-Season':    { Gym:2, Mobility:2 },
-  'Autumn Season': { Gym:2, Mobility:2 },
+  'Autumn Season': { Gym:1, Mobility:2 },
   'Winter Break':  { Gym:2, Mobility:2 },
-  'Spring Season': { Gym:2, Mobility:2 },
+  'Spring Season': { Gym:1, Mobility:2 },
   'Summer Break':  {},
 };
 
@@ -585,7 +597,9 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
 // Priority session types for the current phase (Gym + Mobility, 2×/week each).
 // Each session in a day's array counts once toward its own target — no double count.
 function WeeklyTargets({plan}) {
-  const phase=phaseForDate(todayStr());
+  const today=todayStr();
+  if (isHoliday(today)) return null;             // Ibiza / Tuscany: no targets
+  const phase=phaseForDate(today);
   const targets=phase?PHASE_TARGETS[phase.name]:null;
   if (!targets||!Object.keys(targets).length) return null;
   const counts={};
