@@ -254,7 +254,10 @@ function TabIcon({name,size=23}) {
   if (name==="month") return <svg {...p}>
     <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
     <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>;
-  return <svg {...p}><path d="M5 21V3M5 4h12l-2 3.5L17 11H5"/></svg>;   // journey — flag
+  if (name==="journey") return <svg {...p}><path d="M5 21V3M5 4h12l-2 3.5L17 11H5"/></svg>;   // flag
+  return <svg {...p}>   {/* trainer — target */}
+    <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/>
+    <circle cx="12" cy="12" r="0.8" fill="currentColor" stroke="none"/></svg>;
 }
 
 // ─── Tip card ────────────────────────────────────────────────────────────────────
@@ -1112,6 +1115,282 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
   );
 }
 
+// ─── Decision trainer ────────────────────────────────────────────────────────────
+// Pitch rendering, ported from the validated prototype. Horizontal SVG, attacking
+// left → right. Guards against missing arrays / markers so a malformed model
+// response can never crash the view.
+const PITCH_A = "#2c7a43", PITCH_B = "#277a3d", PITCH_LINE = "rgba(255,255,255,0.85)";
+
+function Pitch({situation}) {
+  const s=situation||{};
+  const teammates=Array.isArray(s.teammates)?s.teammates:[];
+  const opponents=Array.isArray(s.opponents)?s.opponents:[];
+  const ball=s.ball&&typeof s.ball.x==="number"?s.ball:null;
+  const you=s.player_you&&typeof s.player_you.x==="number"?s.player_you:null;
+  return (
+    <div style={{borderRadius:14,overflow:"hidden",border:`1px solid ${C.border}`}}>
+      <svg viewBox="0 0 105 68" style={{display:"block",width:"100%",height:"auto"}}>
+        {Array.from({length:7},(_,i)=>(
+          <rect key={i} x={i*15} y={0} width={15} height={68} fill={i%2===0?PITCH_A:PITCH_B}/>
+        ))}
+        <g fill="none" stroke={PITCH_LINE} strokeWidth={0.3}>
+          <rect x={0.6} y={0.6} width={103.8} height={66.8}/>
+          <line x1={52.5} y1={0.6} x2={52.5} y2={67.4}/>
+          <circle cx={52.5} cy={34} r={9.15}/>
+          <rect x={0.6} y={13.84} width={16.5} height={40.32}/>
+          <rect x={87.9} y={13.84} width={16.5} height={40.32}/>
+          <rect x={0.6} y={24.84} width={5.5} height={18.32}/>
+          <rect x={98.9} y={24.84} width={5.5} height={18.32}/>
+        </g>
+        <g fill={PITCH_LINE} stroke="none">
+          <circle cx={52.5} cy={34} r={0.5}/>
+          <circle cx={11} cy={34} r={0.5}/>
+          <circle cx={94} cy={34} r={0.5}/>
+        </g>
+        <g fill="rgba(255,255,255,0.85)" stroke="none">
+          <rect x={0} y={30.34} width={1} height={7.32}/>
+          <rect x={104} y={30.34} width={1} height={7.32}/>
+        </g>
+        <text x={3} y={64} fontSize={2.4} fill="rgba(255,255,255,0.45)" fontWeight="700">YOUR GOAL</text>
+        <text x={102} y={64} fontSize={2.4} fill="rgba(255,255,255,0.45)" fontWeight="700" textAnchor="end">OPP GOAL</text>
+        {teammates.map((t,i)=> typeof t?.x==="number"&&(
+          <g key={`t${i}`}>
+            <circle cx={t.x} cy={t.y} r={2.8} fill="#4895ef" stroke="#fff" strokeWidth={0.4}/>
+            <text x={t.x} y={t.y} fontSize={2} fill="#fff" textAnchor="middle" dominantBaseline="central" fontWeight="700">{t.label||""}</text>
+          </g>
+        ))}
+        {opponents.map((o,i)=> typeof o?.x==="number"&&(
+          <g key={`o${i}`}>
+            <circle cx={o.x} cy={o.y} r={2.8} fill="#e63946" stroke="#fff" strokeWidth={0.4}/>
+            <text x={o.x} y={o.y} fontSize={2} fill="#fff" textAnchor="middle" dominantBaseline="central" fontWeight="700">{o.label||""}</text>
+          </g>
+        ))}
+        {you&&(
+          <g>
+            <circle cx={you.x} cy={you.y} r={3.2} fill="#ffbe0b" stroke="#fff" strokeWidth={0.5}/>
+            <text x={you.x} y={you.y} fontSize={2} fill="#1A0A10" textAnchor="middle" dominantBaseline="central" fontWeight="800">YOU</text>
+          </g>
+        )}
+        {ball&&<circle cx={ball.x} cy={ball.y} r={1.8} fill="#fff" stroke="#1A0A10" strokeWidth={0.3}/>}
+      </svg>
+    </div>
+  );
+}
+
+function LegendDot({color,label,ring}) {
+  return (
+    <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,color:C.muted}}>
+      <span style={{width:10,height:10,borderRadius:"50%",background:color,
+        border:ring?`1px solid ${C.muted}`:"none",display:"inline-block",flexShrink:0}}/>
+      {label}
+    </span>
+  );
+}
+
+function PitchBlock({situation}) {
+  return (
+    <div style={{marginBottom:14}}>
+      <Pitch situation={situation}/>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginTop:8,flexWrap:"wrap"}}>
+        <LegendDot color="#ffbe0b" label="You"/>
+        <LegendDot color="#4895ef" label="Team"/>
+        <LegendDot color="#e63946" label="Opp"/>
+        <LegendDot color="#fff" label="Ball" ring/>
+        <span style={{marginLeft:"auto",fontSize:11,color:C.muted,fontFamily:"monospace"}}>
+          {situation?.phase||""}{situation?.ball_with?` · ${situation.ball_with}`:""}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+const TR_CARD = {background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,padding:"16px 18px",marginBottom:14};
+const TR_LABEL = {fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:C.muted,marginBottom:8};
+const TR_TEXTAREA = {width:"100%",border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",
+  fontFamily:"inherit",fontSize:15,color:C.text,background:C.bg,resize:"none",outline:"none",
+  lineHeight:1.5,boxSizing:"border-box"};
+const TR_PRIMARY = {width:"100%",padding:"14px",background:C.done,color:"#fff",border:"none",borderRadius:12,
+  fontFamily:"inherit",fontSize:15,fontWeight:600,cursor:"pointer",WebkitTapHighlightColor:"transparent"};
+const TR_SECONDARY = {width:"100%",padding:"13px",background:C.surface,color:C.sage,border:`1.5px solid ${C.sage}`,
+  borderRadius:12,fontFamily:"inherit",fontSize:15,fontWeight:600,cursor:"pointer",
+  WebkitTapHighlightColor:"transparent",marginTop:10};
+
+function SituationCard({situation}) {
+  if (!situation) return null;
+  return (
+    <div style={TR_CARD}>
+      <div style={TR_LABEL}>Situation</div>
+      <p style={{margin:0,fontSize:15,color:C.text,lineHeight:1.55}}>{situation.description}</p>
+      {situation.key_pressure&&(
+        <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`,
+          fontSize:14,fontWeight:600,color:C.sageDk,lineHeight:1.5}}>
+          → {situation.key_pressure}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrainerView() {
+  const [step,setStep]=useState("idle");   // idle | gen | scan | decide | assessing | done
+  const [situation,setSituation]=useState(null);
+  const [scanText,setScanText]=useState("");
+  const [decision,setDecision]=useState("");
+  const [assessment,setAssessment]=useState("");
+  const [error,setError]=useState(null);
+  const [count,setCount]=useState(0);
+
+  useEffect(()=>{ try { const c=parseInt(localStorage.getItem("soccer-trainer-count")||"0",10); if(!isNaN(c)) setCount(c); } catch {} },[]);
+  const persistCount=(c)=>{ try { localStorage.setItem("soccer-trainer-count",String(c)); } catch {} };
+
+  const generate=async()=>{
+    setStep("gen"); setError(null); setAssessment(""); setScanText(""); setDecision(""); setSituation(null);
+    try {
+      const resp=await fetch("/api/generate-situation",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({count})});
+      if (!resp.ok) throw new Error("gen");
+      const data=await resp.json();
+      if (!data||typeof data!=="object"||data.error) throw new Error("gen");
+      setSituation(data);
+      const nc=count+1; setCount(nc); persistCount(nc);
+      setStep("scan");
+    } catch { setError("Couldn't generate a situation. Try again."); setStep("idle"); }
+  };
+
+  const assess=async()=>{
+    setStep("assessing"); setError(null); setAssessment("");
+    try {
+      const resp=await fetch("/api/assess-decision",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({description:situation?.description,key_pressure:situation?.key_pressure,scanText,decision})});
+      if (!resp.ok||!resp.body) throw new Error("assess");
+      const reader=resp.body.getReader(), dec=new TextDecoder(); let acc="";
+      for (;;) { const {done,value}=await reader.read(); if (done) break; acc+=dec.decode(value,{stream:true}); setAssessment(acc); }
+      if (!acc.trim()) throw new Error("empty");
+      setStep("done");
+    } catch { setError("Assessment failed. Try again."); setStep("decide"); }
+  };
+
+  const startOver=()=>{ setStep("idle"); setSituation(null); setScanText(""); setDecision(""); setAssessment(""); setError(null); };
+
+  const errorCard=error&&(
+    <div style={{background:"rgba(230,57,70,0.08)",border:`1px solid rgba(230,57,70,0.35)`,
+      borderRadius:14,padding:"13px 16px",marginBottom:14,fontSize:14,color:"#c0303a",lineHeight:1.5}}>
+      {error}
+    </div>
+  );
+
+  return (
+    <div style={{padding:"16px 16px 24px"}}>
+      <style>{"@keyframes trBlink{0%,80%,100%{opacity:.25}40%{opacity:1}}"}</style>
+      {/* Title + rep badge */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+        <div style={{flex:1,fontSize:18,fontWeight:800,color:C.text}}>Decision Trainer</div>
+        {count>0&&(
+          <span style={{fontSize:13,fontWeight:700,fontFamily:"monospace",color:C.sageDk,
+            background:C.sageLt,borderRadius:20,padding:"4px 12px"}}>#{count}</span>
+        )}
+      </div>
+
+      {(step==="idle"||step==="gen")&&(
+        <>
+          <div style={TR_CARD}>
+            <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:6}}>Train your scanning</div>
+            <p style={{margin:0,fontSize:14,color:C.muted,lineHeight:1.6}}>
+              Claude sets a game situation on the pitch. You say what you see <em>before</em> the ball
+              arrives, then your decision. Claude rates both — the whole point is deciding early.
+            </p>
+          </div>
+          <div style={TR_CARD}>
+            <div style={TR_LABEL}>The loop</div>
+            {[
+              ["1","Situation","Claude sets the scene on the pitch"],
+              ["2","Scan","Say what you see before the ball arrives"],
+              ["3","Decide","Choose your action"],
+              ["4","Feedback","Claude rates your scan & decision"],
+            ].map(([n,t,d])=>(
+              <div key={n} style={{display:"flex",gap:12,alignItems:"flex-start",marginTop:n==="1"?0:12}}>
+                <span style={{width:24,height:24,borderRadius:"50%",background:C.sageLt,color:C.sageDk,
+                  fontSize:12,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{n}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:14,fontWeight:600,color:C.text}}>{t}</div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.45}}>{d}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {errorCard}
+          <button onClick={generate} disabled={step==="gen"} style={{...TR_PRIMARY,
+            background:step==="gen"?C.muted:C.done,cursor:step==="gen"?"default":"pointer"}}>
+            {step==="gen"?"Generating situation…":"Generate situation"}
+          </button>
+        </>
+      )}
+
+      {step==="scan"&&situation&&(
+        <>
+          <PitchBlock situation={situation}/>
+          <SituationCard situation={situation}/>
+          <div style={TR_CARD}>
+            <div style={TR_LABEL}>Before the ball arrives — what do you see?</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.5}}>
+              Pressure direction, free teammates, space available.
+            </div>
+            <textarea rows={4} autoFocus value={scanText} onChange={e=>setScanText(e.target.value)}
+              placeholder="I see…" style={TR_TEXTAREA}/>
+          </div>
+          <button onClick={()=>{ setError(null); setStep("decide"); }} disabled={!scanText.trim()}
+            style={{...TR_PRIMARY,background:scanText.trim()?C.done:C.muted,cursor:scanText.trim()?"pointer":"default"}}>
+            Next: make your decision →
+          </button>
+        </>
+      )}
+
+      {step==="decide"&&situation&&(
+        <>
+          <PitchBlock situation={situation}/>
+          <SituationCard situation={situation}/>
+          <div style={TR_CARD}>
+            <div style={TR_LABEL}>What do you do?</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.5}}>
+              Be specific — where, to whom, body shape, timing.
+            </div>
+            <textarea rows={4} autoFocus value={decision} onChange={e=>setDecision(e.target.value)}
+              placeholder="I…" style={TR_TEXTAREA}/>
+          </div>
+          {errorCard}
+          <button onClick={assess} disabled={!decision.trim()}
+            style={{...TR_PRIMARY,background:decision.trim()?C.done:C.muted,cursor:decision.trim()?"pointer":"default"}}>
+            Get assessment →
+          </button>
+          <button onClick={()=>{ setError(null); setStep("scan"); }} style={TR_SECONDARY}>← Back to scan</button>
+        </>
+      )}
+
+      {(step==="assessing"||step==="done")&&situation&&(
+        <>
+          <PitchBlock situation={situation}/>
+          <SituationCard situation={situation}/>
+          <div style={{...TR_CARD,borderLeft:`3px solid ${C.sage}`}}>
+            <div style={TR_LABEL}>Assessment</div>
+            {assessment
+              ? <p style={{margin:0,fontSize:15,color:C.text,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{assessment}</p>
+              : <div style={{display:"flex",gap:5,padding:"2px 0"}}>
+                  {[0,1,2].map(j=>(<span key={j} style={{width:7,height:7,borderRadius:"50%",background:C.sage,
+                    display:"inline-block",animation:`trBlink 1.2s ${j*0.16}s infinite ease-in-out`}}/>))}
+                </div>}
+          </div>
+          {step==="done"&&(
+            <>
+              <button onClick={generate} style={TR_PRIMARY}>Next situation →</button>
+              <button onClick={startOver} style={TR_SECONDARY}>Start over</button>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Root ────────────────────────────────────────────────────────────────────────
 export default function App() {
   const [loading,setLoading]=useState(true);
@@ -1342,13 +1621,14 @@ export default function App() {
         {view==="week"&&<WeekView today={today} plan={plan} wkOff={wkOff} setWkOff={setWkOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays}/>}
         {view==="month"&&<MonthView today={today} plan={plan} moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay}/>}
         {view==="journey"&&<JourneyView plan={plan} today={today} onGoToDay={goToDay}/>}
+        {view==="trainer"&&<TrainerView/>}
       </div>
 
       {/* Bottom tab bar */}
       <div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:40,background:C.surface,
         borderTop:`1px solid ${C.border}`,display:"flex",paddingTop:6,paddingBottom:"env(safe-area-inset-bottom,0px)",
         boxShadow:"0 -2px 14px rgba(0,0,0,0.05)"}}>
-        {[["today","Today"],["week","Week"],["month","Month"],["journey","Journey"]].map(([v,label])=>{
+        {[["today","Today"],["week","Week"],["month","Month"],["journey","Journey"],["trainer","Trainer"]].map(([v,label])=>{
           const active=view===v;
           return (
             <button key={v} onClick={()=>{ setView(v); if(v==="today") setDayOff(0); }}

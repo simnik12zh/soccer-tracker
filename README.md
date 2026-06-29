@@ -19,16 +19,26 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 
 ## Architecture
 
-- **`src/App.jsx`** — entire UI in one file by design. Four bottom-tab views (Today / Week /
-  Month / Journey), a full-screen Coach chat, and a setup/settings screen. Pink/red palette
-  in the `C` token object. The season plan is generated from hard-coded `PHASES` +
+- **`src/App.jsx`** — entire UI in one file by design. Five bottom-tab views (Today / Week /
+  Month / Journey / Trainer), a full-screen Coach chat, and a setup/settings screen. Pink/red
+  palette in the `C` token object. The season plan is generated from hard-coded `PHASES` +
   per-phase weekly `TEMPLATES` (with Ibiza and Tuscany holiday overrides) by
   `buildDefaultPlan()`, spanning 2026-06-29 → 2027-08-05.
+- **Decision Trainer** (`TrainerView`) — a tactical decision trainer for the right back / centre
+  back. Claude generates a game situation rendered on an SVG pitch (`Pitch`), the player types
+  their pre-scan and decision, and Claude assesses both. State machine:
+  `idle → gen → scan → decide → assessing → done`. Rep count persists under
+  `soccer-trainer-count`.
 - **`api/coach.js`** — Vercel Node serverless function. Streams Claude (`claude-sonnet-4-6`)
   replies as `text/plain`. The soccer-specific system prompt plus a per-request context block
   (current phase, today's session, last 14 days of logs, this week's sessions, tactical focus)
   is built server-side. `ANTHROPIC_API_KEY` is read **server-side only** — never prefix it with
   `VITE_` or it leaks into the client bundle.
+- **`api/generate-situation.js`** — returns a single JSON situation object for the trainer
+  (not streamed). Defensively parses the model output (raw → de-fenced → first `{…}` block),
+  returning HTTP 502 on failure so the client shows a clean retry message.
+- **`api/assess-decision.js`** — streams the trainer assessment as `text/plain`, same pattern as
+  the coach. Both trainer endpoints use `claude-sonnet-4-6` and read the key server-side only.
 - **Storage** — one JSON blob under `soccer-v1`: `{ playerName, plan }`, where `plan` maps
   `YYYY-MM-DD → { workout, completed, notes, feeling }`. Sessions are done or not done — there
   is no distance/duration tracking. Per-day coach chats live under `coach-YYYY-MM-DD`;
