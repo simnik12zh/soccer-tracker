@@ -107,7 +107,7 @@ const TIPS = {
     text:'Game day. Arrive early, warm up properly. Focus on scanning before every touch — decide before you receive. Defend with your brain first.' },
   'Team Training': { emoji:'👥', label:'Team session', color:'#E8174A',
     text:'Team session. Work on your positioning and communication. Practice scanning constantly — build the habit in training so it\'s automatic in matches.' },
-  'Futsal': { emoji:'🏟️', label:'Futsal', color:'#E8174A',
+  'Futsal': { emoji:'⚽', label:'Pickup/Futsal', color:'#E8174A',
     text:'Fast game, small spaces. Perfect for sharpening your first touch and decision speed. Focus on quick scanning before receiving.' },
   'Gym': { emoji:'🏋️', label:'Gym session', color:'#E8174A',
     text:'Full body strength work. Include glute med activation and hip stability in your warm-up. Consistency here is what separates you from where you want to be.' },
@@ -135,9 +135,9 @@ function getTip(workout) {
 }
 
 // Emoji for a session label (also covers swapped / non-template sessions).
-// Futsal and Team Training both read as ⚽ — they're soccer on the ball.
+// Pitch sessions: Match and Pickup/Futsal both read as ⚽; Team Training is 👥.
 const EMOJI = {
-  'Match':'⚽','Team Training':'👥','Futsal':'🏟️','Gym':'🏋️',
+  'Match':'⚽','Team Training':'👥','Futsal':'⚽','Gym':'🏋️',
   'Pilates':'🤸','Mobility':'🧘','Walking':'🚶','Easy run':'🏃','Sick/Injured':'🤒',
 };
 function sessionEmoji(w) {
@@ -158,7 +158,13 @@ function getSessions(e) {
   if (e.workout && e.workout.trim()) return [e.workout.trim()];
   return [];
 }
-function sessionsLabel(e) { return getSessions(e).join(' + '); }
+// Display-name layer. The stored type id stays 'Futsal' (so existing logged data
+// and the templates never migrate), but it surfaces as "Pickup/Futsal" — it covers
+// both indoor futsal and outdoor pickup soccer. Display-only; logic still keys on
+// the raw type string everywhere.
+const TYPE_LABELS = { 'Futsal':'Pickup/Futsal' };
+function displayName(type) { return TYPE_LABELS[type] || type; }
+function sessionsLabel(e) { return getSessions(e).map(displayName).join(' + '); }
 function sessionsEmojiStr(e) { return getSessions(e).map(sessionEmoji).join(''); }
 
 // Consecutive completed session-days ending today. Rest days (no planned session)
@@ -196,7 +202,7 @@ const PHASE_TARGETS = {
 const ALTS = [
   { emoji:'⚽', label:'Match' },
   { emoji:'👥', label:'Team Training' },
-  { emoji:'🏟️', label:'Futsal' },
+  { emoji:'⚽', label:'Futsal' },
   { emoji:'🏋️', label:'Gym' },
   { emoji:'🤸', label:'Pilates' },
   { emoji:'🧘', label:'Mobility' },
@@ -534,7 +540,7 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
   const chooseRest=()=>{ updDay(dk,{sessions:[],workout:'',completed:false,feeling:null}); onClose(); };
 
   const confirmLabel=selected.length
-    ? `${isLog?"Log":"Save"} ${selected.map(s=>`${sessionEmoji(s)} ${s}`).join(" + ")}`
+    ? `${isLog?"Log":"Save"} ${selected.map(s=>`${sessionEmoji(s)} ${displayName(s)}`).join(" + ")}`
     : "Select a session";
 
   return (
@@ -588,7 +594,7 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
                       background:C.done,display:"flex",alignItems:"center",justifyContent:"center"}}><Chk size={9}/></span>}
                     <span style={{fontSize:24,lineHeight:1}}>{opt.emoji}</span>
                     <span style={{fontSize:11,color:on?C.sageDk:C.muted,fontWeight:on?700:400,
-                      textAlign:"center",lineHeight:1.15}}>{opt.label}</span>
+                      textAlign:"center",lineHeight:1.15}}>{displayName(opt.label)}</span>
                   </button>
                 );
               })}
