@@ -105,7 +105,7 @@ function buildDefaultPlan() {
 const TIPS = {
   'Match': { emoji:'⚽', label:'Match day', color:'#E8174A',
     text:'Game day. Arrive early, warm up properly. Focus on scanning before every touch — decide before you receive. Defend with your brain first.' },
-  'Team Training': { emoji:'🏃', label:'Team session', color:'#E8174A',
+  'Team Training': { emoji:'👥', label:'Team session', color:'#E8174A',
     text:'Team session. Work on your positioning and communication. Practice scanning constantly — build the habit in training so it\'s automatic in matches.' },
   'Futsal': { emoji:'🏟️', label:'Futsal', color:'#E8174A',
     text:'Fast game, small spaces. Perfect for sharpening your first touch and decision speed. Focus on quick scanning before receiving.' },
@@ -137,7 +137,7 @@ function getTip(workout) {
 // Emoji for a session label (also covers swapped / non-template sessions).
 // Futsal and Team Training both read as ⚽ — they're soccer on the ball.
 const EMOJI = {
-  'Match':'⚽','Team Training':'⚽','Futsal':'⚽','Gym':'🏋️',
+  'Match':'⚽','Team Training':'👥','Futsal':'🏟️','Gym':'🏋️',
   'Pilates':'🤸','Mobility':'🧘','Walking':'🚶','Easy run':'🏃','Sick/Injured':'🤒',
 };
 function sessionEmoji(w) {
@@ -161,6 +161,23 @@ function getSessions(e) {
 function sessionsLabel(e) { return getSessions(e).join(' + '); }
 function sessionsEmojiStr(e) { return getSessions(e).map(sessionEmoji).join(''); }
 
+// Consecutive completed session-days ending today. Rest days (no planned session)
+// are skipped — they neither extend nor break the streak; today-not-yet-logged
+// doesn't break it. A missed past session-day ends it.
+function trainingStreak(plan) {
+  let streak=0;
+  const d=new Date(); d.setHours(0,0,0,0);
+  for (let i=0;i<420;i++) {
+    const dk=dateKey(d);
+    if (getSessions(plan[dk]).length>0) {
+      if (plan[dk].completed) streak++;
+      else if (i!==0) break;
+    }
+    d.setDate(d.getDate()-1);
+  }
+  return streak;
+}
+
 // Per-phase weekly targets, matched to what each template actually plans so the
 // counters are always achievable in a normal week. Mobility is 2× everywhere;
 // Gym is 2× in the body-comp phases and 1× in-season (Wednesday stays light to
@@ -178,8 +195,8 @@ const PHASE_TARGETS = {
 // Other / Rest day are single immediate actions handled separately.
 const ALTS = [
   { emoji:'⚽', label:'Match' },
-  { emoji:'⚽', label:'Team Training' },
-  { emoji:'⚽', label:'Futsal' },
+  { emoji:'👥', label:'Team Training' },
+  { emoji:'🏟️', label:'Futsal' },
   { emoji:'🏋️', label:'Gym' },
   { emoji:'🤸', label:'Pilates' },
   { emoji:'🧘', label:'Mobility' },
@@ -258,7 +275,7 @@ const MILESTONES = [
 const C = {
   bg:"#FFF0F5", card:"#FFFFFF", surface:"#FFFFFF",
   border:"#F0C0D0", borderSt:"#E8174A",
-  text:"#1A0A10", muted:"#9E6070",
+  text:"#1A0A10", muted:"#8A4D5E",
   sage:"#FF6B9D", sageLt:"rgba(255,107,157,0.15)", sageDk:"#C0134A",
   warm:"#F0C0D0", done:"#E8174A", doneLt:"rgba(232,23,74,0.06)",
   accent:"#E8174A", subtle:"#FDE0EA",
@@ -321,9 +338,9 @@ function TacticalCard({dk}) {
   const t=tacticalFor(dk);
   return (
     <div style={{marginTop:16,padding:'14px 16px',background:'rgba(255,107,157,0.07)',
-      border:`1px solid ${C.border}`,borderRadius:14}}>
+      border:`1px solid ${C.border}`,borderRadius:16}}>
       <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.1em',
-        color:C.sage,marginBottom:6}}>This week's focus</div>
+        color:C.sageDk,marginBottom:6}}>This week's focus</div>
       <div style={{fontSize:15,fontWeight:700,color:C.text,lineHeight:1.3,marginBottom:5}}>{t.focus}</div>
       <div style={{fontSize:13,color:C.muted,lineHeight:1.55}}>{t.detail}</div>
     </div>
@@ -408,7 +425,7 @@ function SetupScreen({initName,isEdit,onBack,onSave}) {
         </div>
       </>}
       <div style={{background:C.surface,border:`1px solid ${C.border}`,
-        borderRadius:20,padding:24,width:"100%",maxWidth:400}}>
+        borderRadius:16,padding:24,width:"100%",maxWidth:400}}>
         <label style={{fontSize:12,textTransform:"uppercase",letterSpacing:".08em",
           color:C.muted,display:"block",marginBottom:8}}>What's your name?</label>
         <input style={inp} placeholder="e.g. Nikola" value={n}
@@ -416,7 +433,7 @@ function SetupScreen({initName,isEdit,onBack,onSave}) {
           onKeyDown={e=>{ if(e.key==="Enter"&&ok) onSave(n.trim()); }}/>
         <button disabled={!ok} onClick={()=>onSave(n.trim())} style={{
           width:"100%",padding:16,background:ok?C.done:C.muted,color:"#fff",
-          border:"none",borderRadius:14,fontFamily:"inherit",fontSize:17,fontWeight:600,
+          border:"none",borderRadius:12,fontFamily:"inherit",fontSize:17,fontWeight:600,
           cursor:ok?"pointer":"default",marginTop:24,WebkitTapHighlightColor:"transparent"}}>
           {isEdit?"Save changes":"Let's go →"}
         </button>
@@ -425,7 +442,7 @@ function SetupScreen({initName,isEdit,onBack,onSave}) {
       {isEdit&&(
         <div style={{width:"100%",maxWidth:400,marginTop:18}}>
           <button onClick={exportData} style={{width:"100%",padding:16,background:C.done,
-            color:"#fff",border:"none",borderRadius:14,fontFamily:"inherit",fontSize:16,
+            color:"#fff",border:"none",borderRadius:12,fontFamily:"inherit",fontSize:16,
             fontWeight:600,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>
             📥 Export my data
           </button>
@@ -435,7 +452,7 @@ function SetupScreen({initName,isEdit,onBack,onSave}) {
             <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Restore anytime from the same file.</div>
           </div>
           <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{width:"100%",padding:16,
-            background:C.surface,color:C.sage,border:`1.5px solid ${C.sage}`,borderRadius:14,
+            background:C.surface,color:C.sageDk,border:`1.5px solid ${C.sage}`,borderRadius:12,
             fontFamily:"inherit",fontSize:16,fontWeight:600,cursor:"pointer",
             WebkitTapHighlightColor:"transparent"}}>
             📤 Restore from backup
@@ -445,7 +462,7 @@ function SetupScreen({initName,isEdit,onBack,onSave}) {
             <div style={{marginTop:12,fontSize:13,color:"#c05050",textAlign:"center",lineHeight:1.4}}>{importError}</div>
           )}
           {pendingImport&&(
-            <div style={{marginTop:14,padding:16,background:C.surface,border:`1px solid ${C.border}`,borderRadius:14}}>
+            <div style={{marginTop:14,padding:16,background:C.surface,border:`1px solid ${C.border}`,borderRadius:16}}>
               <div style={{fontSize:14,color:C.text,lineHeight:1.5,marginBottom:14}}>
                 This will restore your training data. Your current data will be replaced. Continue?
               </div>
@@ -492,6 +509,10 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
   const known=ALTS.map(a=>a.label);
   const [selected,setSelected]=useState(()=>getSessions(entry).filter(s=>known.includes(s)).slice(0,SHEET_MAX));
 
+  // Today or a past day → the sheet logs (records what was done, marks complete).
+  // A future day → the sheet plans (sets sessions, leaves it un-done).
+  const isLog=dk<=todayStr();
+
   const toggle=(label)=>{
     setSelected(sel=>{
       if (sel.includes(label)) return sel.filter(s=>s!==label);
@@ -501,19 +522,19 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
   };
   const confirmSelection=()=>{
     if (!selected.length) return;
-    updDay(dk,{sessions:selected,workout:''});        // keep completed/notes/feeling
+    updDay(dk,isLog?{sessions:selected,workout:'',completed:true}:{sessions:selected,workout:''});
     onClose();
   };
   const confirmOther=()=>{
     const t=otherText.trim();
     if (!t) return;
-    updDay(dk,{sessions:[`⋯ ${t}`],workout:'',completed:false,feeling:null});
+    updDay(dk,{sessions:[`⋯ ${t}`],workout:'',completed:isLog,feeling:null});
     onClose();
   };
   const chooseRest=()=>{ updDay(dk,{sessions:[],workout:'',completed:false,feeling:null}); onClose(); };
 
   const confirmLabel=selected.length
-    ? `Save ${selected.map(s=>`${sessionEmoji(s)} ${s}`).join(" + ")}`
+    ? `${isLog?"Log":"Save"} ${selected.map(s=>`${sessionEmoji(s)} ${s}`).join(" + ")}`
     : "Select a session";
 
   return (
@@ -548,7 +569,7 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
         ) : (
           <>
             <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",margin:"4px 4px 14px"}}>
-              <span style={{fontSize:16,fontWeight:600,color:C.text}}>What did you do?</span>
+              <span style={{fontSize:16,fontWeight:600,color:C.text}}>{isLog?"What did you do?":"What's the plan?"}</span>
               <span style={{fontSize:11,color:C.muted}}>pick up to {SHEET_MAX}</span>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
@@ -561,7 +582,7 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
                     style={{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",
                       justifyContent:"center",gap:5,minHeight:64,padding:"12px 4px",
                       background:on?C.sageLt:C.bg,border:`${on?2:1}px solid ${on?C.done:C.border}`,
-                      borderRadius:14,cursor:full?"default":"pointer",opacity:full?0.45:1,
+                      borderRadius:12,cursor:full?"default":"pointer",opacity:full?0.45:1,
                       fontFamily:"inherit",WebkitTapHighlightColor:"transparent"}}>
                     {on&&<span style={{position:"absolute",top:4,right:4,width:16,height:16,borderRadius:"50%",
                       background:C.done,display:"flex",alignItems:"center",justifyContent:"center"}}><Chk size={9}/></span>}
@@ -608,7 +629,7 @@ function WeeklyTargets({plan}) {
     if (e?.completed) getSessions(e).forEach(s=>{ counts[s]=(counts[s]||0)+1; });
   });
   return (
-    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,
       padding:"12px 14px",marginBottom:16}}>
       <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:".06em",marginBottom:9}}>Weekly targets</div>
       <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
@@ -676,6 +697,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
   const mDays=monthGrid(now.getFullYear(),now.getMonth()).filter(Boolean);
   const mDone=mDays.filter(dk=>plan[dk]?.completed).length;
   const monthLbl=now.toLocaleDateString('en-US',{month:'long'}).toUpperCase();
+  const streak=trainingStreak(plan);
 
   return (
     <div {...swipe} style={{padding:"16px 16px 24px"}}>
@@ -683,17 +705,12 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
       {/* Stats */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
         {[
-          { node: hasWorkout
-              ? (e.completed
-                  ? <span style={{color:C.done}}>✓</span>
-                  : <span style={{fontSize:18}}>{sessionsEmojiStr(e)}</span>)
-              : 'Rest',
-            lbl:"Today" },
+          { node: <span style={{color:streak>0?C.done:C.text}}>{streak>0?`🔥${streak}`:streak}</span>, lbl:"Streak" },
           { node: <><span style={{color:wkDone>0?C.done:C.text}}>{wkDone}</span>/{wkPlanned}</>, lbl:"This week" },
           { node: <span style={{color:mDone>0?C.done:C.text}}>{mDone}</span>, lbl:monthLbl },
         ].map(({node,lbl},i)=>(
           <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,
-            borderRadius:14,padding:"12px 6px",textAlign:"center"}}>
+            borderRadius:16,padding:"12px 6px",textAlign:"center"}}>
             <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:C.text,lineHeight:1.2}}>{node}</div>
             <div style={{fontSize:10,color:C.muted,marginTop:4,textTransform:"uppercase",letterSpacing:".05em"}}>{lbl}</div>
           </div>
@@ -710,14 +727,14 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
         <NavArrow onClick={()=>navDay(-1)} dir="left"/>
         <div style={{flex:1,textAlign:"center"}}>
-          <div style={{fontSize:11,fontWeight:700,marginBottom:2,color:isToday?C.sage:C.muted,
+          <div style={{fontSize:11,fontWeight:700,marginBottom:2,color:isToday?C.sageDk:C.muted,
             textTransform:"uppercase",letterSpacing:".1em"}}>
             {isToday?"Today":dayOff<0?`${Math.abs(dayOff)} day${Math.abs(dayOff)>1?"s":""} ago`:`In ${dayOff} day${dayOff>1?"s":""}`}
           </div>
           <div style={{fontSize:17,fontWeight:600,color:C.text}}>{dayName}, {dayFull}</div>
           {!isToday&&<button onClick={()=>setDayOff(0)} style={{
-            fontSize:11,fontWeight:700,color:C.sage,background:C.sageLt,border:"none",borderRadius:20,
-            padding:"4px 12px",cursor:"pointer",marginTop:4,display:"inline-flex",alignItems:"center",gap:4,
+            fontSize:11,fontWeight:700,color:C.sageDk,background:C.sageLt,border:"none",borderRadius:999,
+            padding:"8px 14px",cursor:"pointer",marginTop:4,display:"inline-flex",alignItems:"center",gap:4,
             WebkitTapHighlightColor:"transparent"}}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -728,7 +745,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
 
       {/* Workout card */}
       <div style={{background:e.completed?C.doneLt:C.surface,
-        border:`1px solid ${e.completed?"rgba(232,23,74,0.3)":C.border}`,borderRadius:18,padding:"20px 20px 16px"}}>
+        border:`1px solid ${e.completed?"rgba(232,23,74,0.3)":C.border}`,borderRadius:16,padding:"20px 20px 16px"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
           <div style={{flex:1}}>
             <div style={{fontSize:17,fontWeight:600,lineHeight:1.35,
@@ -780,7 +797,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
                   <span style={{fontSize:13,color:C.muted}}>{FEELINGS.find(f=>f.value===e.feeling)?.label}</span>
                   <button onClick={()=>updDay(viewKey,{feeling:null})} style={{fontSize:11,color:C.muted,
                     background:"none",border:"none",cursor:"pointer",marginLeft:"auto",
-                    WebkitTapHighlightColor:"transparent"}}>change</button>
+                    minHeight:44,padding:"0 8px",WebkitTapHighlightColor:"transparent"}}>change</button>
                 </div>
               : <div>
                   <div style={{fontSize:11,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>How did it feel?</div>
@@ -811,8 +828,9 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
             <span style={{fontSize:13,color:C.muted,flexShrink:0,lineHeight:1.55}}>✏️</span>
           </div>
         ) : hasWorkout ? (
-          <button onClick={()=>setNotesOpen(true)} style={{marginTop:14,background:"none",border:"none",cursor:"pointer",
-            color:C.muted,fontSize:13,fontWeight:500,padding:"4px 0",WebkitTapHighlightColor:"transparent"}}>📝 Add note</button>
+          <button onClick={()=>setNotesOpen(true)} style={{marginTop:10,background:"none",border:"none",cursor:"pointer",
+            color:C.muted,fontSize:13,fontWeight:500,minHeight:44,padding:"4px 0",display:"flex",alignItems:"center",
+            WebkitTapHighlightColor:"transparent"}}>📝 Add note</button>
         ) : null}
       </div>
       </div>{/* /key wrapper */}
@@ -821,14 +839,12 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
       {/* Tactical prompt of the week */}
       <TacticalCard dk={viewKey}/>
 
-      {/* Ask the coach */}
-      {hasWorkout&&(
-        <button onClick={onOpenCoach} style={{width:"100%",marginTop:16,padding:"14px",background:C.done,
-          color:"#fff",border:"none",borderRadius:12,fontFamily:"inherit",fontSize:15,fontWeight:600,cursor:"pointer",
-          display:"flex",alignItems:"center",justifyContent:"center",gap:8,WebkitTapHighlightColor:"transparent"}}>
-          💬 Ask the coach
-        </button>
-      )}
+      {/* Ask the coach — always reachable, including rest days */}
+      <button onClick={onOpenCoach} style={{width:"100%",marginTop:16,padding:"14px",background:C.done,
+        color:"#fff",border:"none",borderRadius:12,fontFamily:"inherit",fontSize:15,fontWeight:600,cursor:"pointer",
+        display:"flex",alignItems:"center",justifyContent:"center",gap:8,WebkitTapHighlightColor:"transparent"}}>
+        💬 Ask the coach
+      </button>
 
       {sheetOpen&&(
         <WorkoutSheet dateKey={viewKey} entry={e} updDay={updDay} onClose={()=>setSheetOpen(false)}/>
@@ -883,8 +899,8 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
               <span style={{color:C.muted}}> / {wkPlanned} sessions</span>
             </div>
           )}
-          {wkOff!==0&&<button onClick={()=>setWkOff(0)} style={{fontSize:11,fontWeight:700,color:C.sage,
-            background:C.sageLt,border:"none",borderRadius:20,padding:"4px 12px",cursor:"pointer",marginTop:4,
+          {wkOff!==0&&<button onClick={()=>setWkOff(0)} style={{fontSize:11,fontWeight:700,color:C.sageDk,
+            background:C.sageLt,border:"none",borderRadius:999,padding:"8px 14px",cursor:"pointer",marginTop:4,
             display:"inline-flex",alignItems:"center",gap:4,WebkitTapHighlightColor:"transparent"}}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -918,13 +934,15 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
           const has=ss.length>0;
           return (
             <button key={dk} onClick={()=>onGoToDay(dk)}
-              aria-label={`${DN[i]}, ${fmt(dk)} — ${sessionsLabel(en)||"Rest"}`}
-              style={{display:"block",width:"100%",fontFamily:"inherit",
+              aria-label={`${DN[i]}, ${fmt(dk)} — ${sessionsLabel(en)||"Rest"}${en.completed?" (done)":""}`}
+              style={{position:"relative",display:"block",width:"100%",fontFamily:"inherit",
                 background:en.completed?C.doneLt:isT?C.sageLt:C.surface,
                 border:`1.5px solid ${en.completed?C.done:isT?C.sage:C.border}`,borderRadius:12,
                 padding:"13px 2px 11px",textAlign:"center",cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>
+              {en.completed&&<span aria-hidden="true" style={{position:"absolute",top:3,right:3,width:13,height:13,
+                borderRadius:"50%",background:C.done,display:"flex",alignItems:"center",justifyContent:"center"}}><Chk size={8}/></span>}
               <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:".04em",
-                color:isT?C.sage:C.muted,fontWeight:isT?600:400,marginBottom:3}}>{DL[i]}</div>
+                color:isT?C.sageDk:C.muted,fontWeight:isT?600:400,marginBottom:3}}>{DL[i]}</div>
               <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:4}}>{new Date(dk+"T00:00:00").getDate()}</div>
               <div style={{fontSize:has&&ss.length>1?10:12,lineHeight:1,whiteSpace:"nowrap"}}>
                 {has?sessionsEmojiStr(en):<span style={{color:C.muted}}>·</span>}
@@ -1023,8 +1041,8 @@ function MonthView({today,plan,moOff,setMoOff,onGoToDay}) {
               <span> / {mPlanned} sessions</span>
             </div>
           )}
-          {moOff!==0&&<button onClick={()=>setMoOff(0)} style={{fontSize:11,fontWeight:700,color:C.sage,
-            background:C.sageLt,border:"none",borderRadius:20,padding:"4px 12px",cursor:"pointer",marginTop:4,
+          {moOff!==0&&<button onClick={()=>setMoOff(0)} style={{fontSize:11,fontWeight:700,color:C.sageDk,
+            background:C.sageLt,border:"none",borderRadius:999,padding:"8px 14px",cursor:"pointer",marginTop:4,
             display:"inline-flex",alignItems:"center",gap:4,WebkitTapHighlightColor:"transparent"}}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -1047,12 +1065,14 @@ function MonthView({today,plan,moOff,setMoOff,onGoToDay}) {
           const isT=dk===today;
           return (
             <button key={dk} onClick={()=>onGoToDay(dk)}
-              aria-label={`${new Date(dk+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})} — ${sessionsLabel(en)||"Rest"}`}
-              style={{width:"100%",padding:0,fontFamily:"inherit",aspectRatio:"1",borderRadius:10,display:"flex",
+              aria-label={`${new Date(dk+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})} — ${sessionsLabel(en)||"Rest"}${en.completed?" (done)":""}`}
+              style={{position:"relative",width:"100%",padding:0,fontFamily:"inherit",aspectRatio:"1",borderRadius:10,display:"flex",
                 flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,cursor:"pointer",
                 background:en.completed?C.doneLt:has?C.surface:"transparent",
                 border:`1.5px solid ${en.completed?C.done:isT?C.sage:has?C.border:"transparent"}`,
                 outline:isT?`2px solid ${C.sage}`:"none",outlineOffset:-1,WebkitTapHighlightColor:"transparent"}}>
+              {en.completed&&<span aria-hidden="true" style={{position:"absolute",top:2,right:2,width:12,height:12,
+                borderRadius:"50%",background:C.done,display:"flex",alignItems:"center",justifyContent:"center"}}><Chk size={7}/></span>}
               <div style={{fontSize:13,fontWeight:(has||isT)?600:400,color:(has||isT)?C.text:C.borderSt,lineHeight:1}}>
                 {new Date(dk+"T00:00:00").getDate()}
               </div>
@@ -1078,8 +1098,25 @@ function JourneyView({plan,today,onGoToDay}) {
   const fmtMD=(s)=>new Date(s+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
   const curPhase=phaseForDate(today);
 
+  // Whole-season totals — the long-horizon view belongs here, not on Today.
+  const allE=Object.values(plan);
+  const seasonPlanned=allE.filter(e=>getSessions(e).length>0).length;
+  const seasonDone=allE.filter(e=>e.completed).length;
+  const seasonPct=seasonPlanned>0?Math.round(seasonDone/seasonPlanned*100):0;
+
   return (
     <div style={{padding:"16px 16px 32px"}}>
+      {/* Season summary */}
+      <div style={{marginBottom:20}}>
+        <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:C.muted,marginBottom:6}}>Full season</div>
+        <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:9}}>
+          <span style={{fontFamily:"monospace",fontSize:24,fontWeight:800,color:C.text}}>{seasonPct}%</span>
+          <span style={{fontSize:13,color:C.muted}}>{seasonDone} of {seasonPlanned} sessions logged</span>
+        </div>
+        <div style={{height:6,background:"rgba(255,107,157,0.18)",borderRadius:99,overflow:"hidden"}}>
+          <div style={{height:"100%",width:`${seasonPct}%`,background:C.done,borderRadius:99,transition:"width .6s ease"}}/>
+        </div>
+      </div>
       {PHASES.map((phase,pi)=>{
         const days=phaseDays(phase);
         const planned=days.filter(dk=>getSessions(plan[dk]).length>0).length;
@@ -1092,11 +1129,11 @@ function JourneyView({plan,today,onGoToDay}) {
             aria-label={`${phase.name}, ${fmtMD(phase.start)} to ${fmtMD(phase.end)}`}
             style={{display:"block",width:"100%",textAlign:"left",fontFamily:"inherit",cursor:"pointer",
               background:isCurrent?C.doneLt:C.surface,
-              border:`${isCurrent?2:1}px solid ${isCurrent?C.done:C.border}`,borderRadius:18,
+              border:`${isCurrent?2:1}px solid ${isCurrent?C.done:C.border}`,borderRadius:16,
               padding:"18px 18px",marginBottom:14,WebkitTapHighlightColor:"transparent"}}>
             <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
               <span style={{fontSize:20,fontWeight:800,color:C.text}}>{phase.name}</span>
-              <span style={{fontSize:11,fontWeight:700,color:C.sage,textTransform:"uppercase",letterSpacing:".08em"}}>Phase {pi+1}</span>
+              <span style={{fontSize:11,fontWeight:700,color:C.sageDk,textTransform:"uppercase",letterSpacing:".08em"}}>Phase {pi+1}</span>
               {isCurrent&&<span style={{fontSize:10,fontWeight:700,color:"#fff",background:C.done,
                 borderRadius:20,padding:"2px 9px"}}>NOW</span>}
             </div>
@@ -1180,7 +1217,9 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
     } catch { setCoachError(true); setMessages(base); }
     finally { setSending(false); }
   };
-  const startCoach=()=>sendToCoach([{role:"user",content:"Tell me about today's session"}]);
+  // Context-aware opener — rest days get a recovery-oriented prompt, not "today's session".
+  const opener=getSessions(e).length>0 ? "Tell me about today's session" : "How should I approach this rest day?";
+  const startCoach=()=>sendToCoach([{role:"user",content:opener}]);
   const sendCoach=()=>{ const text=input.trim(); if (!text||sending) return; setInput(""); sendToCoach([...messages,{role:"user",content:text}]); };
   const retryCoach=()=>{ if (!sending&&messages.length) sendToCoach(messages); };
   const newCoachChat=()=>{ setMessages([]); setInput(""); setCoachError(false); try { localStorage.removeItem(coachKey); } catch {} };
@@ -1197,7 +1236,7 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
         <div style={{flex:1,textAlign:"center",fontSize:16,fontWeight:700,color:C.text}}>Coach</div>
         {messages.length>0
           ? <button onClick={newCoachChat} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,
-              fontSize:12,fontWeight:600,textDecoration:"underline",padding:"0 6px",flexShrink:0,
+              fontSize:12,fontWeight:600,textDecoration:"underline",minHeight:44,padding:"0 8px",flexShrink:0,
               WebkitTapHighlightColor:"transparent"}}>New conversation</button>
           : <div style={{width:44,flexShrink:0}}/>}
       </div>
@@ -1208,7 +1247,7 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
             style={{alignSelf:"stretch",padding:"14px",background:C.surface,color:C.sageDk,
               border:`1px solid ${C.sage}`,borderRadius:12,fontFamily:"inherit",fontSize:15,fontWeight:600,
               cursor:sending?"default":"pointer",WebkitTapHighlightColor:"transparent"}}>
-            Tell me about today's session
+            {opener}
           </button>
         )}
         {messages.map((m,i)=>(
@@ -1742,17 +1781,16 @@ export default function App() {
                     <div style={{fontSize:18,fontWeight:700,color:C.text,lineHeight:1.15,marginBottom:4}}>
                       {curPhase?curPhase.name:beforeSeason?"Pre-season":""}
                     </div>
-                    <div style={{fontSize:12,color:C.muted,marginBottom:7}}>
+                    <div style={{fontSize:12,color:C.muted,marginBottom:8}}>
                       {daysToNext!=null
                         ? <>{Math.max(0,daysToNext)} day{Math.max(0,daysToNext)===1?"":"s"} to {nextLabel}</>
                         : ""}
                     </div>
-                    <div style={{fontSize:12,color:C.muted,marginBottom:7}}>
-                      <span style={{color:C.done,fontFamily:"monospace",fontWeight:700}}>{totalDone}</span>
-                      <span> / {totalPlanned} sessions · {pct}%</span>
-                    </div>
+                    {/* Phase progress — mirrors the ring; the actionable numbers live in
+                        the Weekly Targets card below, season totals in Journey. */}
                     <div style={{height:5,background:C.border,borderRadius:99,overflow:"hidden"}}>
-                      <div style={{height:"100%",background:C.done,borderRadius:99,width:`${pct}%`,transition:"width .6s ease"}}/>
+                      <div style={{height:"100%",background:C.done,borderRadius:99,
+                        width:`${Math.round((afterSeason?1:beforeSeason?0:phaseProg)*100)}%`,transition:"width .6s ease"}}/>
                     </div>
                   </>}
             </div>
