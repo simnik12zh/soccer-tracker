@@ -515,10 +515,8 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
   const known=ALTS.map(a=>a.label);
   const [selected,setSelected]=useState(()=>getSessions(entry).filter(s=>known.includes(s)).slice(0,SHEET_MAX));
 
-  // Today or a past day → the sheet logs (records what was done, marks complete).
-  // A future day → the sheet plans (sets sessions, leaves it un-done).
-  const isLog=dk<=todayStr();
-
+  // The sheet only sets/changes the day's session(s) — same for every day. It never
+  // marks the day done; logging happens exclusively via the LOG circle on the card.
   const toggle=(label)=>{
     setSelected(sel=>{
       if (sel.includes(label)) return sel.filter(s=>s!==label);
@@ -528,19 +526,19 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
   };
   const confirmSelection=()=>{
     if (!selected.length) return;
-    updDay(dk,isLog?{sessions:selected,workout:'',completed:true}:{sessions:selected,workout:''});
+    updDay(dk,{sessions:selected,workout:''});        // keep completed/feeling/notes
     onClose();
   };
   const confirmOther=()=>{
     const t=otherText.trim();
     if (!t) return;
-    updDay(dk,{sessions:[`⋯ ${t}`],workout:'',completed:isLog,feeling:null});
+    updDay(dk,{sessions:[`⋯ ${t}`],workout:''});
     onClose();
   };
   const chooseRest=()=>{ updDay(dk,{sessions:[],workout:'',completed:false,feeling:null}); onClose(); };
 
   const confirmLabel=selected.length
-    ? `${isLog?"Log":"Save"} ${selected.map(s=>`${sessionEmoji(s)} ${displayName(s)}`).join(" + ")}`
+    ? `Save ${selected.map(s=>`${sessionEmoji(s)} ${displayName(s)}`).join(" + ")}`
     : "Select a session";
 
   return (
@@ -575,7 +573,7 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
         ) : (
           <>
             <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",margin:"4px 4px 14px"}}>
-              <span style={{fontSize:16,fontWeight:600,color:C.text}}>{isLog?"What did you do?":"What's the plan?"}</span>
+              <span style={{fontSize:16,fontWeight:600,color:C.text}}>What are you doing?</span>
               <span style={{fontSize:11,color:C.muted}}>pick up to {SHEET_MAX}</span>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
