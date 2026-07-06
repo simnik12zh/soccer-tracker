@@ -114,7 +114,7 @@ const TIPS = {
   'Pilates': { emoji:'🤸', label:'Pilates', color:'#FF6B9D',
     text:'Core strength, stability, posture. Especially important for hip stability and longevity. This is your injury prevention session — don\'t skip it.' },
   'Mobility': { emoji:'🦵', label:'Prehab/Rehab', color:'#FF6B9D',
-    text:'Hips, ankles, T-spine. Dynamic mobility keeps you moving freely and protects that left hip / glute med. Same priority as the gym — this is what keeps you playing into your 40s and 50s.' },
+    text:'Strengthen what football overloads. Glute med left, inner chain right, plus mobility to finish. 2×/week — the difference between managing these complaints and outgrowing them.' },
   'Easy run': { emoji:'🏃', label:'Light run', color:'#FF6B9D',
     text:'Easy pace only. This is active recovery, not fitness work. Keep it conversational and short.' },
   'Walking': { emoji:'🚶', label:'Walking', color:'#FF6B9D',
