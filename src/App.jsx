@@ -113,7 +113,7 @@ const TIPS = {
     text:'Full body strength work. Include glute med activation and hip stability in your warm-up. Consistency here is what separates you from where you want to be.' },
   'Pilates': { emoji:'🤸', label:'Pilates', color:'#FF6B9D',
     text:'Core strength, stability, posture. Especially important for hip stability and longevity. This is your injury prevention session — don\'t skip it.' },
-  'Mobility': { emoji:'🧘', label:'Mobility', color:'#FF6B9D',
+  'Mobility': { emoji:'🦵', label:'Prehab/Rehab', color:'#FF6B9D',
     text:'Hips, ankles, T-spine. Dynamic mobility keeps you moving freely and protects that left hip / glute med. Same priority as the gym — this is what keeps you playing into your 40s and 50s.' },
   'Easy run': { emoji:'🏃', label:'Light run', color:'#FF6B9D',
     text:'Easy pace only. This is active recovery, not fitness work. Keep it conversational and short.' },
@@ -138,7 +138,7 @@ function getTip(workout) {
 // Pitch sessions: Match and Pickup/Futsal both read as ⚽; Team Training is 👥.
 const EMOJI = {
   'Match':'⚽','Team Training':'👥','Futsal':'⚽','Gym':'🏋️',
-  'Pilates':'🤸','Mobility':'🧘','Walking':'🚶','Easy run':'🏃','Sick/Injured':'🤒',
+  'Pilates':'🤸','Mobility':'🦵','Walking':'🚶','Easy run':'🏃','Sick/Injured':'🤒',
 };
 function sessionEmoji(w) {
   if (!w || !w.trim()) return '';
@@ -162,7 +162,7 @@ function getSessions(e) {
 // and the templates never migrate), but it surfaces as "Pickup/Futsal" — it covers
 // both indoor futsal and outdoor pickup soccer. Display-only; logic still keys on
 // the raw type string everywhere.
-const TYPE_LABELS = { 'Futsal':'Pickup/Futsal' };
+const TYPE_LABELS = { 'Futsal':'Pickup/Futsal', 'Mobility':'Prehab/Rehab' };
 function displayName(type) { return TYPE_LABELS[type] || type; }
 function sessionsLabel(e) { return getSessions(e).map(displayName).join(' + '); }
 function sessionsEmojiStr(e) { return getSessions(e).map(sessionEmoji).join(''); }
@@ -205,7 +205,7 @@ const ALTS = [
   { emoji:'⚽', label:'Futsal' },
   { emoji:'🏋️', label:'Gym' },
   { emoji:'🤸', label:'Pilates' },
-  { emoji:'🧘', label:'Mobility' },
+  { emoji:'🦵', label:'Mobility' },
   { emoji:'🚶', label:'Walking' },
   { emoji:'🏃', label:'Easy run' },
   { emoji:'🤒', label:'Sick/Injured' },
@@ -645,7 +645,7 @@ function WeeklyTargets({plan}) {
               <span style={{fontSize:18,lineHeight:1}}>{sessionEmoji(type)}</span>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
-                  <span style={{fontSize:13,fontWeight:600,color:C.text}}>{type}</span>
+                  <span style={{fontSize:13,fontWeight:600,color:C.text}}>{displayName(type)}</span>
                   <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:met?C.done:C.muted}}>
                     {counts[type]||0}/{goal}
                   </span>
