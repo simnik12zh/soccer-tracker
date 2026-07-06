@@ -1310,27 +1310,35 @@ const TR_SECONDARY = {width:"100%",padding:"13px",background:C.surface,color:C.s
   WebkitTapHighlightColor:"transparent",marginTop:10};
 
 // ─── Guided session ──────────────────────────────────────────────────────────────
-// Programs are plain data so they're easy to extend later (more programs, images
-// per exercise, tracking). `reps` is a string ("30s", "8 pro Seite"); `sets` is
-// optional — mobility items without sets render just the reps string. `cue` and
-// `tag` are optional per exercise.
+// Exercise photos, bundled by Vite (hashed URLs — work offline in the built PWA).
+// Keyed by lowercase-hyphenated filename; add a photo = drop the file in
+// src/assets/exercises/ and reference it via an `img` field below.
+const EX_IMG = Object.fromEntries(
+  Object.entries(import.meta.glob('./assets/exercises/*.jpg', { eager:true, import:'default' }))
+    .map(([path,url])=>[path.split('/').pop().replace('.jpg',''), url])
+);
+
+// Programs are plain data so they're easy to extend later (more programs,
+// tracking). `reps` is a string ("30s", "8 pro Seite"); `sets` is optional —
+// mobility items without sets render just the reps string. `cue`, `tag` and
+// `img` are optional per exercise.
 const PROGRAMS = [
   {
     id: 'kombi-block',
     name: 'Kombi-Block',
     exercises: [
-      { name:'Side-Lying Hip Abduction',  sets:3, reps:'12 pro Seite', cue:'links betont' },
-      { name:'Single-Leg Glute Bridge',   sets:3, reps:'8 pro Seite',  cue:'Becken waagerecht halten' },
-      { name:'Side Plank mit Abduktion',  sets:3, reps:'5–8',          cue:'kurz beginnen' },
-      { name:'Step-Down an Stufe',        sets:3, reps:'6 pro Seite',  cue:'Knie nicht einwärts' },
-      { name:'Iso Adduktoren-Squeeze',    sets:5, reps:'30s',          cue:'schmerzfrei' },
-      { name:'Iso Hamstring-Bridge',      sets:5, reps:'20s' },
-      { name:'Copenhagen Plank',          sets:3, reps:'5',            cue:'Knie-Version', tag:'Phase 2' },
-      { name:'1-Bein Hamstring-Bridge',   sets:3, reps:'8 pro Seite',  tag:'Phase 2' },
-      { name:'90/90 Hüft-Switches',       sets:null, reps:'8 pro Seite' },
-      { name:'T-Spine Rotation',          sets:null, reps:'8 pro Seite' },
-      { name:'Ankle Rocks',               sets:null, reps:'10 pro Seite' },
-      { name:'Hip Circles / CARs',        sets:null, reps:'5 pro Seite', cue:'langsam' },
+      { name:'Side-Lying Hip Abduction',  sets:3, reps:'12 pro Seite', cue:'links betont',              img:EX_IMG['side-lying-hip-abduction'] },
+      { name:'Single-Leg Glute Bridge',   sets:3, reps:'8 pro Seite',  cue:'Becken waagerecht halten',  img:EX_IMG['single-leg-glute-bridge'] },
+      { name:'Side Plank mit Abduktion',  sets:3, reps:'5–8',          cue:'kurz beginnen',             img:EX_IMG['side-plank-with-abduction'] },
+      { name:'Step-Down an Stufe',        sets:3, reps:'6 pro Seite',  cue:'Knie nicht einwärts',       img:EX_IMG['step-down'] },
+      { name:'Iso Adduktoren-Squeeze',    sets:5, reps:'30s',          cue:'schmerzfrei',               img:EX_IMG['isometric-adductor-squeeze'] },
+      { name:'Iso Hamstring-Bridge',      sets:5, reps:'20s',                                           img:EX_IMG['isometric-hamstring-bridge'] },
+      { name:'Copenhagen Plank',          sets:3, reps:'5',            cue:'Knie-Version', tag:'Phase 2', img:EX_IMG['copenhagen-plank'] },
+      { name:'1-Bein Hamstring-Bridge',   sets:3, reps:'8 pro Seite',  tag:'Phase 2',                   img:EX_IMG['single-leg-hamstring-bridge'] },
+      { name:'90/90 Hüft-Switches',       sets:null, reps:'8 pro Seite',                                img:EX_IMG['90-90-hip-switch'] },
+      { name:'T-Spine Rotation',          sets:null, reps:'8 pro Seite',                                img:EX_IMG['t-spine-rotation'] },
+      { name:'Ankle Rocks',               sets:null, reps:'10 pro Seite',                               img:EX_IMG['ankle-rock'] },
+      { name:'Hip Circles / CARs',        sets:null, reps:'5 pro Seite', cue:'langsam',                 img:EX_IMG['hip-cars'] },
     ],
   },
 ];
@@ -1394,7 +1402,14 @@ function GuidedView() {
       </div>
 
       {/* Exercise card */}
-      <div style={{...TR_CARD,padding:"28px 20px",textAlign:"center"}}>
+      <div style={{...TR_CARD,padding:"20px 20px 28px",textAlign:"center"}}>
+        {/* Photo above name/reps. onError hides the img so a missing/broken file
+            falls back to the text-only layout without breaking anything. */}
+        {ex.img&&(
+          <img src={ex.img} alt={ex.name}
+            onError={(ev)=>{ ev.currentTarget.style.display="none"; }}
+            style={{display:"block",width:"100%",height:"auto",borderRadius:12,marginBottom:16}}/>
+        )}
         {ex.tag&&(
           <span style={{display:"inline-block",fontSize:10,fontWeight:700,textTransform:"uppercase",
             letterSpacing:".08em",color:C.sageDk,background:C.sageLt,borderRadius:999,
