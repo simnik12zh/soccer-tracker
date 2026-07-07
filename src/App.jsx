@@ -167,21 +167,40 @@ function displayName(type) { return TYPE_LABELS[type] || type; }
 function sessionsLabel(e) { return getSessions(e).map(displayName).join(' + '); }
 function sessionsEmojiStr(e) { return getSessions(e).map(sessionEmoji).join(''); }
 
-// Consecutive completed session-days ending today. Rest days (no planned session)
-// are skipped — they neither extend nor break the streak; today-not-yet-logged
-// doesn't break it. A missed past session-day ends it.
-function trainingStreak(plan) {
-  let streak=0;
+// ─── Readiness check-in ──────────────────────────────────────────────────────────
+// Two daily tap-to-cycle indicators (left hip niggle + general leg freshness).
+// Stored per day as an OPTIONAL `readiness` object on the plan entry — days
+// without it (all existing data) simply read as unset, so no storage migration.
+// Traffic-light colors are functional, with a text label so state isn't
+// color-only. Cycle: unset → green → amber → red → unset.
+const READINESS_INDICATORS = [
+  { key:'hip',  label:'Hip',  question:"How's the left hip?", words:{green:'good',  amber:'ok', red:'sore'} },
+  { key:'legs', label:'Legs', question:'Leg freshness',       words:{green:'fresh', amber:'ok', red:'heavy'} },
+];
+const READINESS_COLORS = {
+  green:{ dot:'#2E9E44', bg:'rgba(46,158,68,0.10)',  border:'rgba(46,158,68,0.45)' },
+  amber:{ dot:'#D97706', bg:'rgba(217,119,6,0.10)',  border:'rgba(217,119,6,0.45)' },
+  red:  { dot:'#D92D20', bg:'rgba(217,45,32,0.08)',  border:'rgba(217,45,32,0.45)' },
+};
+function nextReadiness(cur) {
+  return cur==null?'green' : cur==='green'?'amber' : cur==='amber'?'red' : null;
+}
+
+// The next scheduled non-rest session strictly after today, for the "Next up" line.
+function nextUp(plan) {
   const d=new Date(); d.setHours(0,0,0,0);
-  for (let i=0;i<420;i++) {
+  for (let i=1;i<=120;i++) {
+    d.setDate(d.getDate()+1);
     const dk=dateKey(d);
     if (getSessions(plan[dk]).length>0) {
-      if (plan[dk].completed) streak++;
-      else if (i!==0) break;
+      const day=new Date(dk+"T00:00:00");
+      const when=i===1?'tomorrow'
+        :i<=6?day.toLocaleDateString('en-US',{weekday:'long'})
+        :day.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      return { label:sessionsLabel(plan[dk]), when };
     }
-    d.setDate(d.getDate()-1);
   }
-  return streak;
+  return null;
 }
 
 // Per-phase weekly targets, matched to what each template actually plans so the
@@ -693,32 +712,46 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
   const sessions=getSessions(e);
   const hasWorkout=sessions.length>0;
 
-  // Weekly / monthly session counts.
-  const wk=weekOf(0);
-  const wkPlanned=wk.filter(dk=>getSessions(plan[dk]).length>0).length;
-  const wkDone=wk.filter(dk=>plan[dk]?.completed).length;
-  const now=new Date();
-  const mDays=monthGrid(now.getFullYear(),now.getMonth()).filter(Boolean);
-  const mDone=mDays.filter(dk=>plan[dk]?.completed).length;
-  const monthLbl=now.toLocaleDateString('en-US',{month:'long'}).toUpperCase();
-  const streak=trainingStreak(plan);
+  // Readiness is a check-in about how the player feels TODAY, so it always binds
+  // to the real today — not the viewed day — and stays put while days slide.
+  const todayKey=todayStr();
+  const readiness=plan[todayKey]?.readiness||{};
+  const setReadiness=(key)=>{
+    const next=nextReadiness(readiness[key]);
+    updDay(todayKey,{readiness:{...readiness,[key]:next}});
+  };
+  const next=nextUp(plan);
 
   return (
     <div {...swipe} style={{padding:"16px 16px 24px"}}>
       <style>{"@keyframes checkPop{0%{transform:scale(1)}50%{transform:scale(1.15)}100%{transform:scale(1)}}@keyframes slideInLeft{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes slideInRight{from{transform:translateX(-100%);opacity:0}to{transform:translateX(0);opacity:1}}"}</style>
-      {/* Stats */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
-        {[
-          { node: <span style={{color:streak>0?C.done:C.text}}>{streak>0?`🔥${streak}`:streak}</span>, lbl:"Streak" },
-          { node: <><span style={{color:wkDone>0?C.done:C.text}}>{wkDone}</span>/{wkPlanned}</>, lbl:"This week" },
-          { node: <span style={{color:mDone>0?C.done:C.text}}>{mDone}</span>, lbl:monthLbl },
-        ].map(({node,lbl},i)=>(
-          <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,
-            borderRadius:16,padding:"12px 6px",textAlign:"center"}}>
-            <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:C.text,lineHeight:1.2}}>{node}</div>
-            <div style={{fontSize:10,color:C.muted,marginTop:4,textTransform:"uppercase",letterSpacing:".05em"}}>{lbl}</div>
-          </div>
-        ))}
+      {/* Next up — thin secondary line under the phase header */}
+      {next&&(
+        <div style={{fontSize:12,color:C.muted,textAlign:"center",marginBottom:12}}>
+          Next: <span style={{fontWeight:600}}>{next.label}</span> · {next.when}
+        </div>
+      )}
+
+      {/* Readiness check-in — tap cycles unset → good → ok → sore */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:16}}>
+        {READINESS_INDICATORS.map(ind=>{
+          const st=readiness[ind.key];
+          const c=st?READINESS_COLORS[st]:null;
+          const word=st?ind.words[st]:"tap to set";
+          return (
+            <button key={ind.key} onClick={()=>setReadiness(ind.key)}
+              aria-label={`${ind.question} — ${st?word:"not set"}, tap to change`}
+              style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+                minHeight:48,padding:"10px 8px",fontFamily:"inherit",cursor:"pointer",
+                background:c?c.bg:C.surface,border:`1.5px solid ${c?c.border:C.border}`,
+                borderRadius:12,WebkitTapHighlightColor:"transparent"}}>
+              <span aria-hidden="true" style={{width:12,height:12,borderRadius:"50%",flexShrink:0,
+                background:c?c.dot:"transparent",border:c?"none":`1.5px dashed ${C.muted}`}}/>
+              <span style={{fontSize:13,fontWeight:700,color:C.text}}>{ind.label}</span>
+              <span style={{fontSize:12,color:c?c.dot:C.muted,fontWeight:st?700:400}}>{word}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Weekly targets — priority session types for the current phase */}
@@ -1195,13 +1228,16 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
     const idx=PHASES.findIndex(p=>p===curPhase);
     const next=curPhase?PHASES[idx+1]:null;
     const daysToNextPhase=next?daysUntil(next.start):(curPhase?daysUntil(curPhase.end):null);
+    // Today's readiness check-in (hip / legs traffic lights) — null when unset.
+    const r=plan[today]?.readiness||{};
+    const readiness=(r.hip||r.legs)?{hip:r.hip||null,legs:r.legs||null}:null;
     return {
       playerName:playerName?.trim()||null,
       phase:curPhase?{name:curPhase.name,description:curPhase.description}:null,
       nextPhase:next?.name||null, daysToNextPhase,
       today:{date:viewKey,label:`${dayName}, ${dayFull}`,workout:sessionsLabel(e)||"Rest day",
         completed:!!e.completed,feeling:feelingLabel(e.feeling)},
-      recentSessions, week, tactical:tacticalFor(viewKey),
+      recentSessions, week, tactical:tacticalFor(viewKey), readiness,
     };
   };
 

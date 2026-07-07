@@ -54,6 +54,17 @@ function buildContextBlock(ctx) {
     lines.push(`- Status: not done yet`);
   }
 
+  // Today's readiness check-in (traffic lights: green = good, amber = okay,
+  // red = poor/sore). The hip signal is the player's known left glute-med niggle —
+  // weigh it heavily when advising on load.
+  if (ctx.readiness && (ctx.readiness.hip || ctx.readiness.legs)) {
+    lines.push("");
+    lines.push("Today's readiness check-in (self-reported this morning):");
+    if (ctx.readiness.hip) lines.push(`- Left hip: ${ctx.readiness.hip}`);
+    if (ctx.readiness.legs) lines.push(`- Legs / general freshness: ${ctx.readiness.legs}`);
+    if (ctx.readiness.hip === "red") lines.push("The hip is flagged RED today — advise caution, adaptation, or rest for anything loading it.");
+  }
+
   const recent = Array.isArray(ctx.recentSessions) ? ctx.recentSessions : [];
   if (recent.length) {
     lines.push("");
