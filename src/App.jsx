@@ -684,6 +684,70 @@ function WeeklyTargets({plan}) {
   );
 }
 
+// ─── Body-comp entry line (Today) ───────────────────────────────────────────────
+// Quiet, optional line — not a card, no target, no nagging. Collapsed it shows
+// either "＋ Log weight" or the day's logged values; tapping opens two small
+// inputs. Weight and body fat are independent (either alone is valid). Saving
+// only writes weight/bodyFat — it never touches sessions or completion.
+function BodyCompLine({entry,dateKey:dk,updDay}) {
+  const [open,setOpen]=useState(false);
+  const [w,setW]=useState("");
+  const [bf,setBf]=useState("");
+  useEffect(()=>{ setOpen(false); },[dk]);   // collapse when the viewed day changes
+
+  const has=entry.weight!=null||entry.bodyFat!=null;
+  const startEdit=()=>{
+    setW(entry.weight!=null?String(entry.weight):"");
+    setBf(entry.bodyFat!=null?String(entry.bodyFat):"");
+    setOpen(true);
+  };
+  const parse=(s)=>{ const v=parseFloat(String(s).replace(",",".")); return isNaN(v)?null:Math.round(v*10)/10; };
+  const save=()=>{ updDay(dk,{weight:parse(w),bodyFat:parse(bf)}); setOpen(false); };
+
+  const inp={width:"100%",border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 12px",
+    fontFamily:"monospace",fontSize:15,color:C.text,background:C.surface,outline:"none",
+    boxSizing:"border-box",WebkitAppearance:"none"};
+
+  if (open) return (
+    <div style={{marginTop:12,padding:"12px 14px",background:C.surface,
+      border:`1px solid ${C.border}`,borderRadius:12}}>
+      <div style={{display:"flex",gap:10}}>
+        {[["Weight (kg)",w,setW,"78.4"],["Body fat % (optional)",bf,setBf,"15.8"]].map(([lbl,val,set,ph])=>(
+          <label key={lbl} style={{flex:1,minWidth:0}}>
+            <span style={{display:"block",fontSize:10,color:C.muted,textTransform:"uppercase",
+              letterSpacing:".05em",marginBottom:5}}>{lbl}</span>
+            <input type="text" inputMode="decimal" value={val} placeholder={ph}
+              onChange={ev=>set(ev.target.value)} style={inp}/>
+          </label>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:10,marginTop:10}}>
+        <button onClick={save} style={{flex:1,padding:"10px",background:C.done,color:"#fff",border:"none",
+          borderRadius:12,fontFamily:"inherit",fontSize:14,fontWeight:600,cursor:"pointer",
+          WebkitTapHighlightColor:"transparent"}}>Save</button>
+        <button onClick={()=>setOpen(false)} style={{flex:1,padding:"10px",background:"none",
+          border:`1px solid ${C.border}`,borderRadius:12,fontFamily:"inherit",fontSize:14,color:C.muted,
+          cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>Cancel</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <button onClick={startEdit}
+      style={{display:"flex",alignItems:"center",gap:6,marginTop:6,background:"none",border:"none",
+        cursor:"pointer",color:C.muted,fontSize:13,fontWeight:500,minHeight:44,padding:"4px 2px",
+        fontFamily:"inherit",WebkitTapHighlightColor:"transparent"}}>
+      {has
+        ? <>⚖️ <span style={{fontFamily:"monospace",fontWeight:700,color:C.text}}>
+              {entry.weight!=null?`${entry.weight.toFixed(1)} kg`:""}
+              {entry.weight!=null&&entry.bodyFat!=null?" · ":""}
+              {entry.bodyFat!=null?`${entry.bodyFat.toFixed(1)}%`:""}
+            </span><span style={{fontSize:12}}>✏️</span></>
+        : <>＋ Log weight</>}
+    </button>
+  );
+}
+
 // ─── Today view ──────────────────────────────────────────────────────────────────
 function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
   const viewKey=offsetDate(dayOff);
@@ -870,6 +934,9 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
             WebkitTapHighlightColor:"transparent"}}>📝 Add note</button>
         ) : null}
       </div>
+
+      {/* Optional body-comp entry — quiet line, works on rest days too */}
+      <BodyCompLine entry={e} dateKey={viewKey} updDay={updDay}/>
       </div>{/* /key wrapper */}
       </div>{/* /overflow wrapper */}
 
@@ -1125,6 +1192,144 @@ function MonthView({today,plan,moOff,setMoOff,onGoToDay}) {
   );
 }
 
+// ─── Body composition ────────────────────────────────────────────────────────────
+// Optional per-day `weight` (kg) and `bodyFat` (%) fields. Smart-scale readings
+// are individually noisy, so the 7-day rolling average is always the headline;
+// raw readings are background dots. Gaps in logging are normal — never an error.
+const BF_GOAL = 14;   // upper end of the 13–14% target band
+
+function bodyCompReadings(plan, field) {
+  return Object.keys(plan).filter(dk=>plan[dk]?.[field]!=null).sort()
+    .map(dk=>({date:dk, value:plan[dk][field]}));
+}
+
+// One point per day from `fromDk`..`toDk`: avg of raw readings in the trailing
+// 7 days, or null (a gap) when the window holds none. Sparse data is fine.
+function rollingSeries(readings, fromDk, toDk) {
+  const out=[];
+  const d=new Date(fromDk+"T00:00:00");
+  while (dateKey(d)<=toDk) {
+    const dk=dateKey(d), cut=daysBeforeStr(dk,6);
+    const inWin=readings.filter(r=>r.date>=cut&&r.date<=dk);
+    out.push({date:dk, value:inWin.length?inWin.reduce((s,r)=>s+r.value,0)/inWin.length:null});
+    d.setDate(d.getDate()+1);
+  }
+  return out;
+}
+
+// Minimal responsive SVG line chart: rolling-average line (gap-aware), raw
+// readings as de-emphasized dots, optional dashed horizontal target.
+function TrendChart({readings, series, target}) {
+  const W=340,H=150, L=34,R=10,T=12,B=22;
+  const days=series.map(p=>p.date);
+  const vals=[...series.map(p=>p.value),...readings.map(r=>r.value)].filter(v=>v!=null);
+  if (target!=null) vals.push(target);
+  let lo=Math.min(...vals), hi=Math.max(...vals);
+  const pad=Math.max((hi-lo)*0.15,0.4); lo-=pad; hi+=pad;
+  const x=(dk)=>{ const i=days.indexOf(dk); return L+(i/Math.max(days.length-1,1))*(W-L-R); };
+  const y=(v)=>T+(1-(v-lo)/(hi-lo))*(H-T-B);
+  // Split the average line into segments at gaps.
+  const segs=[]; let cur=[];
+  for (const p of series) {
+    if (p.value==null) { if (cur.length>1) segs.push(cur); cur=[]; }
+    else cur.push(p);
+  }
+  if (cur.length>1) segs.push(cur);
+  const fmtD=(dk)=>new Date(dk+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"});
+  const midDk=days[Math.floor(days.length/2)];
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{display:"block",width:"100%",height:"auto"}}>
+      {/* y labels */}
+      {[lo+pad,hi-pad].map((v,i)=>(
+        <text key={i} x={L-5} y={y(v)+3} fontSize="9" fill={C.muted} textAnchor="end">{v.toFixed(1)}</text>
+      ))}
+      {/* target reference */}
+      {target!=null&&(<>
+        <line x1={L} x2={W-R} y1={y(target)} y2={y(target)} stroke={C.muted} strokeWidth="1" strokeDasharray="4 4" opacity="0.7"/>
+        <text x={W-R} y={y(target)-4} fontSize="9" fill={C.muted} textAnchor="end">{target}% goal</text>
+      </>)}
+      {/* raw readings — visible noise, clearly secondary */}
+      {readings.filter(r=>days.includes(r.date)).map(r=>(
+        <circle key={r.date} cx={x(r.date)} cy={y(r.value)} r="2.2" fill={C.sage} opacity="0.45"/>
+      ))}
+      {/* rolling-average line (hero) */}
+      {segs.map((seg,i)=>(
+        <path key={i} fill="none" stroke={C.done} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          d={seg.map((p,j)=>`${j===0?"M":"L"}${x(p.date).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ")}/>
+      ))}
+      {/* x labels */}
+      <text x={L} y={H-6} fontSize="9" fill={C.muted}>{fmtD(days[0])}</text>
+      {days.length>20&&<text x={x(midDk)} y={H-6} fontSize="9" fill={C.muted} textAnchor="middle">{fmtD(midDk)}</text>}
+      <text x={W-R} y={H-6} fontSize="9" fill={C.muted} textAnchor="end">{fmtD(days[days.length-1])}</text>
+    </svg>
+  );
+}
+
+// Journey section: metric toggle, rolling-average summary line, trend chart.
+function BodyCompTrend({plan}) {
+  const [metric,setMetric]=useState('bodyFat');
+  const today=todayStr();
+  const cfg=metric==='bodyFat'
+    ? { field:'bodyFat', unit:'%', target:BF_GOAL, thresh:0.15 }
+    : { field:'weight',  unit:' kg', target:null,  thresh:0.3 };
+  const readings=bodyCompReadings(plan,cfg.field);
+  const hasAny=bodyCompReadings(plan,'bodyFat').length>0||bodyCompReadings(plan,'weight').length>0;
+
+  let body;
+  if (!readings.length) {
+    body=(
+      <p style={{margin:"4px 0 0",fontSize:13,color:C.muted,lineHeight:1.5}}>
+        Log weight on the Today view to see your trend here.
+      </p>
+    );
+  } else {
+    // Domain: first reading → today, min 14 days so early charts stay readable.
+    let from=readings[0].date;
+    if (daysBeforeStr(today,13)<from) from=daysBeforeStr(today,13);
+    const series=rollingSeries(readings,from,today);
+    const avgPts=series.filter(p=>p.value!=null);
+    const nowAvg=avgPts[avgPts.length-1]?.value;
+    // Trend: rolling avg now vs ~14 days earlier (earliest available if younger).
+    const cut=daysBeforeStr(today,14);
+    const before=avgPts.filter(p=>p.date<=cut);
+    const ref=(before.length?before[before.length-1]:avgPts[0])?.value;
+    const delta=nowAvg!=null&&ref!=null?nowAvg-ref:0;
+    const trend=Math.abs(delta)<cfg.thresh?'holding steady':delta<0?'trending down':'trending up';
+    const parts=[`${nowAvg.toFixed(1)}${cfg.unit}`,trend];
+    if (cfg.target!=null) {
+      const gap=nowAvg-cfg.target;
+      parts.push(gap>0?`${gap.toFixed(1)}% to goal`:'at goal');
+    }
+    body=(<>
+      <div style={{fontSize:13,color:C.muted,marginBottom:8}}>
+        <span style={{fontFamily:"monospace",fontWeight:700,color:C.text}}>{parts[0]}</span>
+        {parts.slice(1).map((p,i)=><span key={i}> · {p}</span>)}
+      </div>
+      <TrendChart readings={readings} series={series} target={cfg.target}/>
+      <div style={{fontSize:10,color:C.muted,marginTop:4}}>7-day rolling average · dots are single readings</div>
+    </>);
+  }
+
+  return (
+    <div style={{marginBottom:20}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+        <div style={{flex:1,fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:C.muted}}>Body composition</div>
+        {hasAny&&["bodyFat","weight"].map(m=>(
+          <button key={m} onClick={()=>setMetric(m)} aria-pressed={metric===m}
+            style={{fontSize:11,fontWeight:700,padding:"5px 11px",borderRadius:999,cursor:"pointer",
+              fontFamily:"inherit",WebkitTapHighlightColor:"transparent",
+              background:metric===m?C.sageLt:"transparent",
+              border:`1px solid ${metric===m?C.sage:C.border}`,
+              color:metric===m?C.sageDk:C.muted}}>
+            {m==="bodyFat"?"Body fat %":"Weight"}
+          </button>
+        ))}
+      </div>
+      {body}
+    </div>
+  );
+}
+
 // ─── Journey view ────────────────────────────────────────────────────────────────
 function JourneyView({plan,today,onGoToDay}) {
   const phaseDays=(p)=>{
@@ -1154,6 +1359,10 @@ function JourneyView({plan,today,onGoToDay}) {
           <div style={{height:"100%",width:`${seasonPct}%`,background:C.done,borderRadius:99,transition:"width .6s ease"}}/>
         </div>
       </div>
+
+      {/* Body composition trend — long-horizon metric, so it lives here */}
+      <BodyCompTrend plan={plan}/>
+
       {PHASES.map((phase,pi)=>{
         const days=phaseDays(phase);
         const planned=days.filter(dk=>getSessions(plan[dk]).length>0).length;
