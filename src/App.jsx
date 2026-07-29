@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 
-const SK = "soccer-v2";
+const SK = "soccer-v3";
+const SK_PREV = "soccer-v2";   // migrated from on first load of this version
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DL = ["M","T","W","T","F","S","S"];
 const DN = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
@@ -749,7 +750,7 @@ function BodyCompLine({entry,dateKey:dk,updDay}) {
 }
 
 // ─── Today view ──────────────────────────────────────────────────────────────────
-function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
+function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach,onOpenMK,mkLoggedToday}) {
   const viewKey=offsetDate(dayOff);
   const e=plan[viewKey]||{};
   const isToday=dayOff===0;
@@ -939,6 +940,23 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
       <BodyCompLine entry={e} dateKey={viewKey} updDay={updDay}/>
       </div>{/* /key wrapper */}
       </div>{/* /overflow wrapper */}
+
+      {/* Mediale Kette rechts — Rehab-Session (eigener Flow, kein Plan-Eintrag) */}
+      <button onClick={onOpenMK} style={{width:"100%",marginTop:16,padding:"14px 16px",background:C.surface,
+        border:`1px solid ${C.border}`,borderRadius:16,fontFamily:"inherit",cursor:"pointer",
+        display:"flex",alignItems:"center",gap:12,textAlign:"left",WebkitTapHighlightColor:"transparent"}}>
+        <span style={{fontSize:22,lineHeight:1}}>🩹</span>
+        <span style={{flex:1,minWidth:0}}>
+          <span style={{display:"block",fontSize:15,fontWeight:700,color:C.text}}>Mediale Kette rechts</span>
+          <span style={{display:"block",fontSize:12,color:C.muted,marginTop:2}}>
+            {mkLoggedToday?"Heute erledigt":"Rehab · Block A täglich"}
+          </span>
+        </span>
+        {mkLoggedToday
+          ? <span style={{width:22,height:22,borderRadius:"50%",background:C.done,display:"flex",
+              alignItems:"center",justifyContent:"center",flexShrink:0}}><Chk size={12}/></span>
+          : <span style={{fontSize:18,color:C.muted,flexShrink:0}}>›</span>}
+      </button>
 
       {/* Tactical prompt of the week */}
       <TacticalCard dk={viewKey}/>
@@ -1676,6 +1694,471 @@ function GuidedView() {
   );
 }
 
+// ─── Mediale Kette rechts — Rehab-Session ────────────────────────────────────────
+// Insertionsnahe Tendinopathie des Semimembranosus (rechtes Knie innen). Isometrie
+// täglich, exzentrische Belastung phasenweise. Steuergrösse ist NICHT der Kalender,
+// sondern Schmerz ≤3/10 während der Übung und der Zustand am Folgemorgen — die Phase
+// wird deshalb nur vorgeschlagen, nie automatisch hochgeschaltet. Bewusst ohne
+// statische Dehnübungen und ohne Foam Rolling (bei gereizter Sehne kontraproduktiv).
+const MK_EXERCISES = {
+  bridge:     { name: "Long-Lever Bridge", side: "einbeinig rechts", type: "hold",
+                cue: "Rückenlage, rechte Ferse am Boden, Knie nur ~20–30° gebeugt. Linkes Bein anheben, Oberschenkel parallel. Becken hoch bis Schulter–Hüfte–Knie eine Linie bilden.",
+                watch: "Becken kippt nicht zur linken Seite. Kein Hohlkreuz." },
+  knieflex:   { name: "Knieflexion isometrisch", side: "Bauchlage, rechts", type: "hold",
+                cue: "Becken bleibt unten. Rechtes Knie ~30–45° beugen, Fuss leicht nach innen drehen. Linkes Bein über den rechten Knöchel kreuzen und dagegenhalten.",
+                watch: "~70 % Kraft, gleichmässig aufbauen. Hüfte hebt nicht ab." },
+  balance:    { name: "Balance mit Rotation", side: "Stand rechts", type: "reps", reps: "6 pro Richtung",
+                cue: "Einbeinig rechts, Knie minimal gebeugt. Oberkörper langsam nach innen und aussen drehen, bis kurz vor die Schmerzgrenze.",
+                watch: "Knie bleibt über dem zweiten Zeh. Kein Schwung." },
+  stepdown:   { name: "Step-Downs", side: "rechts", type: "reps", reps: "8 Wdh.",
+                cue: "Auf einer Stufe (20–30 cm) rechts stehen. Linke Ferse langsam Richtung Boden senken, antippen, kontrolliert hoch.",
+                watch: "Rechtes Knie bleibt über der Fussmitte, kippt nicht nach innen." },
+  glutemed:   { name: "Glute Med", side: "Seitlage rechts", type: "reps", reps: "12 Wdh.",
+                cue: "Beine gestreckt, rechtes Bein oben. Bein leicht nach hinten und nach oben führen.",
+                watch: "Becken bleibt senkrecht, rollt nicht nach hinten weg." },
+  copenhagen: { name: "Copenhagen Plank", side: "rechts", type: "hold",
+                cue: "Seitstütz auf dem rechten Unterarm, linkes Knie auf einer Bank. Becken anheben, Körper gerade.",
+                watch: "Nur wenn schmerzfrei. Kurzversion: unteres Knie am Boden." },
+  sldl:       { name: "Single-Leg RDL", side: "rechts", type: "reps", reps: "8 Wdh. · 3–4 s runter",
+                cue: "Auf rechts stehen, Kurzhantel in der linken Hand. Hüfte nach hinten schieben, linkes Bein streckt sich nach hinten.",
+                watch: "Rücken gerade. Bewegung kommt aus der Hüfte, nicht aus dem Knie." },
+  slider:     { name: "Slider-Curls", side: "beidbeinig", type: "reps", reps: "6 Wdh. · langsam",
+                cue: "Rückenlage, Fersen auf Slidern oder Handtuch, Becken hoch. Fersen langsam wegschieben, dann zurückziehen.",
+                watch: "Becken bleibt oben über die ganze Bewegung." },
+  nordic:     { name: "Nordics", side: "beidbeinig", type: "reps", reps: "5 Wdh. · nur exzentrisch",
+                cue: "Kniend, Fersen fixiert. Oberkörper gestreckt langsam nach vorne fallen lassen, so lange wie möglich bremsen.",
+                watch: "Nur die Absenkbewegung zählt. Mit den Händen abfangen." },
+};
+
+// hold = Haltezeit in s, rest = Pause in s
+const MK_BLOCKS = {
+  A:     { label: "Block A", title: "Isometrie", freq: "täglich",
+           items: [ { ex: "bridge", sets: 5, hold: 45, rest: 60 },
+                    { ex: "knieflex", sets: 4, hold: 40, rest: 45 } ] },
+  Akurz: { label: "Block A kurz", title: "Isometrie · Erhaltung", freq: "abends",
+           items: [ { ex: "bridge", sets: 3, hold: 30, rest: 45 },
+                    { ex: "knieflex", sets: 3, hold: 30, rest: 45 } ] },
+  B:     { label: "Block B", title: "Kontrolle", freq: "3× pro Woche",
+           items: [ { ex: "balance", sets: 3, rest: 45 },
+                    { ex: "stepdown", sets: 3, rest: 60 },
+                    { ex: "glutemed", sets: 3, rest: 45 },
+                    { ex: "copenhagen", sets: 3, hold: 20, rest: 45 } ] },
+};
+
+// Block C ist phasenabhängig
+const MK_STRENGTH = {
+  1: [],
+  2: [ { ex: "sldl", sets: 3, rest: 90 } ],
+  3: [ { ex: "sldl", sets: 3, rest: 90 }, { ex: "slider", sets: 3, rest: 90 } ],
+  4: [ { ex: "sldl", sets: 3, rest: 90 }, { ex: "slider", sets: 3, rest: 90 }, { ex: "nordic", sets: 3, rest: 120 } ],
+};
+
+// Phase 1 = Woche 1–2, 2 = Woche 3–4, 3 = Woche 5–6, 4 = ab Woche 7.
+function mkWeekOf(startDate) {
+  if (!startDate) return 1;
+  const s=new Date(startDate+"T00:00:00"), n=new Date(); n.setHours(0,0,0,0);
+  return Math.max(1,Math.floor((n-s)/86400000/7)+1);
+}
+function mkDuePhase(startDate) {
+  const w=mkWeekOf(startDate);
+  return w<=2?1:w<=4?2:w<=6?3:4;
+}
+function mkPhaseWeeks(p) { return p===1?"Woche 1–2":p===2?"Woche 3–4":p===3?"Woche 5–6":"ab Woche 7"; }
+// Freischalten nur, wenn die letzten (bis zu) 5 geloggten Sessions alle Schmerz ≤3 hatten.
+// Abgebrochene Sessions haben kein pain und zählen hier nicht mit.
+function mkCanUnlock(mkLog) {
+  const pains=(mkLog||[]).filter(l=>l.pain!=null).slice(-5).map(l=>l.pain);
+  return pains.length>0&&pains.every(p=>p<=3);
+}
+function mkBlocksFor(phase) {
+  const c=MK_STRENGTH[phase]||[];
+  return [
+    { key:"A", ...MK_BLOCKS.A },
+    { key:"Akurz", ...MK_BLOCKS.Akurz },
+    { key:"B", ...MK_BLOCKS.B },
+    { key:"C", label:"Block C", title:"Kraft", freq:c.length?"2× pro Woche":"ab Woche 3", items:c },
+  ];
+}
+function mkTotalSets(items) { return items.reduce((s,i)=>s+i.sets,0); }
+
+// Flache Schrittliste: ready → (hold|work) → rest → … Zwischen zwei Übungen steht
+// ein ready(15 s, "Wechsel") statt einer Pause; vor der ersten Übung ready(6 s).
+function mkBuildSteps(items) {
+  const steps=[];
+  items.forEach((it,ii)=>{
+    const ex=MK_EXERCISES[it.ex];
+    steps.push({ kind:"ready", dur:ii===0?6:15, exKey:it.ex, setNo:1, setsTotal:it.sets,
+      label:ii===0?"Position einnehmen":"Wechsel" });
+    for (let s=1;s<=it.sets;s++) {
+      steps.push({ kind:ex.type==="hold"?"hold":"work", dur:it.hold||0, exKey:it.ex, setNo:s, setsTotal:it.sets });
+      if (s<it.sets) steps.push({ kind:"rest", dur:it.rest, exKey:it.ex, setNo:s, setsTotal:it.sets });
+    }
+  });
+  return steps;
+}
+
+// Signalton über die Web Audio API — keine Audiodatei, keine Dependency.
+// Stumm ist akzeptabel, deshalb alles in try/catch.
+let mkAudio=null;
+function mkBeep(kind) {
+  try {
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if (!AC) return;
+    if (!mkAudio) mkAudio=new AC();
+    if (mkAudio.state==="suspended") mkAudio.resume();
+    const t=mkAudio.currentTime, osc=mkAudio.createOscillator(), g=mkAudio.createGain();
+    const long=kind==="go";
+    osc.type="sine";
+    osc.frequency.value=long?880:660;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.3,t+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+(long?0.3:0.13));
+    osc.connect(g); g.connect(mkAudio.destination);
+    osc.start(t); osc.stop(t+(long?0.35:0.18));
+  } catch {}
+}
+function mkTime(s) { return s>=60?`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`:String(s); }
+
+const MK_BIGNUM = { fontSize:82,fontWeight:800,lineHeight:1,color:C.text,
+  fontVariantNumeric:"tabular-nums",fontFamily:"system-ui,-apple-system,sans-serif" };
+const MK_CTRL = { flex:1,minHeight:48,padding:"12px 8px",background:C.surface,
+  border:`1px solid ${C.border}`,borderRadius:12,fontFamily:"inherit",fontSize:13,
+  fontWeight:600,color:C.text,cursor:"pointer",WebkitTapHighlightColor:"transparent" };
+
+// Player. Timer ist timestamp-basiert (Ziel-Endzeit in einer ref, Intervall vergleicht
+// gegen Date.now()) — dekrementieren würde driften, sobald der Screen schlafen geht.
+function MKRun({items,blockLabel,onFinish,onAbort}) {
+  const steps=useMemo(()=>mkBuildSteps(items),[items]);
+  const total=useMemo(()=>mkTotalSets(items),[items]);
+  const [idx,setIdx]=useState(0);
+  const [left,setLeft]=useState(steps[0]?.dur??0);
+  const [paused,setPaused]=useState(false);
+  const [confirmAbort,setConfirmAbort]=useState(false);
+  const endRef=useRef(0), heldRef=useRef(0), startRef=useRef(Date.now()), beepRef=useRef(-1);
+
+  const step=steps[idx];
+  const doneSets=steps.slice(0,idx).filter(s=>s.kind==="hold"||s.kind==="work").length;
+
+  // Screen wach halten, solange die Session läuft.
+  useEffect(()=>{
+    let lock=null, gone=false;
+    (async()=>{ try { lock=await navigator.wakeLock?.request("screen"); if (gone) lock?.release(); } catch {} })();
+    return ()=>{ gone=true; try { lock&&lock.release(); } catch {} };
+  },[]);
+
+  // Timer für den neuen Schritt scharf machen.
+  useEffect(()=>{
+    const st=steps[idx];
+    if (!st) return;
+    beepRef.current=-1;
+    if (st.kind==="work") { setLeft(null); mkBeep("go"); return; }
+    endRef.current=Date.now()+st.dur*1000;
+    setLeft(st.dur);
+    mkBeep("go");
+  },[idx,steps]);
+
+  // Tick gegen die Wanduhr, nicht per Dekrement.
+  useEffect(()=>{
+    const st=steps[idx];
+    if (!st||st.kind==="work"||paused) return;
+    const id=setInterval(()=>{
+      const l=Math.max(0,Math.ceil((endRef.current-Date.now())/1000));
+      setLeft(l);
+      if (l>0&&l<=3&&beepRef.current!==l) { beepRef.current=l; mkBeep("tick"); }
+      if (l<=0) { clearInterval(id); setIdx(i=>i+1); }
+    },100);
+    return ()=>clearInterval(id);
+  },[idx,paused,steps]);
+
+  // Durch: Abschlussbildschirm.
+  useEffect(()=>{
+    if (idx>=steps.length) {
+      onFinish({ completedSets:total,totalSets:total,
+        durationSec:Math.round((Date.now()-startRef.current)/1000) });
+    }
+  },[idx,steps.length]);   // eslint-disable-line
+
+  const togglePause=()=>{
+    if (!paused) { heldRef.current=Math.max(0,endRef.current-Date.now()); setPaused(true); }
+    else { endRef.current=Date.now()+heldRef.current; setPaused(false); }
+  };
+  const add10=()=>{
+    if (paused) heldRef.current+=10000; else endRef.current+=10000;
+    setLeft(l=>l==null?l:l+10);
+  };
+  const skip=()=>setIdx(i=>i+1);
+  const abort=()=>onAbort({ completedSets:doneSets,totalSets:total,
+    durationSec:Math.round((Date.now()-startRef.current)/1000) });
+
+  if (!step) return null;
+  const ex=MK_EXERCISES[step.exKey];
+  const nx=steps[idx+1];
+  const nxEx=nx?MK_EXERCISES[nx.exKey]:null;
+  const setsDone=step.kind==="rest"?step.setNo:step.setNo-1;
+  const headline=step.kind==="ready"?step.label:step.kind==="rest"?"Pause":step.kind==="hold"?"Halten":"Los";
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:60,background:C.bg,display:"flex",flexDirection:"column",
+      fontFamily:"system-ui,-apple-system,sans-serif",color:C.text}}>
+      {/* Kopf */}
+      <div style={{flexShrink:0,background:C.surface,borderBottom:`1px solid ${C.border}`,
+        padding:"env(safe-area-inset-top,0px) 14px 0",display:"flex",alignItems:"center",gap:10,minHeight:56}}>
+        <span style={{flex:1,fontSize:14,fontWeight:700}}>{blockLabel}</span>
+        <span style={{fontSize:13,fontFamily:"monospace",fontWeight:700,color:C.sageDk,
+          background:C.sageLt,borderRadius:999,padding:"4px 12px"}}>{doneSets}/{total} Sätze</span>
+        <button onClick={()=>setConfirmAbort(true)} style={{background:"none",border:"none",cursor:"pointer",
+          color:C.muted,fontSize:13,fontWeight:600,minHeight:44,padding:"0 4px",fontFamily:"inherit",
+          WebkitTapHighlightColor:"transparent"}}>Abbrechen</button>
+      </div>
+
+      {confirmAbort&&(
+        <div style={{flexShrink:0,display:"flex",alignItems:"center",gap:10,padding:"12px 16px",
+          background:C.surface,borderBottom:`1px solid ${C.border}`}}>
+          <span style={{flex:1,fontSize:13,color:C.muted}}>Session abbrechen? Wird als Teil-Einheit geloggt.</span>
+          <button onClick={abort} style={{fontSize:13,fontWeight:700,color:C.done,background:"none",border:"none",
+            minHeight:44,padding:"0 8px",cursor:"pointer",fontFamily:"inherit"}}>Abbrechen</button>
+          <button onClick={()=>setConfirmAbort(false)} style={{fontSize:13,fontWeight:600,color:C.muted,
+            background:"none",border:"none",minHeight:44,padding:"0 8px",cursor:"pointer",fontFamily:"inherit"}}>Weiter</button>
+        </div>
+      )}
+
+      {/* Mitte */}
+      <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"18px 16px",display:"flex",flexDirection:"column"}}>
+        <div style={{fontSize:12,fontWeight:700,textTransform:"uppercase",letterSpacing:".12em",
+          color:step.kind==="rest"?C.muted:C.sageDk,marginBottom:4}}>{headline}</div>
+        <div style={{fontSize:24,fontWeight:800,lineHeight:1.2,marginBottom:2}}>{ex.name}</div>
+        <div style={{fontSize:13,color:C.muted,marginBottom:14}}>{ex.side} · Satz {step.setNo}/{step.setsTotal}</div>
+
+        {/* Satzfortschritt */}
+        <div style={{display:"flex",gap:4,marginBottom:20}}>
+          {Array.from({length:step.setsTotal},(_,i)=>(
+            <div key={i} style={{flex:1,height:6,borderRadius:999,
+              background:i<setsDone?C.done:i===setsDone&&step.kind!=="rest"?C.sage:C.border}}/>
+          ))}
+        </div>
+
+        {/* Zahl / Aktion */}
+        <div style={{textAlign:"center",padding:"6px 0 18px"}}>
+          {step.kind==="work"
+            ? <>
+                <div style={{...MK_BIGNUM,fontSize:44,color:C.done}}>{ex.reps}</div>
+                <div style={{fontSize:13,color:C.muted,marginTop:8}}>kein Timer — im eigenen Tempo</div>
+              </>
+            : <>
+                <div style={{...MK_BIGNUM,color:paused?C.muted:step.kind==="rest"?C.sage:C.text}}>{mkTime(left??0)}</div>
+                <div style={{fontSize:13,color:C.muted,marginTop:6}}>{paused?"pausiert":"Sekunden"}</div>
+              </>}
+        </div>
+
+        {/* Nächster Schritt in der Pause */}
+        {step.kind==="rest"&&nx&&(
+          <div style={{fontSize:13,color:C.muted,textAlign:"center",marginBottom:16}}>
+            Als Nächstes: <span style={{fontWeight:700,color:C.text}}>{nxEx.name}</span>
+            {nx.kind==="ready"?" · Wechsel":` · Satz ${nx.setNo}/${nx.setsTotal}`}
+          </div>
+        )}
+
+        {/* Cue + Achte auf — immer sichtbar, nicht hinter einem Tap */}
+        <div style={{...TR_CARD,marginTop:"auto",marginBottom:0}}>
+          <p style={{margin:0,fontSize:14,lineHeight:1.55,color:C.text}}>{ex.cue}</p>
+          <p style={{margin:"10px 0 0",paddingTop:10,borderTop:`1px solid ${C.border}`,
+            fontSize:13,lineHeight:1.5,color:C.sageDk,fontWeight:600}}>⚠ {ex.watch}</p>
+        </div>
+      </div>
+
+      {/* Steuerung */}
+      <div style={{flexShrink:0,background:C.surface,borderTop:`1px solid ${C.border}`,
+        padding:"10px 16px calc(10px + env(safe-area-inset-bottom,0px))"}}>
+        {step.kind==="work"
+          ? <button onClick={skip} style={{...TR_PRIMARY,minHeight:56,fontSize:17}}>Satz erledigt ✓</button>
+          : <div style={{display:"flex",gap:8}}>
+              <button onClick={togglePause} style={MK_CTRL}>{paused?"▶ Weiter":"⏸ Pause"}</button>
+              <button onClick={add10} style={MK_CTRL}>+10 s</button>
+              <button onClick={skip} style={MK_CTRL}>{step.kind==="rest"?"Pause ⏭":"Satz ⏭"}</button>
+            </div>}
+      </div>
+    </div>
+  );
+}
+
+// Vollbild-Einstieg: Blockwahl, Phasenstand, Player, Schmerzabfrage.
+function MKSession({mkStartDate,mkPhase,mkLog,onMK,onBack}) {
+  const [mode,setMode]=useState("home");      // home | run | pain
+  const [blockKey,setBlockKey]=useState(null);
+  const [result,setResult]=useState(null);
+  const [pain,setPain]=useState(null);
+
+  const blocks=mkBlocksFor(mkPhase);
+  const block=blocks.find(b=>b.key===blockKey);
+  const due=mkDuePhase(mkStartDate);
+  const week=mkWeekOf(mkStartDate);
+  const canUnlock=mkCanUnlock(mkLog);
+
+  const start=(k)=>{
+    const patch={};
+    if (!mkStartDate) patch.mkStartDate=todayStr();   // erst beim allerersten Start
+    if (Object.keys(patch).length) onMK(patch);
+    setBlockKey(k); setPain(null); setResult(null); setMode("run");
+  };
+  const logSession=(res,painVal)=>{
+    onMK({ mkLog:[...(mkLog||[]),{ type:"mk",date:todayStr(),block:blockKey,phase:mkPhase,
+      pain:painVal,completedSets:res.completedSets,totalSets:res.totalSets,durationSec:res.durationSec }] });
+  };
+
+  if (mode==="run"&&block) return (
+    <MKRun items={block.items} blockLabel={`${block.label} · ${block.title}`}
+      onFinish={(res)=>{ setResult(res); setMode("pain"); }}
+      onAbort={(res)=>{ logSession(res,null); setMode("home"); }}/>
+  );
+
+  if (mode==="pain") return (
+    <div style={{position:"fixed",inset:0,zIndex:60,background:C.bg,overflowY:"auto",
+      fontFamily:"system-ui,-apple-system,sans-serif",color:C.text,
+      padding:"calc(24px + env(safe-area-inset-top,0px)) 16px calc(24px + env(safe-area-inset-bottom,0px))"}}>
+      <div style={{textAlign:"center",marginBottom:20}}>
+        <div style={{fontSize:46,marginBottom:10}}>✅</div>
+        <div style={{fontSize:22,fontWeight:800,marginBottom:6}}>Durch</div>
+        <div style={{fontSize:13,color:C.muted,fontFamily:"monospace"}}>
+          {result.completedSets}/{result.totalSets} Sätze · {Math.floor(result.durationSec/60)}:{String(result.durationSec%60).padStart(2,"0")} min
+        </div>
+      </div>
+      <div style={TR_CARD}>
+        <div style={TR_LABEL}>Schmerz während der Übung</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:6}}>
+          {Array.from({length:11},(_,i)=>(
+            <button key={i} onClick={()=>{ if(pain==null){ setPain(i); logSession(result,i); } }}
+              disabled={pain!=null}
+              style={{minHeight:48,borderRadius:12,fontFamily:"inherit",fontSize:15,fontWeight:700,
+                cursor:pain==null?"pointer":"default",WebkitTapHighlightColor:"transparent",
+                background:pain===i?(i<=3?"rgba(46,158,68,0.14)":"rgba(217,45,32,0.10)"):C.surface,
+                border:`1.5px solid ${pain===i?(i<=3?"#2E9E44":"#D92D20"):C.border}`,
+                color:pain===i?(i<=3?"#2E9E44":"#D92D20"):C.text,
+                opacity:pain!=null&&pain!==i?0.4:1}}>{i}</button>
+          ))}
+        </div>
+        <div style={{fontSize:11,color:C.muted,marginTop:8}}>0 = nichts · 10 = maximal</div>
+      </div>
+      {pain!=null&&(
+        <div style={{...TR_CARD,borderLeft:`3px solid ${pain<=3?"#2E9E44":"#D92D20"}`}}>
+          <p style={{margin:0,fontSize:15,lineHeight:1.6}}>
+            {pain<=3
+              ? "Im grünen Bereich. Entscheidend bleibt der Zustand morgen früh."
+              : "Über 3 — nächstes Mal Haltezeit oder Intensität runter. Übung nicht streichen."}
+          </p>
+        </div>
+      )}
+      <button onClick={()=>setMode("home")} disabled={pain==null}
+        style={{...TR_PRIMARY,background:pain==null?C.muted:C.done,cursor:pain==null?"default":"pointer"}}>
+        Fertig
+      </button>
+    </div>
+  );
+
+  // ── Home ──
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:60,background:C.bg,overflowY:"auto",
+      fontFamily:"system-ui,-apple-system,sans-serif",color:C.text,
+      paddingBottom:"calc(24px + env(safe-area-inset-bottom,0px))"}}>
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,
+        padding:"env(safe-area-inset-top,0px) 12px 0",display:"flex",alignItems:"center",gap:8,minHeight:56}}>
+        <button onClick={onBack} aria-label="Zurück" style={{background:"none",border:"none",cursor:"pointer",
+          color:C.muted,fontSize:24,width:44,height:44,display:"flex",alignItems:"center",
+          justifyContent:"center",flexShrink:0,WebkitTapHighlightColor:"transparent"}}>←</button>
+        <div style={{flex:1,fontSize:16,fontWeight:700}}>Mediale Kette rechts</div>
+      </div>
+
+      <div style={{padding:"16px"}}>
+        {/* Phasenstand */}
+        <div style={TR_CARD}>
+          <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+            <span style={{fontSize:20,fontWeight:800}}>Phase {mkPhase}</span>
+            <span style={{fontSize:12,color:C.muted}}>{mkPhaseWeeks(mkPhase)}</span>
+            {mkStartDate&&<span style={{marginLeft:"auto",fontSize:12,color:C.muted,fontFamily:"monospace"}}>Woche {week}</span>}
+          </div>
+          <p style={{margin:"8px 0 0",fontSize:13,color:C.muted,lineHeight:1.55}}>
+            Progression läuft über Schmerz ≤3 und den Zustand am Folgemorgen — nicht über den Kalender.
+          </p>
+
+          {/* Phasenvorschlag — schaltet nie von selbst */}
+          {due>mkPhase&&(
+            <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+              <div style={{fontSize:14,fontWeight:700,marginBottom:6}}>Woche {week} erreicht — Phase {mkPhase+1} freischalten?</div>
+              {canUnlock
+                ? <button onClick={()=>onMK({mkPhase:mkPhase+1})}
+                    style={{...TR_PRIMARY,marginTop:4}}>Phase {mkPhase+1} freischalten</button>
+                : <p style={{margin:"4px 0 0",fontSize:13,color:"#D92D20",lineHeight:1.5}}>
+                    Noch nicht — Schmerzwerte über 3 in den letzten Einheiten.
+                  </p>}
+            </div>
+          )}
+          {mkPhase>1&&(
+            <button onClick={()=>onMK({mkPhase:mkPhase-1})}
+              style={{marginTop:10,background:"none",border:"none",cursor:"pointer",color:C.muted,
+                fontSize:12,fontWeight:600,minHeight:44,padding:"0 2px",fontFamily:"inherit",
+                WebkitTapHighlightColor:"transparent"}}>↓ Auf Phase {mkPhase-1} zurückstufen</button>
+          )}
+        </div>
+
+        {/* Blöcke */}
+        {blocks.map(b=>{
+          const locked=b.items.length===0;
+          const sets=mkTotalSets(b.items);
+          return (
+            <div key={b.key} style={{...TR_CARD,opacity:locked?0.55:1}}>
+              <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:2}}>
+                <span style={{fontSize:16,fontWeight:800}}>{b.label}</span>
+                <span style={{fontSize:13,color:C.muted}}>{b.title}</span>
+                <span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:C.sageDk,
+                  background:C.sageLt,borderRadius:999,padding:"3px 10px"}}>{b.freq}</span>
+              </div>
+              {locked
+                ? <p style={{margin:"8px 0 0",fontSize:13,color:C.muted}}>Gesperrt in Phase 1 — ab Woche 3.</p>
+                : <>
+                    <div style={{margin:"10px 0 12px"}}>
+                      {b.items.map((it,i)=>{
+                        const ex=MK_EXERCISES[it.ex];
+                        return (
+                          <div key={it.ex} style={{display:"flex",alignItems:"baseline",gap:8,padding:"6px 0",
+                            borderTop:i===0?"none":`1px solid ${C.border}`}}>
+                            <span style={{flex:1,fontSize:13,minWidth:0}}>{ex.name}</span>
+                            <span style={{fontSize:12,fontFamily:"monospace",color:C.muted,flexShrink:0}}>
+                              {it.sets}× {it.hold?`${it.hold}s`:ex.reps}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <button onClick={()=>start(b.key)} style={TR_PRIMARY}>Starten · {sets} Sätze</button>
+                  </>}
+            </div>
+          );
+        })}
+
+        {/* Letzte Einheiten */}
+        {(mkLog||[]).length>0&&(
+          <div style={TR_CARD}>
+            <div style={TR_LABEL}>Letzte Einheiten</div>
+            {(mkLog||[]).slice(-5).reverse().map((l,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"baseline",gap:8,padding:"6px 0",
+                borderTop:i===0?"none":`1px solid ${C.border}`,fontSize:13}}>
+                <span style={{fontFamily:"monospace",color:C.muted,flexShrink:0}}>
+                  {new Date(l.date+"T00:00:00").toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit"})}
+                </span>
+                <span style={{flex:1,minWidth:0}}>{MK_BLOCKS[l.block]?.label||`Block ${l.block}`}</span>
+                <span style={{fontFamily:"monospace",color:C.muted,flexShrink:0}}>{l.completedSets}/{l.totalSets}</span>
+                <span style={{fontFamily:"monospace",fontWeight:700,flexShrink:0,
+                  color:l.pain==null?C.muted:l.pain<=3?"#2E9E44":"#D92D20"}}>
+                  {l.pain==null?"—":`${l.pain}/10`}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Root ────────────────────────────────────────────────────────────────────────
 export default function App() {
   const [loading,setLoading]=useState(true);
@@ -1688,18 +2171,33 @@ export default function App() {
   const [dayOff,setDayOff]=useState(0);
   const [restoredToast,setRestoredToast]=useState(false);
   const [celebration,setCelebration]=useState(null);
+  // Mediale Kette: eigener Log, damit Weekly Targets / Streak / Completion unberührt bleiben.
+  const [mkStartDate,setMkStartDate]=useState(null);
+  const [mkPhase,setMkPhase]=useState(1);
+  const [mkLog,setMkLog]=useState([]);
 
   useEffect(()=>{
     (async()=>{
-      let stored=null;
+      let stored=null, migrated=false;
       try { stored=await storeGet(SK); } catch(e) {}
+      // Key-Bump: beim ersten Start dieser Version die alten Daten übernehmen und
+      // die neuen Felder mit Defaults auffüllen — nichts wegwerfen.
+      if (!stored) {
+        try { const prev=await storeGet(SK_PREV); if (prev) { stored=prev; migrated=true; } } catch(e) {}
+      }
       if (stored) {
         try {
           const d=JSON.parse(stored);
           if (d.playerName) setPlayerName(d.playerName);
           const lp=(d.plan&&Object.keys(d.plan).length>0)?d.plan:buildDefaultPlan();
           setPlan(lp);
+          const ms=d.mkStartDate??null, mp=d.mkPhase??1, ml=Array.isArray(d.mkLog)?d.mkLog:[];
+          setMkStartDate(ms); setMkPhase(mp); setMkLog(ml);
           setScreen(d.playerName?"main":"setup");
+          if (migrated) {
+            try { await storeSet(SK,JSON.stringify({ playerName:d.playerName||"",plan:lp,
+              mkStartDate:ms,mkPhase:mp,mkLog:ml })); } catch(e) {}
+          }
         } catch(e) { setPlan(buildDefaultPlan()); setScreen("setup"); }
       } else {
         setPlan(buildDefaultPlan());
@@ -1754,7 +2252,19 @@ export default function App() {
     }
   };
 
-  const save=(np,nn)=>storeSet(SK,JSON.stringify({ playerName:nn??playerName, plan:np??plan })).catch(()=>{});
+  const save=(np,nn)=>storeSet(SK,JSON.stringify({ playerName:nn??playerName, plan:np??plan,
+    mkStartDate, mkPhase, mkLog })).catch(()=>{});
+  // Mediale-Kette-Felder atomar setzen + persistieren (State-Updates sind async,
+  // deshalb schreibt der Patch explizit die nächsten Werte in den Blob).
+  const updMK=(patch)=>{
+    const ms=patch.mkStartDate!==undefined?patch.mkStartDate:mkStartDate;
+    const mp=patch.mkPhase!==undefined?patch.mkPhase:mkPhase;
+    const ml=patch.mkLog!==undefined?patch.mkLog:mkLog;
+    if (patch.mkStartDate!==undefined) setMkStartDate(ms);
+    if (patch.mkPhase!==undefined) setMkPhase(mp);
+    if (patch.mkLog!==undefined) setMkLog(ml);
+    storeSet(SK,JSON.stringify({ playerName,plan,mkStartDate:ms,mkPhase:mp,mkLog:ml })).catch(()=>{});
+  };
   const updDay=(dk,u)=>{
     const np={...plan,[dk]:{...plan[dk],...u}}; setPlan(np); save(np);
     if (u.completed===true&&getSessions(np[dk]).length>0) checkMilestones(dk,np);
@@ -1809,6 +2319,10 @@ export default function App() {
   );
   if (screen==="coach") return (
     <CoachScreen viewKey={offsetDate(dayOff)} plan={plan} playerName={playerName} onBack={()=>setScreen("main")}/>
+  );
+  if (screen==="mk") return (
+    <MKSession mkStartDate={mkStartDate} mkPhase={mkPhase} mkLog={mkLog}
+      onMK={updMK} onBack={()=>setScreen("main")}/>
   );
 
   return (
@@ -1903,7 +2417,9 @@ export default function App() {
       </div>
 
       <div style={{paddingBottom:"calc(80px + env(safe-area-inset-bottom,0px))"}}>
-        {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} onOpenCoach={()=>setScreen("coach")}/>}
+        {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff}
+          onOpenCoach={()=>setScreen("coach")} onOpenMK={()=>setScreen("mk")}
+          mkLoggedToday={mkLog.some(l=>l.date===today)}/>}
         {view==="week"&&<WeekView today={today} plan={plan} wkOff={wkOff} setWkOff={setWkOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays}/>}
         {view==="month"&&<MonthView today={today} plan={plan} moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay}/>}
         {view==="journey"&&<JourneyView plan={plan} today={today} onGoToDay={goToDay}/>}
