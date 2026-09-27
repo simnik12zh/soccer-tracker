@@ -38,7 +38,7 @@ const PHASES = [
   { name:'Pre-Season',   start:'2026-08-06', end:'2026-09-06',
     description:"Steigere deine Kondition. Das Mannschaftstraining beginnt wieder. Bleib aufmerksam und starte fit in die Saison.", color:'#9CCBD3' },
   { name:'Autumn Season',start:'2026-09-07', end:'2026-11-15',
-    description:"Leistung bringen, erholen, fit bleiben. Die Spiele sind samstags – stimme deine Belastung darauf ab.", color:'#9CCBD3' },
+    description:"Leistung bringen, erholen, fit bleiben. Stimme deine Belastung auf die eingetragenen Spieltermine ab.", color:'#9CCBD3' },
   { name:'Winter Break', start:'2026-11-16', end:'2027-04-04',
     description:"Nutze die Pause für deine Körperentwicklung. Trainiere regelmässig Kraft und schaffe die Grundlage für den Frühling.", color:'#9CCBD3' },
   { name:'Spring Season',start:'2027-04-05', end:'2027-06-30',
@@ -48,6 +48,137 @@ const PHASES = [
 ];
 const SEASON_START = '2026-06-29';
 const SEASON_END = '2027-08-05';
+
+// Confirmed FC Julius Bär fixtures, transcribed from the user's 27 Sep 2026 screenshot.
+// Times are local Europe/Zurich wall-clock times, NOT UTC (DST changes on 25 Oct).
+const MATCH_SCHEDULE_VERSION = 'julius-baer-autumn-2026-v1';
+const MATCH_IMPORT_FROM = '2026-09-27';
+const MATCH_SCHEDULE = [
+  { id:'972321', date:'2026-10-02', kickoff:'20:00', opponent:'FC UBS 1 AG', home:false },
+  { id:'972311', date:'2026-10-12', kickoff:'20:30', opponent:'FC Ränte', home:true },
+  { id:'972315', date:'2026-10-16', kickoff:'20:15', opponent:'FC Ristorante Da Carlo', home:false },
+  { id:'972323', date:'2026-10-26', kickoff:'20:30', opponent:'Shamrock Football Club', home:true },
+  { id:'972326', date:'2026-10-31', kickoff:'10:00', opponent:'FC Ränte', home:false },
+  { id:'972330', date:'2026-11-09', kickoff:'20:30', opponent:'FC Ristorante Da Carlo', home:true },
+  { id:'972331', date:'2026-11-12', kickoff:'19:00', opponent:'FIFA FOOTBALL CLUB', home:false },
+].map(match=>({...match,team:'FC Julius Bär',timezone:'Europe/Zurich'}));
+
+function isMatchDay(entry) { return !!entry?.match || getSessions(entry).includes('Match'); }
+function calendarDone(entry) { return !!entry?.completed && (!entry.match || getSessions(entry).includes('Match')); }
+function calendarStatus(entry) {
+  if(entry?.completed && !calendarDone(entry))return 'Training erledigt · Spielteilnahme offen';
+  return entry?.completed?'Erledigt':isMatchDay(entry)||getSessions(entry).length?'Geplant':'Erholung';
+}
+function matchVenue(match) { return match.home?'Zuhause':'Auswärts'; }
+function matchSummary(match) { return matchVenue(match)+' · '+match.kickoff+' Uhr · gegen '+match.opponent; }
+function entryDescription(entry) {
+  const label=sessionsLabel(entry)||'Ruhetag';
+  return entry?.match?label+' · '+matchSummary(entry.match)+(entry.completed&&!calendarDone(entry)?' · Training erledigt, Spielteilnahme nicht erfasst':''):label;
+}
+
+// One-time, immutable schedule import. Backups retain the original entries,
+// including overridden open training, notes and body values. Logged days are never rewritten.
+function applyMatchSchedule(plan) {
+  const next={...plan}, previousEntries={};
+  const fixtureDates=new Set(MATCH_SCHEDULE.map(m=>m.date));
+  const replace=(dk,entry)=>{if(!(dk in previousEntries))previousEntries[dk]=plan[dk]??null;next[dk]=entry;};
+  for (const [dk,entry] of Object.entries(plan)) {
+    const phase=phaseForDate(dk)?.name;
+    if(dk<MATCH_IMPORT_FROM||fixtureDates.has(dk)||entry.completed||entry.match||
+      !['Autumn Season','Spring Season'].includes(phase)||dow0(new Date(dk+'T12:00:00'))!==5)continue;
+    if(getSessions(entry).includes('Match'))replace(dk,{...entry,sessions:getSessions(entry).filter(s=>s!=='Match'),workout:''});
+  }
+  for (const match of MATCH_SCHEDULE) {
+    const entry=next[match.date]||{};
+    // Completed non-match training remains the actual log; the fixture is calendar context only.
+    replace(match.date,{...entry,
+      ...(!entry.completed?{sessions:['Match'],workout:'',completed:false}:{}),
+      match:{...match},
+    });
+  }
+  return {plan:next,previousEntries};
+}
+function migrateMatchSchedule(data) {
+  if(data.matchScheduleVersion===MATCH_SCHEDULE_VERSION)return data;
+  const result=applyMatchSchedule(data.plan);
+  return {...data,plan:result.plan,matchScheduleVersion:MATCH_SCHEDULE_VERSION,
+    matchScheduleBackup:{version:MATCH_SCHEDULE_VERSION,previousEntries:result.previousEntries}};
+}
+
+// Reviewed calendar, not a recurring rule: only 27 Sep–31 Dec 2026.
+// Two gym visits do not mean two hard lower-body sessions in congested weeks.
+const COACHED_PLAN_VERSION = 'autumn-winter-2026-v2';
+const COACHED_START = '2026-09-27';
+const COACHED_END = '2026-12-31';
+const COACHED_SESSIONS = {
+  rest: {sessions:[],title:'Trainingsfrei',text:'Erholung ist heute der Plan. Schlaf und regelmässige Mahlzeiten priorisieren; keine ausgefallenen Einheiten nachholen.'},
+  recover: {sessions:['Walking'],title:'Erholung nach dem Spiel',text:'Nur entspannt spazieren, wenn es dir guttut. Kein Futsal, keine Intervalle, kein schweres Beintraining. Bei Beschwerden lieber Ruhe und fachlich abklären lassen.'},
+  walk: {sessions:['Walking'],title:'Locker bewegen',text:'Entspannt spazieren. Kein zusätzlicher Trainingsreiz nötig; Krafttraining und Fussball haben Vorrang.'},
+  prehab: {sessions:['Mobility'],title:'Sanfte Prävention und Mobilität',text:'Nur vertraute, schmerzfreie Übungen mit geringer Belastung. Keine ermüdenden Kraftübungen oder neuen Reize kurz vor dem Spiel.'},
+  gym: {sessions:['Gym','Mobility'],title:'Ganzkörperkraft · kontrollierter Aufbau',text:'Vertraute Kniebeuge-/Ausfallschritt-, Hüftstreck-, Zug- und Druckbewegungen: je 2–3 saubere Sätze, 2–3 Wiederholungen Reserve. Danach dosierte Prävention. Bei Restmüdigkeit Beinumfang reduzieren; kein Muskelversagen.'},
+  upper: {sessions:['Gym','Mobility'],title:'Oberkörper & Rumpf · Beine entlasten',text:'Kurze Einheit mit kontrolliertem Ziehen, Drücken und Rumpfstabilität. Je 1–2 leichte bis moderate Sätze, mindestens 3 Wiederholungen Reserve. Keine schweren Beine, Sprünge oder Sprints; Prävention heute nur sanft.'},
+  primer: {sessions:['Gym','Mobility'],title:'Kurzer Gym-Termin · frisch bleiben',text:'Vor dem nächsten Spiel nur leichtes Oberkörper- und Rumpftraining: wenige vertraute Übungen, 1–2 leichte Sätze und viel Reserve. Prävention heute nur sanft. Keine Beinbelastung und kein Muskelkater provozieren. Bei Müdigkeit auslassen – die Zielzahl ist kein Zwang.'},
+  deload: {sessions:['Gym','Mobility'],title:'Entlastungswoche · halber Umfang',text:'Vertraute Ganzkörperübungen mit ungefähr halber üblicher Satzzahl, leichten Gewichten und viel Reserve. Keine Leistungssteigerung erzwingen. Prävention und Mobilität locker anschliessen.'},
+  team: {sessions:['Team Training'],title:'Mannschaftstraining · Qualität vor Zusatzlast',text:'Mit der Mannschaft trainieren, Schulterblick und Abstände bewusst üben. Keine zusätzlichen Konditionsblöcke danach; Belastung bei Restmüdigkeit mit dem Trainer abstimmen.'},
+  teamLight: {sessions:['Team Training'],title:'Mannschaftstraining · vor dem Spiel dosieren',text:'Morgen ist Spiel: mit dem Trainer eine kurze, technische/taktische Teilnahme vereinbaren. Keine harten Zweikämpfe, langen Spielformen oder Zusatzläufe. Das Teamprogramm nicht unverändert durchziehen, wenn es dich ermüdet.'},
+  match: {sessions:['Match'],title:'Spiel hat Priorität',text:'Kein zusätzliches Kraft- oder Konditionstraining heute. Vertraut aufwärmen, vor der Ballannahme orientieren und danach essen, trinken und Schlaf priorisieren.'},
+  futsal: {sessions:['Futsal'],title:'Zusätzliche Ballkontakte · dosiert',text:'Nur teilnehmen, wenn du dich vom letzten Training erholt hast. Qualität und schnelle Entscheidungen statt maximalem Umfang. Bei müden Beinen durch Spaziergang oder Ruhe ersetzen.'},
+  aerobic: {sessions:['Easy run'],title:'Lockere Ausdauerbasis',text:'Ruhig und im Gesprächstempo laufen, keine Intervalle oder Sprints. Nur so viel, dass du dich danach frisch fühlst. Bei müden Beinen spazieren statt laufen.'},
+};
+// Monday … Sunday; even rest days are explicit so old open sessions are removed.
+const COACHED_WEEKS = [
+  ['2026-09-28',['gym','walk','upper','teamLight','match','recover','rest']],
+  ['2026-10-05',['gym','futsal','rest','team','gym','prehab','rest']],
+  ['2026-10-12',['match','recover','upper','teamLight','match','recover','upper']],
+  ['2026-10-19',['walk','gym','rest','team','upper','prehab','rest']],
+  ['2026-10-26',['match','recover','upper','team','primer','match','recover']],
+  ['2026-11-02',['upper','walk','rest','team','gym','prehab','rest']],
+  ['2026-11-09',['match','recover','primer','match','recover','upper','rest']],
+  ['2026-11-16',['walk','deload','rest','deload','walk','aerobic','rest']],
+  ['2026-11-23',['gym','futsal','rest','gym','rest','aerobic','rest']],
+  ['2026-11-30',['gym','futsal','rest','gym','rest','aerobic','rest']],
+  ['2026-12-07',['gym','futsal','rest','gym','rest','aerobic','rest']],
+  ['2026-12-14',['deload','walk','rest','deload','rest','aerobic','rest']],
+  ['2026-12-21',['gym','walk','gym','rest','rest','aerobic','rest']],
+  ['2026-12-28',['gym','walk','gym','rest','rest','rest','rest']],
+];
+const COACHED_DAYS = { [COACHED_START]:'recover' };
+for(const [monday,slots] of COACHED_WEEKS)slots.forEach((slot,i)=>{
+  const dk=daysBeforeStr(monday,-i);
+  if(dk<=COACHED_END)COACHED_DAYS[dk]=slot;
+});
+function coachingFor(entry) {
+  const c=entry?.coaching;
+  return c&&typeof c.title==='string'&&typeof c.text==='string'&&
+    JSON.stringify(c.sessions)===JSON.stringify(getSessions(entry))?c:null;
+}
+function coachSessionDescription(entry) {
+  const guidance=coachingFor(entry);
+  return entryDescription(entry)+(guidance?' · Planhinweis: '+guidance.title+' — '+guidance.text:'');
+}
+function applyCoachedPlan(plan,from=COACHED_START) {
+  const next={...plan},previousEntries={};
+  for(const [dk,slot] of Object.entries(COACHED_DAYS)) {
+    if(dk<from)continue;
+    const entry=plan[dk]||{notes:'',feeling:null};
+    // Keep actual logs, illness/injury and any independently added games intact.
+    if(entry.completed||getSessions(entry).includes('Sick/Injured'))continue;
+    if(isMatchDay(entry)&&slot!=='match')continue;
+    const prescription=COACHED_SESSIONS[slot];
+    previousEntries[dk]=plan[dk]??null;
+    next[dk]={...entry,sessions:[...prescription.sessions],workout:'',completed:false,
+      coaching:{...prescription,sessions:[...prescription.sessions]}};
+  }
+  return {plan:next,previousEntries};
+}
+function migrateCoachedPlan(data,from=todayStr()) {
+  if(data.coachedPlanVersion===COACHED_PLAN_VERSION)return data;
+  const result=applyCoachedPlan(data.plan,from>COACHED_START?from:COACHED_START);
+  return {...data,plan:result.plan,coachedPlanVersion:COACHED_PLAN_VERSION,
+    coachedPlanBackup:{version:COACHED_PLAN_VERSION,
+      previousEntries:{...result.previousEntries,...(data.coachedPlanBackup?.previousEntries||{})}}};
+}
+
 
 function phaseForDate(dk) {
   for (const p of PHASES) if (dk>=p.start && dk<=p.end) return p;
@@ -61,9 +192,9 @@ function phaseForDate(dk) {
 const TEMPLATES = {
   'Off-Season':    [['Gym','Mobility'],'Futsal',['Gym','Mobility'],null,null,null,null],
   'Pre-Season':    [['Gym','Mobility'],'Futsal','Gym','Team Training','Mobility',null,null],
-  'Autumn Season': [['Gym','Mobility'],'Futsal',null,'Team Training','Mobility','Match',null],
+  'Autumn Season': [['Gym','Mobility'],'Futsal',null,'Team Training','Mobility',null,null],
   'Winter Break':  [['Gym','Mobility'],'Futsal',['Gym','Mobility'],null,null,null,null],
-  'Spring Season': [['Gym','Mobility'],'Futsal',null,'Team Training','Mobility','Match',null],
+  'Spring Season': [['Gym','Mobility'],'Futsal',null,'Team Training','Mobility',null,null],
   'Summer Break':  [null,null,null,null,null,null,null],
 };
 // Holiday overrides ([Mon…Sun]). Tuscany week 1: light Mobility every other day
@@ -94,7 +225,7 @@ function buildDefaultPlan() {
     }
     d.setDate(d.getDate()+1);
   }
-  return plan;
+  return applyCoachedPlan(applyMatchSchedule(plan).plan).plan;
 }
 
 // ─── Session types ──────────────────────────────────────────────────────────────
@@ -205,18 +336,18 @@ function sessionSubtitle(entry) {
 }
 
 
-// The next scheduled non-rest session strictly after today, for the "Next up" line.
-function nextUp(plan) {
-  const d=new Date(); d.setHours(0,0,0,0);
+// The next scheduled non-rest session after the date being viewed.
+function nextUp(plan,from=todayStr()) {
+  const d=new Date(from+'T12:00:00');
   for (let i=1;i<=120;i++) {
     d.setDate(d.getDate()+1);
     const dk=dateKey(d);
-    if (getSessions(plan[dk]).length>0) {
+    if (getSessions(plan[dk]).length>0||plan[dk]?.match) {
       const day=new Date(dk+"T00:00:00");
       const when=i===1?'morgen'
         :i<=6?day.toLocaleDateString('de-CH',{weekday:'long'})
         :day.toLocaleDateString('de-CH',{month:'short',day:'numeric'});
-      return { label:sessionsLabel(plan[dk]), when };
+      return { label:plan[dk].match?"Spiel gegen "+plan[dk].match.opponent:sessionsLabel(plan[dk]), when:plan[dk].match?when+" · "+matchVenue(plan[dk].match)+" · "+plan[dk].match.kickoff+" Uhr":when };
     }
   }
   return null;
@@ -467,6 +598,28 @@ progress::-webkit-progress-bar{background:#344858}progress::-webkit-progress-val
 @keyframes slideRight{from{opacity:.3;transform:translateX(-16px)}to{opacity:1;transform:translateX(0)}}
 @media(max-width:360px){.view{padding-left:14px;padding-right:14px}.session-card{padding:20px 16px}.log-circle{width:68px;height:68px}.session-actions>div{gap:2px;flex-direction:column}.sheet{padding-left:14px;padding-right:14px}.feeling-row>div{gap:3px}}
 
+/* Confirmed games: warm gold, ball + H/A markers, not colour alone. */
+.match-card{border-color:#9F8358;background:linear-gradient(135deg,#30302A,#1C2937)}
+.fixture-detail{border-bottom:1px solid #76664D;padding-bottom:18px;margin-top:16px}
+.fixture-meta{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#F0CF95}
+.fixture-meta>strong{font-size:18px;font-variant-numeric:tabular-nums}
+.match-badge{display:inline-block;color:#F0CF95;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;line-height:1.5}
+.fixture-detail h3{font-size:22px;line-height:1.3;margin:12px 0 6px;overflow-wrap:anywhere}
+.fixture-detail p,.fixture-sheet-note{font-size:12px;line-height:1.6;color:#C7BDAB}
+.fixture-sheet-note{padding:12px;border:1px solid #9F8358;border-radius:12px;margin-bottom:12px}
+.day-chip.match-day:not([aria-pressed=true]){border-color:#9F8358;color:#F0CF95;background:#2C2D29}
+.week-row.match-row{border:1px solid #9F8358;border-left:3px solid #E4C18D;border-radius:16px;background:linear-gradient(110deg,#32322B,#1C2937);padding:8px 10px;margin:8px 0}
+.match-row .date-tile,.match-row .session-marks{color:#F0CF95}.match-row .match-badge{margin-bottom:5px}.fixture-existing{display:block;font-size:11px;color:#A5B8C8;margin-top:4px}
+.calendar button.match-day{background:#403B2D;border:1px solid #D7B580;color:#FFE4B4;gap:4px;min-height:77px}
+.calendar button.match-day.done{background:#403B2D}.calendar button.match-day.today{outline:2px solid #B3DCE2}
+.calendar-ball{font-size:16px;line-height:1.2}.calendar-kickoff{font-size:9px;font-weight:600;white-space:nowrap;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.match-legend{color:#F0CF95}.fixture-list-item{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:16px 12px;margin-top:10px;border:1px solid #806E50;border-left:3px solid #E4C18D;border-radius:16px;background:#282D2E}
+.plan-guidance{border-left:2px solid #9CCBD3;padding:2px 0 2px 12px;margin:16px 0 20px}.plan-guidance strong{display:block;font-size:13px;line-height:1.5;color:#B3DCE2}.plan-guidance p{font-size:12px;line-height:1.6;color:#A5B8C8;margin:6px 0 0}.week-plan-focus{display:block;font-size:11px;line-height:1.5;color:#B3DCE2;margin-top:5px}
+.fixture-list-date{flex-shrink:0;width:32px;text-align:center;font-size:10px;color:#F0CF95}.fixture-list-date strong{display:block;font-size:22px;font-weight:500;margin-top:3px}
+.fixture-list-item>span:nth-child(2){flex:1;min-width:0}.fixture-list-item>span:nth-child(2)>strong{font-size:14px;font-weight:500;overflow-wrap:anywhere;display:block;line-height:1.4}
+.fixture-list-item small{display:block;font-size:12px;color:#C7BDAB;margin-top:5px}.fixture-list-item>svg{flex-shrink:0;color:#F0CF95}
+@media(max-width:360px){.calendar-kickoff{font-size:8px}.week-row.match-row{padding-left:4px;padding-right:2px}.match-row .week-open{gap:8px}.fixture-detail h3{font-size:20px}}
+
 `;
 
 // ─── Small chrome ────────────────────────────────────────────────────────────────
@@ -602,6 +755,7 @@ const SHEET_MAX = 2;
 function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
   const [otherMode,setOtherMode]=useState(false), [otherText,setOtherText]=useState("");
   const [selected,setSelected]=useState(()=>getSessions(entry).slice(0,SHEET_MAX));
+  const fixedMatch=!!entry.match&&getSessions(entry).includes("Match");
   const dialog=useRef(null), closeRef=useRef(onClose);
   closeRef.current=onClose;
   useEffect(()=>{
@@ -621,8 +775,9 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
   const toggle=label=>setSelected(sel=>sel.includes(label)?sel.filter(s=>s!==label):sel.length<SHEET_MAX?[...sel,label]:sel);
   const save=()=>{
     if(otherMode&&!otherText.trim())return;
+    if(fixedMatch&&(otherMode||!selected.includes("Match")))return;
     const sessions=otherMode?["⋯ "+otherText.trim()]:selected;
-    updDay(dk,{sessions,workout:"",...(!sessions.length?{completed:false,feeling:null}:{})});
+    updDay(dk,{sessions,workout:"",...(JSON.stringify(sessions)!==JSON.stringify(getSessions(entry))?{coaching:null}:{}),...(!sessions.length?{completed:false,feeling:null}:{})});
     closeRef.current();
   };
   const options=[...ALTS,...selected.filter(s=>!ALTS.some(a=>a.label===s)).map(label=>({label}))];
@@ -632,17 +787,18 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
       <div className="sheet-handle"/>
       <div className="sheet-heading"><div><div className="eyebrow">{shortDate(dk)} · Dein Plan</div>
         <h2 id="sheet-title">Was steht an?</h2></div><button className="icon-btn" onClick={onClose} aria-label="Schließen"><Icon name="close"/></button></div>
+      {entry.match&&<p className="fixture-sheet-note">⚽ {matchSummary(entry.match)}<br/>Der Spieltermin bleibt an diesem Datum und wird nicht mit Trainingstagen getauscht.</p>}
       {otherMode?<div><label htmlFor="custom-session" className="helper-text">Deine eigene Einheit</label>
         <input id="custom-session" className="modal-input" autoFocus value={otherText} maxLength={100} onChange={e=>setOtherText(e.target.value)}
           placeholder="Zum Beispiel Schwimmen, Physio …" onKeyDown={e=>{if(e.key==="Enter")save();}}/>
         <button className="text-btn" onClick={()=>setOtherMode(false)}>← Zur Auswahl</button></div>
       :<><p className="helper-text">Bis zu zwei Einheiten. Speichern ändert nur den Plan. Über FERTIG trägst du das absolvierte Training ein.</p>
         <div className="sheet-grid">{options.map(opt=><button key={opt.label} className="session-option" onClick={()=>toggle(opt.label)}
-          aria-pressed={selected.includes(opt.label)} disabled={!selected.includes(opt.label)&&selected.length>=SHEET_MAX}>
+          aria-pressed={selected.includes(opt.label)} disabled={(fixedMatch&&opt.label==="Match")||(!selected.includes(opt.label)&&selected.length>=SHEET_MAX)}>
           <Icon name={opt.label} size={25}/><span>{displayName(opt.label)}</span>{selected.includes(opt.label)&&<span className="option-check">✓</span>}
         </button>)}</div>
-        <div className="sheet-footer"><button className="secondary" onClick={()=>setOtherMode(true)}>Andere Einheit</button>
-          <button className="secondary" aria-pressed={selected.length===0} onClick={()=>setSelected([])}>Ruhetag</button></div>
+        <div className="sheet-footer"><button className="secondary" disabled={fixedMatch} onClick={()=>setOtherMode(true)}>Andere Einheit</button>
+          <button className="secondary" disabled={fixedMatch} aria-pressed={selected.length===0} onClick={()=>setSelected([])}>Ruhetag</button></div>
       </>}
       <button className="primary" style={{width:"100%",marginTop:16}} onClick={save} disabled={otherMode&&!otherText.trim()}>
         Speichern{!otherMode&&!selected.length?" · Ruhetag":""}
@@ -654,10 +810,10 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
 // ─── Weekly targets ──────────────────────────────────────────────────────────────
 // Priority session types for the current phase (Gym + Mobility, 2×/week each).
 // Each session in a day's array counts once toward its own target — no double count.
-function WeeklyTargets({plan}) {
-  const today=todayStr(),phase=phaseForDate(today),days=weekOf(0);
+function WeeklyTargets({plan,date=todayStr()}) {
+  const phase=phaseForDate(date),days=weekAround(date);
   const targets=phase?PHASE_TARGETS[phase.name]:null;
-  if(isHoliday(today)||!targets||!Object.keys(targets).length)return null;
+  if(isHoliday(date)||!targets||!Object.keys(targets).length)return null;
   const counts={};
   days.forEach(dk=>{if(plan[dk]?.completed)new Set(getSessions(plan[dk])).forEach(s=>{counts[s]=(counts[s]||0)+1;});});
   return <section aria-label="Wochenziele">
@@ -703,7 +859,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
   useEffect(()=>{setNotesOpen(false);setConfirmUnlog(false);setSheetOpen(false);},[viewKey]);
   const navDay=delta=>{setDirection(delta);setDayOff(o=>o+delta);};
   const swipe=useSwipe(()=>navDay(1),()=>navDay(-1));
-  const sessions=getSessions(e), next=nextUp(plan);
+  const sessions=getSessions(e), next=nextUp(plan,viewKey), match=e.match, guidance=coachingFor(e);
   const go=dk=>{setDirection(dk>viewKey?1:-1);setDayOff(daysUntil(dk));};
   return <div className="view" {...swipe}>
     <div className="range-nav">
@@ -713,18 +869,24 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
       <NavArrow dir="right" onClick={()=>navDay(1)}/>
     </div>
     <div className="day-strip" aria-label="Tag auswählen">
-      {weekAround(viewKey).map((dk,i)=><button key={dk} className="day-chip" aria-pressed={dk===viewKey}
-        aria-label={shortDate(dk)+(plan[dk]?.completed?" · erledigt":"")} onClick={()=>go(dk)}>
+      {weekAround(viewKey).map((dk,i)=><button key={dk} className={"day-chip"+(isMatchDay(plan[dk])?" match-day":"")} aria-pressed={dk===viewKey}
+        aria-label={shortDate(dk)+(plan[dk]?.match?" · "+entryDescription(plan[dk]):"")+(calendarDone(plan[dk])?" · erledigt":"")} onClick={()=>go(dk)}>
         <small>{DN[i]}</small><strong>{Number(dk.slice(-2))}</strong>
-        <span className="day-marker">{plan[dk]?.completed?"✓":getSessions(plan[dk]).length?"·":" "}</span>
+        <span className="day-marker">{calendarDone(plan[dk])?"✓":isMatchDay(plan[dk])?"⚽":getSessions(plan[dk]).length?"·":" "}</span>
       </button>)}
     </div>
-    <section key={"session-"+viewKey} className="panel session-card" aria-label="Training"
+    <section key={"session-"+viewKey} className={"panel session-card"+(isMatchDay(e)?" match-card":"")} aria-label="Training"
       style={{animation:direction>0?"slideLeft .22s ease-out":"slideRight .22s ease-out"}}>
       <div className="session-top"><span className="eyebrow">{e.completed?"Training erledigt":sessions.length?"Dein Training":"Zeit zum Auftanken"}</span>
         <div className="session-art">{sessions.length?sessions.map(s=><Icon key={s} name={s} size={28}/>):<Icon name="rest" size={28}/>}</div></div>
+      {match&&<div className="fixture-detail" aria-label="Spieltermin">
+        <div className="fixture-meta"><span className="match-badge">{match.home?'Heimspiel':'Auswärtsspiel'}</span><strong>{match.kickoff} Uhr</strong></div>
+        <h3>Gegen {match.opponent}</h3><p>FC Julius Bär · {shortDate(match.date)} · Zeit in der Schweiz</p>
+        {e.completed&&!sessions.includes('Match')&&<p>Spieltermin laut Spielplan. Dein bereits abgeschlossenes Training bleibt unverändert.</p>}
+      </div>}
       <h2>{sessions.length?sessions.map((s,i)=><span key={s}>{i>0&&<><br/><span style={{fontWeight:300,color:C.muted}}>+ </span></>}{displayName(s)}</span>):"Ruhetag"}</h2>
       <p className="session-subtitle">{sessionSubtitle(e)}</p>
+      {guidance&&<aside className="plan-guidance" aria-label="Planhinweis"><strong>{guidance.title}</strong><p>{guidance.text}</p></aside>}
       <div className="session-actions">
         <div><button className="text-btn" onClick={()=>setSheetOpen(true)}><Icon name="edit" size={16}/> Ändern</button>
           <button className="text-btn" onClick={()=>setNotesOpen(o=>!o)} aria-expanded={notesOpen}><Icon name="note" size={16}/> {e.notes?"Notiz":"Notiz hinzufügen"}</button></div>
@@ -748,7 +910,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
       {sessions.length>0&&<details className="session-details"><summary>Hinweise zur Einheit</summary>
         {sessions.map(s=><TipCard key={s} workout={s}/>)}</details>}
     </section>
-    <WeeklyTargets plan={plan}/>
+    <WeeklyTargets plan={plan} date={viewKey}/>
     {next&&<div className="next-line"><span>Als Nächstes</span><strong>{next.label}</strong><span>{next.when}</span></div>}
     <TacticalCard dk={viewKey}/>
     <button className="coach-entry" onClick={onOpenCoach}><Icon name="coach" size={20}/><span>Frag deinen Trainer</span><Icon name="arrow" size={18}/></button>
@@ -770,6 +932,7 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
   const swipe=useSwipe(()=>nav(1),()=>nav(-1));
   const pick=dk=>{
     if(!swapFrom){onGoToDay(dk);return;}
+    if(plan[dk]?.match){setSwapFrom(null);return;}
     if(swapFrom!==dk){onSwapDays(swapFrom,dk);setFlashed([swapFrom,dk]);clearTimeout(timer.current);timer.current=setTimeout(()=>setFlashed([]),1800);}
     setSwapFrom(null);
   };
@@ -782,20 +945,25 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
     {swapFrom&&<div className="swap-banner" role="status"><span>Zweiten Tag zum Tauschen wählen.</span><button className="text-btn" onClick={()=>setSwapFrom(null)}>Abbrechen</button></div>}
     {flashed.length>0&&<p role="status" style={{color:C.accent,fontSize:13}}>✓ Einheiten getauscht. Notizen und Einträge bleiben beim Datum.</p>}
     <div key={wkOff} style={{animation:direction>0?"slideLeft .22s ease-out":"slideRight .22s ease-out"}}>
-      {days.map((dk,i)=>{const e=plan[dk]||{};return <div className="week-row" key={dk}
+      {days.map((dk,i)=>{const e=plan[dk]||{};return <div className={"week-row"+(isMatchDay(e)?" match-row":"")} key={dk}
         style={{borderColor:swapFrom===dk||flashed.includes(dk)?C.accent:undefined}}>
-        <button className="week-open" onClick={()=>pick(dk)} aria-label={shortDate(dk)+" · "+(sessionsLabel(e)||"Ruhetag")+(e.completed?" · erledigt":"")}>
+        <button className="week-open" disabled={!!swapFrom&&!!e.match} onClick={()=>pick(dk)} aria-label={shortDate(dk)+" · "+entryDescription(e)+(calendarDone(e)?" · erledigt":"")}>
           <span className={"date-tile"+(dk===today?" current":"")}><small>{DN[i]}</small><strong>{Number(dk.slice(-2))}</strong></span>
-          <span className="week-info"><strong>{sessionsLabel(e)||"Ruhetag"}</strong><small><SessionMarks entry={e}/>{e.completed?"Erledigt":getSessions(e).length?"Geplant":"Erholung"}</small></span>
-          {e.completed&&<span style={{color:C.accent}}><Chk size={16} color={C.accent}/></span>}
+          <span className="week-info">
+            {isMatchDay(e)&&<span className="match-badge">{e.match?(e.match.home?"Heimspiel":"Auswärtsspiel"):"Spieltag"}{e.match?" · "+e.match.kickoff+" Uhr":""}</span>}
+            <strong>{e.match?"Gegen "+e.match.opponent:sessionsLabel(e)||"Ruhetag"}</strong>
+            {e.match&&getSessions(e).some(s=>s!=="Match")&&<span className="fixture-existing">{sessionsLabel(e)}</span>}
+            {coachingFor(e)&&<span className="week-plan-focus">{coachingFor(e).title}</span>}
+            <small><SessionMarks entry={e}/>{calendarStatus(e)}</small></span>
+          {calendarDone(e)&&<span style={{color:C.accent}}><Chk size={16} color={C.accent}/></span>}
         </button>
         <div className="week-controls">
-          <button className="icon-btn" aria-label={"Einheiten tauschen: "+shortDate(dk)} aria-pressed={swapFrom===dk} onClick={()=>setSwapFrom(swapFrom===dk?null:dk)}><Icon name="swap" size={17}/></button>
+          <button className="icon-btn" aria-label={"Einheiten tauschen: "+shortDate(dk)} disabled={!!e.match} title={e.match?"Spieltermin steht fest":undefined} aria-pressed={swapFrom===dk} onClick={()=>setSwapFrom(swapFrom===dk?null:dk)}><Icon name="swap" size={17}/></button>
           <button className="icon-btn" aria-label={"Training ändern: "+shortDate(dk)} onClick={()=>{setSwapFrom(null);setSheetDk(dk);}}><Icon name="edit" size={17}/></button>
         </div>
       </div>;})}
     </div>
-    <p className="helper-text">Tag öffnen, um Training einzutragen. Über ⇅ kannst du zwei Trainingstage tauschen.</p>
+    <p className="helper-text">Tag öffnen, um Training einzutragen. Über ⇅ kannst du zwei Trainingstage tauschen. Eingetragene Spieltermine bleiben fix.</p>
     {sheetDk&&<WorkoutSheet dateKey={sheetDk} entry={plan[sheetDk]||{}} updDay={updDay} onClose={()=>setSheetDk(null)}/>}
   </div>;
 }
@@ -818,14 +986,24 @@ function MonthView({today,plan,moOff,setMoOff,onGoToDay}) {
       <div key={moOff} className="calendar" style={{animation:direction>0?"slideLeft .22s ease-out":"slideRight .22s ease-out"}}>
         {DN.map((d,i)=><span className="calendar-label" key={i}>{d}</span>)}
         {days.map((dk,i)=>{if(!dk)return <span key={"empty"+i}/>;const e=plan[dk]||{}, has=getSessions(e).length>0;
-          return <button key={dk} className={(has?"planned ":"")+(e.completed?"done ":"")+(dk===today?"today":"")}
-            onClick={()=>onGoToDay(dk)} title={shortDate(dk)+" · "+(sessionsLabel(e)||"Ruhetag")}
-            aria-label={shortDate(dk)+" · "+(sessionsLabel(e)||"Ruhetag")+(e.completed?" · erledigt":"")}>
-            <span>{Number(dk.slice(-2))}</span><SessionMarks entry={e} size={13}/>{e.completed&&<span className="done-dot">✓</span>}
+          return <button key={dk} className={(has?"planned ":"")+(calendarDone(e)?"done ":"")+(dk===today?"today ":"")+(isMatchDay(e)?"match-day":"")}
+            onClick={()=>onGoToDay(dk)} title={shortDate(dk)+" · "+entryDescription(e)}
+            aria-label={shortDate(dk)+" · "+entryDescription(e)+(calendarDone(e)?" · erledigt":"")}>
+            <span>{Number(dk.slice(-2))}</span>
+            {isMatchDay(e)?<span className="calendar-ball" aria-hidden="true">⚽</span>:<SessionMarks entry={e} size={13}/>}
+            {e.match&&<small className="calendar-kickoff">{e.match.home?"H":"A"} {e.match.kickoff}</small>}
+            {calendarDone(e)&&<span className="done-dot">✓</span>}
           </button>;})}
       </div>
     </section>
-    <div className="legend"><span>✓ Erledigt</span><span>Symbol: geplant</span><span>Hell umrandet: heute</span></div>
+    <div className="legend"><span className="match-legend">⚽ Spieltag</span><span>H: Zuhause · A: Auswärts</span><span>✓ Erledigt</span><span>Hell umrandet: heute</span></div>
+    {real.some(dk=>plan[dk]?.match)&&<section aria-label="Spiele in diesem Monat">
+      <div className="section-heading"><h2>Deine Spiele</h2><span>FC Julius Bär</span></div>
+      {real.filter(dk=>plan[dk]?.match).map(dk=>{const match=plan[dk].match;return <button className="fixture-list-item" key={dk} onClick={()=>onGoToDay(dk)}>
+        <span className="fixture-list-date">{new Date(dk+"T12:00:00").toLocaleDateString("de-CH",{weekday:"short"})}<strong>{Number(dk.slice(-2))}</strong></span>
+        <span><strong>{match.opponent}</strong><small>{matchVenue(match)} · {match.kickoff} Uhr</small></span><Icon name="arrow" size={17}/>
+      </button>;})}
+    </section>}
     <p className="helper-text">Ein Tag, dein Plan. Tippe auf ein Datum für Training, Notizen und Einträge.</p>
   </div>;
 }
@@ -976,7 +1154,7 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
     const cut=daysBeforeStr(today,14);
     const completed=Object.keys(plan).filter(dk=>getSessions(plan[dk]).length>0&&plan[dk].completed).sort();
     const recentSessions=completed.filter(dk=>dk>=cut&&dk<=today).map(dk=>({
-      date:dk, workout:sessionsLabel(plan[dk]),
+      date:dk, workout:coachSessionDescription(plan[dk]),
       feeling:feelingLabel(plan[dk].feeling), notes:plan[dk].notes?.trim()||null,
     }));
     const wk=weekOf(0);
@@ -989,7 +1167,7 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
       playerName:playerName?.trim()||null,
       phase:curPhase?{name:phaseLabel(curPhase.name),description:curPhase.description}:null,
       nextPhase:next?phaseLabel(next.name):null, daysToNextPhase,
-      today:{date:viewKey,label:`${dayName}, ${dayFull}`,workout:sessionsLabel(e)||"Ruhetag",
+      today:{date:viewKey,label:`${dayName}, ${dayFull}`,workout:coachSessionDescription(e),
         completed:!!e.completed,feeling:feelingLabel(e.feeling)},
       recentSessions, week, tactical:tacticalFor(viewKey),
     };
@@ -1108,11 +1286,12 @@ export default function App() {
         if(stored){
           const d=JSON.parse(stored);
           if(!d||typeof d!=="object"||!d.plan||Array.isArray(d.plan)||typeof d.plan!=="object")throw Error("invalid");
-          const {playerName:name,plan:savedPlan,...extras}=d;
+          const updated=migrateCoachedPlan(migrateMatchSchedule(d));
+          const {playerName:name,plan:savedPlan,...extras}=updated;
           storedExtras.current=extras;
           setPlayerName(typeof name==="string"?name:"");setPlan(savedPlan);setScreen(name?"main":"setup");
-          if(previous)localStorage.setItem(SK,JSON.stringify({...extras,playerName:name||"",plan:savedPlan}));
-        }else{setPlan(buildDefaultPlan());setScreen("setup");}
+          if(previous||updated!==d)localStorage.setItem(SK,JSON.stringify({...extras,playerName:name||"",plan:savedPlan}));
+        }else{storedExtras.current={matchScheduleVersion:MATCH_SCHEDULE_VERSION,coachedPlanVersion:COACHED_PLAN_VERSION};setPlan(buildDefaultPlan());setScreen("setup");}
       }catch{setLoadError(true);}
       setLoading(false);
     })();
@@ -1139,7 +1318,8 @@ export default function App() {
   };
   // Swap only sessions. Logs, notes, body values and archived check-ins stay dated.
   const swapDays=(a,b)=>{
-    const np={...plan,[a]:{...plan[a],sessions:getSessions(plan[b]),workout:""},[b]:{...plan[b],sessions:getSessions(plan[a]),workout:""}};
+    if(plan[a]?.match||plan[b]?.match)return;
+    const np={...plan,[a]:{...plan[a],sessions:getSessions(plan[b]),workout:"",coaching:null},[b]:{...plan[b],sessions:getSessions(plan[a]),workout:"",coaching:null}};
     setPlan(np);save(np);
   };
   const goToDay=dk=>{setDayOff(daysUntil(dk)??0);setView("today");window.scrollTo(0,0);};
