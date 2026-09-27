@@ -10,7 +10,7 @@ const bodyHelpers=source.slice(source.indexOf('function bodyCompReadings'),sourc
 const FixedDate=class extends Date {
   constructor(...args){super(...(args.length?args:['2026-10-24T12:00:00+02:00']));}
 };
-const api=vm.runInNewContext(helpers+'\n'+bodyHelpers+'\n({SK,buildDefaultPlan,getSessions,displayName,daysUntil,weekIndexFor,tacticalFor,bodyCompReadings,rollingSeries,PHASE_TARGETS})',{Date:FixedDate});
+const api=vm.runInNewContext(helpers+'\n'+bodyHelpers+'\n({SK,buildDefaultPlan,getSessions,displayName,daysUntil,weekIndexFor,tacticalFor,bodyCompReadings,rollingSeries,PHASE_TARGETS,sessionSubtitle,TIPS,ALTS,TACTICAL_PROMPTS,FEELINGS,MILESTONES})',{Date:FixedDate});
 const plain=value=>JSON.parse(JSON.stringify(value));
 
 test('date-reset siblings in TodayView have distinct keys on every day',()=>{
@@ -38,9 +38,42 @@ test('redesign keeps the storage key, templates and legacy session IDs',()=>{
   assert.equal(plan['2026-07-12'],undefined);
   assert.equal(plan['2027-07-05'],undefined);
   assert.deepEqual(plain(api.getSessions({workout:'Futsal',completed:true})),['Futsal']);
-  assert.equal(api.displayName('Futsal'),'Pickup/Futsal');
-  assert.equal(api.displayName('Mobility'),'Prehab/Rehab');
-  assert.equal(api.PHASE_TARGETS['Autumn Season'].Gym,1);
+  assert.equal(api.displayName('Futsal'),'Freizeitkick/Futsal');
+  assert.equal(api.displayName('Mobility'),'Prävention/Reha');
+  assert.equal(api.displayName('Gym'),'Krafttraining');
+  assert.equal(api.displayName('⋯ My own session'),'⋯ My own session');
+  for(const [phase,targets] of Object.entries(api.PHASE_TARGETS)){
+    if(phase==='Summer Break')assert.deepEqual(plain(targets),{});
+    else assert.equal(targets.Gym,2,phase+' gym goal');
+  }
+});
+
+test('every session type has distinct German planned and completed card copy',()=>{
+  const planned=new Set(),done=new Set();
+  for(const {label} of api.ALTS){
+    assert.ok(api.TIPS[label]?.summary,label+' summary');
+    assert.ok(api.TIPS[label]?.done,label+' completion summary');
+    const entry={sessions:[label],completed:false};
+    const before=api.sessionSubtitle(entry),after=api.sessionSubtitle({...entry,completed:true});
+    assert.notEqual(before,after);planned.add(before);done.add(after);
+    assert.equal(api.sessionSubtitle({workout:label}),before,'legacy model');
+  }
+  assert.equal(planned.size,api.ALTS.length);assert.equal(done.size,api.ALTS.length);
+  const combo={sessions:['Gym','Mobility']};
+  assert.match(api.sessionSubtitle(combo),/Kraft aufbauen.*stabilisieren.*Mobilität/);
+  assert.equal(api.sessionSubtitle(combo),api.sessionSubtitle({sessions:['Mobility','Gym']}));
+  assert.equal(api.sessionSubtitle({sessions:['Match','Walking']}),api.TIPS.Match.summary+' '+api.TIPS.Walking.summary);
+  assert.match(api.sessionSubtitle({sessions:['⋯ Schwimmen']}),/Schwimmen/);
+  assert.equal(api.sessionSubtitle({sessions:[]}),'Erholung gehört zum Training.');
+  assert.deepEqual(combo,{sessions:['Gym','Mobility']},'no plan mutation');
+});
+
+test('English built-in copy is replaced; coach is explicitly instructed to answer in German',()=>{
+  const copy=JSON.stringify([api.TIPS,api.TACTICAL_PROMPTS,api.FEELINGS.map(f=>f.label),api.MILESTONES.map(m=>[m.title,m.message])]);
+  assert.doesNotMatch(copy,/Defensive shape|First session logged|Drained|Game day|How should|On fire/);
+  assert.doesNotMatch(source,/>LOG<|>Rest day<|\["journey","Journey"\]|Dein Plan steht\. Mach ihn/);
+  const coach=readFileSync(new URL('../api/coach.js',import.meta.url),'utf8');
+  assert.match(coach,/Always respond in German/);
 });
 
 test('calendar navigation counts dates rather than DST-dependent hours',()=>{

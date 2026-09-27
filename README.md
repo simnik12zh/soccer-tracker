@@ -22,7 +22,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 ## Architecture
 
 - **`src/App.jsx`** — entire UI in one file by design. Four bottom-tab views (Heute / Woche /
-  Monat / Journey), a full-screen Coach chat, and a setup/settings screen. Midnight & Ice
+  Monat / Entwicklung), a full-screen Coach chat, and a setup/settings screen. Midnight & Ice
   dark palette in `C`; shared responsive styles in `UI_CSS`, inline SVG icons, reduced-motion
   support and a keyboard-accessible session sheet. No extra UI dependencies.
   The season plan is generated from hard-coded `PHASES` +
@@ -42,10 +42,15 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   A day holds one or two session
   types in `sessions` (e.g. `['Gym','Mobility']`); legacy entries with a single `workout`
   string are still read transparently via `getSessions`. Sessions are done or not done — no
-  distance/duration tracking. Session editing only saves the plan; the LOG circle logs it.
+  distance/duration tracking. Session editing only saves the plan; the FERTIG circle logs it.
   Swaps move session lists only, retaining each day's notes, completion and body values.
-  Gym and Mobility targets vary by phase (`PHASE_TARGETS`) and appear under Wochenziele.
-  Internal `Futsal` and `Mobility` IDs still display as Pickup/Futsal and Prehab/Rehab.
+  Gym and Mobility targets are both 2×/week in every active phase (`PHASE_TARGETS`).
+  Holidays and the summer break stay exempt; existing calendars are not rescheduled.
+  Display labels and built-in copy are German. Internal IDs remain unchanged (e.g. `Gym`
+  → Krafttraining, `Futsal` → Freizeitkick/Futsal, `Mobility` → Prävention/Reha).
+  Session-specific card summaries cover both planned and completed days and two-session
+  combinations. New coach replies are instructed to be German; existing notes and chats
+  are preserved verbatim. The Soccer Tracker brand name is unchanged.
   Per-day coach chats live under
   `coach-YYYY-MM-DD`; one-time milestone flags under `milestone-<id>`.
 

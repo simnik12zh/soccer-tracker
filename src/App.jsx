@@ -34,17 +34,17 @@ function daysBeforeStr(dateStr, n) {
 // ─── Season phases ──────────────────────────────────────────────────────────────
 const PHASES = [
   { name:'Off-Season',   start:'2026-06-29', end:'2026-08-05',
-    description:'Gym consistency and body composition. Build the athletic base. Two gym sessions per week minimum.', color:'#9CCBD3' },
+    description:"Regelmässiges Krafttraining und Körperentwicklung. Baue deine athletische Basis auf – mindestens zwei Krafteinheiten pro Woche.", color:'#9CCBD3' },
   { name:'Pre-Season',   start:'2026-08-06', end:'2026-09-06',
-    description:'Conditioning ramp-up. Team training resumes. Stay sharp and arrive fit.', color:'#9CCBD3' },
+    description:"Steigere deine Kondition. Das Mannschaftstraining beginnt wieder. Bleib aufmerksam und starte fit in die Saison.", color:'#9CCBD3' },
   { name:'Autumn Season',start:'2026-09-07', end:'2026-11-15',
-    description:'Perform. Recover. Maintain fitness. Matches on Saturdays — manage your load around them.', color:'#9CCBD3' },
+    description:"Leistung bringen, erholen, fit bleiben. Die Spiele sind samstags – stimme deine Belastung darauf ab.", color:'#9CCBD3' },
   { name:'Winter Break', start:'2026-11-16', end:'2027-04-04',
-    description:'Prime body composition window. Gym consistency block. Build strength for spring.', color:'#9CCBD3' },
+    description:"Nutze die Pause für deine Körperentwicklung. Trainiere regelmässig Kraft und schaffe die Grundlage für den Frühling.", color:'#9CCBD3' },
   { name:'Spring Season',start:'2027-04-05', end:'2027-06-30',
-    description:'Perform. Maintain. Manage load. Finish the season strong.', color:'#9CCBD3' },
+    description:"Leistung bringen, Fitness erhalten und Belastung steuern. Beende die Saison stark.", color:'#9CCBD3' },
   { name:'Summer Break', start:'2027-07-01', end:'2027-08-05',
-    description:'Rest. Recover. Recharge. You earned it.', color:'#9CCBD3' },
+    description:"Ausruhen, erholen, neue Energie tanken. Du hast es dir verdient.", color:'#9CCBD3' },
 ];
 const SEASON_START = '2026-06-29';
 const SEASON_END = '2027-08-05';
@@ -99,25 +99,47 @@ function buildDefaultPlan() {
 
 // ─── Session types ──────────────────────────────────────────────────────────────
 const TIPS = {
-  'Match': { emoji:'⚽', label:'Match day', color:'#9CCBD3',
-    text:'Game day. Arrive early, warm up properly. Focus on scanning before every touch — decide before you receive. Defend with your brain first.' },
-  'Team Training': { emoji:'👥', label:'Team session', color:'#9CCBD3',
-    text:'Team session. Work on your positioning and communication. Practice scanning constantly — build the habit in training so it\'s automatic in matches.' },
-  'Futsal': { emoji:'⚽', label:'Pickup/Futsal', color:'#9CCBD3',
-    text:'Fast game, small spaces. Perfect for sharpening your first touch and decision speed. Focus on quick scanning before receiving.' },
-  'Gym': { emoji:'🏋️', label:'Gym session', color:'#9CCBD3',
-    text:'Full body strength work. Include glute med activation and hip stability in your warm-up. Consistency here is what separates you from where you want to be.' },
+  'Match': { emoji:'⚽', label:'Spieltag', color:'#9CCBD3',
+    summary:'Kopf hoch, Schulterblick, klare Entscheidungen – heute zählt es auf dem Platz.',
+    done:'Spiel absolviert. Halte deine wichtigsten Entscheidungen und Lernmomente fest.',
+    text:'Spieltag. Sei früh da und wärme dich gründlich auf. Orientiere dich vor jedem Ballkontakt – entscheide, bevor du den Ball bekommst. Verteidige zuerst mit dem Kopf.' },
+  'Team Training': { emoji:'👥', label:'Mannschaftstraining', color:'#9CCBD3',
+    summary:'Abstände, Abstimmung und Orientierung: Schärfe dein Zusammenspiel mit der Mannschaft.',
+    done:'Gemeinsam trainiert. Nimm gute Absprachen und klare Laufwege mit ins nächste Spiel.',
+    text:'Arbeite an deinem Stellungsspiel und deiner Kommunikation. Übe den Schulterblick konsequent, damit du dich auch im Spiel vor der Ballannahme automatisch orientierst.' },
+  'Futsal': { emoji:'⚽', label:'Freizeitkick/Futsal', color:'#9CCBD3',
+    summary:'Zusätzliche Ballkontakte, enge Räume, schnelle Entscheidungen – frei vom Liga-Alltag.',
+    done:'Zusätzliche Ballkontakte gesammelt. Was hat beim ersten Kontakt besonders gut funktioniert?',
+    text:'Schnelles Spiel, wenig Raum. Ideal für den ersten Kontakt und schnelle Entscheidungen – ob in der Halle oder beim Freizeitkick draussen. Schau dich vor der Ballannahme kurz um.' },
+  'Gym': { emoji:'🏋️', label:'Krafttraining', color:'#9CCBD3',
+    summary:'Baue Kraft und Explosivität für Zweikämpfe, Antritte und einen belastbaren Körper auf.',
+    done:'Krafttraining erledigt. Ein weiterer Baustein für stabile Zweikämpfe und explosive Antritte.',
+    text:'Krafttraining für den ganzen Körper. Aktiviere beim Aufwärmen den mittleren Gesässmuskel und arbeite an deiner Hüftstabilität. Zwei Einheiten pro Woche – Regelmässigkeit macht den Unterschied.' },
   'Pilates': { emoji:'🤸', label:'Pilates', color:'#B3DCE2',
-    text:'Core strength, stability, posture. Especially important for hip stability and longevity. This is your injury prevention session — don\'t skip it.' },
-  'Mobility': { emoji:'🦵', label:'Prehab/Rehab', color:'#B3DCE2',
-    text:'Strengthen what football overloads. Glute med left, inner chain right, plus mobility to finish. 2×/week — the difference between managing these complaints and outgrowing them.' },
-  'Easy run': { emoji:'🏃', label:'Light run', color:'#B3DCE2',
-    text:'Easy pace only. This is active recovery, not fitness work. Keep it conversational and short.' },
-  'Walking': { emoji:'🚶', label:'Walking', color:'#B3DCE2',
-    text:'Active recovery. Keep moving without loading the body.' },
+    summary:'Rumpfkontrolle, Haltung und Hüftstabilität – die Basis für saubere Bewegungen.',
+    done:'Rumpf und Bewegungskontrolle trainiert. Diese Basis begleitet dich auf den Platz.',
+    text:'Rumpfkraft, Stabilität und Haltung. Besonders wichtig für eine stabile Hüfte und langfristige Belastbarkeit. Diese Einheit gehört zu deiner Verletzungsprävention.' },
+  'Mobility': { emoji:'🦵', label:'Prävention/Reha', color:'#B3DCE2',
+    summary:'Stärke gezielt belastete Bereiche und schliesse mit Mobilität ab.',
+    done:'Gezielt an Belastbarkeit und Beweglichkeit gearbeitet. Bleib regelmässig dran.',
+    text:'Stärke, was Fussball überlastet: den mittleren Gesässmuskel links und die innere Muskelkette rechts. Zum Abschluss Mobilität. Zweimal pro Woche – damit du Beschwerden nicht nur verwaltest, sondern langfristig hinter dir lässt.' },
+  'Easy run': { emoji:'🏃', label:'Lockerer Lauf', color:'#B3DCE2',
+    summary:'Locker laufen, ruhig atmen – heute geht es um aktive Erholung.',
+    done:'Locker bewegt. Lass die Erholung weiterwirken und halte die restliche Belastung gering.',
+    text:'Nur lockeres Tempo. Das ist aktive Erholung, kein Konditionstraining. Halte den Lauf kurz und so entspannt, dass du dich dabei unterhalten kannst.' },
+  'Walking': { emoji:'🚶', label:'Spazieren', color:'#B3DCE2',
+    summary:'Bewegung ohne Trainingsdruck – komm an die Luft und lass den Körper erholen.',
+    done:'Bewegung und Erholung verbunden. Auch diese ruhigen Einheiten zählen.',
+    text:'Aktive Erholung. Bleib in Bewegung, ohne den Körper zusätzlich zu belasten.' },
+  'Sick/Injured': { emoji:'🤒', label:'Krank/verletzt', color:'#B3DCE2',
+    summary:'Heute hat Erholung Vorrang. Gib deinem Körper die nötige Ruhe.',
+    done:'Erholung dokumentiert. Der Wiedereinstieg darf warten, bis du wieder bereit bist.',
+    text:'Nimm Beschwerden ernst und hole dir bei anhaltenden Schmerzen oder Unsicherheit fachlichen Rat. Heute musst du keine Trainingsziele erfüllen.' },
 };
+
 function getTip(workout) {
   if (!workout) return null;
+  if (TIPS[workout]) return TIPS[workout];
   const w=workout.toLowerCase();
   if (w.includes('match')) return TIPS['Match'];
   if (w.includes('team training')) return TIPS['Team Training'];
@@ -154,15 +176,33 @@ function getSessions(e) {
   if (typeof e.workout==="string" && e.workout.trim()) return [e.workout.trim()];
   return [];
 }
-// Display-name layer. The stored type id stays 'Futsal' (so existing logged data
-// and the templates never migrate), but it surfaces as "Pickup/Futsal" — it covers
-// both indoor futsal and outdoor pickup soccer. Display-only; logic still keys on
-// the raw type string everywhere.
-const TYPE_LABELS = { 'Futsal':'Pickup/Futsal', 'Mobility':'Prehab/Rehab' };
+// Display-only localization. Internal IDs and user-written session names remain unchanged.
+const TYPE_LABELS = {
+  'Match':'Spiel', 'Team Training':'Mannschaftstraining', 'Futsal':'Freizeitkick/Futsal',
+  'Gym':'Krafttraining', 'Mobility':'Prävention/Reha', 'Pilates':'Pilates',
+  'Walking':'Spazieren', 'Easy run':'Lockerer Lauf', 'Sick/Injured':'Krank/verletzt',
+};
 function displayName(type) { return TYPE_LABELS[type] || type; }
 function sessionsLabel(e) { return getSessions(e).map(displayName).join(' + '); }
 function sessionsEmojiStr(e) { return getSessions(e).map(sessionEmoji).join(''); }
 
+// Short card copy is derived from all selected types, never stored in the plan.
+function sessionSubtitle(entry) {
+  const sessions=getSessions(entry);
+  if (!sessions.length) return 'Erholung gehört zum Training.';
+  if (sessions.length===2&&sessions.includes('Gym')&&sessions.includes('Mobility')) {
+    return entry.completed
+      ? 'Kraft und Stabilität trainiert, mit Mobilität abgeschlossen – ein kompletter Aufbau-Tag.'
+      : 'Kraft aufbauen, gezielt stabilisieren – und mit Mobilität abschliessen.';
+  }
+  return sessions.map(type=>{
+    const tip=TIPS[type];
+    if (tip) return entry.completed?tip.done:tip.summary;
+    return entry.completed
+      ? '«'+displayName(type)+'» erledigt. Halte fest, was du aus dieser Einheit mitnimmst.'
+      : '«'+displayName(type)+'»: Setze dir einen klaren Schwerpunkt für diese Einheit.';
+  }).join(' ');
+}
 
 
 // The next scheduled non-rest session strictly after today, for the "Next up" line.
@@ -182,20 +222,19 @@ function nextUp(plan) {
   return null;
 }
 
-// Per-phase weekly targets, matched to what each template actually plans so the
-// counters are always achievable in a normal week. Mobility is 2× everywhere;
-// Gym is 2× in the body-comp phases and 1× in-season (Wednesday stays light to
-// protect the legs for the weekend match). Rest phases have none.
+// Goals are independent of the existing calendar: two gym sessions in every
+// active phase. Do not rewrite saved plans or silently schedule an extra session.
 const PHASE_TARGETS = {
   'Off-Season':    { Gym:2, Mobility:2 },
   'Pre-Season':    { Gym:2, Mobility:2 },
-  'Autumn Season': { Gym:1, Mobility:2 },
+  'Autumn Season': { Gym:2, Mobility:2 },
   'Winter Break':  { Gym:2, Mobility:2 },
-  'Spring Season': { Gym:1, Mobility:2 },
+  'Spring Season': { Gym:2, Mobility:2 },
   'Summer Break':  {},
 };
 
-// Bottom-sheet options. Every change is a draft until Save, including Rest day.
+
+// Bottom-sheet options. Every change is a draft until Save, including Ruhetag.
 const ALTS = [
   { emoji:'⚽', label:'Match' },
   { emoji:'👥', label:'Team Training' },
@@ -209,26 +248,29 @@ const ALTS = [
 ];
 
 const FEELINGS = [
-  { value:1, emoji:"😫", label:"Drained" },
-  { value:2, emoji:"😕", label:"Tough" },
-  { value:3, emoji:"😐", label:"OK" },
-  { value:4, emoji:"😊", label:"Good" },
-  { value:5, emoji:"🔥", label:"On fire" },
+  { value:1, emoji:"😫", label:"Erschöpft" },
+  { value:2, emoji:"😕", label:"Anstrengend" },
+  { value:3, emoji:"😐", label:"In Ordnung" },
+  { value:4, emoji:"😊", label:"Gut" },
+  { value:5, emoji:"🔥", label:"In Topform" },
 ];
+
 
 // ─── Tactical prompt of the week ─────────────────────────────────────────────────
 const TACTICAL_PROMPTS = [
-  { focus:'Scan before every touch', detail:'Before receiving the ball, know your next action. Head up, check shoulders.' },
-  { focus:'Watch a top right back', detail:'Find 10 minutes of Trent Alexander-Arnold or Reece James. Watch their positioning before the ball arrives.' },
-  { focus:'Communicate early', detail:'Call for the ball or give instructions before the play develops. Be vocal.' },
-  { focus:'Defensive shape', detail:'Check your distance from the centre back. Don\'t leave gaps. Compress space early.' },
-  { focus:'Second ball aggression', detail:'Win the loose balls. Get there first. Your athleticism is an advantage — use it.' },
-  { focus:'Post-match review', detail:'After your next match, note 2 moments where you scanned well and 1 where you didn\'t.' },
-  { focus:'First touch direction', detail:'Your first touch should move you away from pressure. Practice receiving across your body.' },
-  { focus:'Recovery runs', detail:'When possession is lost, be the first defender. Sprint back into shape immediately.' },
-  { focus:'Anticipate, don\'t react', detail:'Read the striker\'s body position before they receive. Commit to your line early.' },
-  { focus:'Watch your own footage', detail:'Review 5 minutes of your own match footage this week. Focus only on your positioning.' },
+  { focus:'Vor jedem Ballkontakt orientieren', detail:'Wisse schon vor der Ballannahme, was du als Nächstes tust. Kopf hoch und über beide Schultern schauen.' },
+  { focus:'Einen starken Rechtsverteidiger beobachten', detail:'Schau dir zehn Minuten von Trent Alexander-Arnold oder Reece James an. Achte auf ihr Stellungsspiel, bevor der Ball ankommt.' },
+  { focus:'Früh kommunizieren', detail:'Fordere den Ball oder gib Hinweise, bevor sich die Situation entwickelt. Sei auf dem Platz hörbar.' },
+  { focus:'Die Abwehrkette kompakt halten', detail:'Prüfe deinen Abstand zum Innenverteidiger. Lass keine Lücken und verenge die Räume frühzeitig.' },
+  { focus:'Zweite Bälle entschlossen gewinnen', detail:'Sei zuerst am freien Ball. Nutze deine Athletik, um zweite Bälle für deine Mannschaft zu gewinnen.' },
+  { focus:'Das Spiel kurz nachbereiten', detail:'Notiere nach dem nächsten Spiel zwei Situationen, in denen du dich gut vororientiert hast, und eine, in der es gefehlt hat.' },
+  { focus:'Den ersten Kontakt bewusst lenken', detail:'Dein erster Kontakt soll dich vom Druck wegführen. Übe, den Ball mit offener Körperstellung mitzunehmen.' },
+  { focus:'Sofort zurückarbeiten', detail:'Sei nach einem Ballverlust der erste Verteidiger. Sprinte sofort zurück in deine Position.' },
+  { focus:'Vorausahnen statt nur reagieren', detail:'Lies die Körperstellung des Stürmers vor seiner Ballannahme. Entscheide dich früh für deine Position.' },
+  { focus:'Eigene Spielszenen ansehen', detail:'Schau dir diese Woche fünf Minuten deiner eigenen Spielaufnahmen an. Achte dabei nur auf dein Stellungsspiel.' },
 ];
+
+
 // Week index counted from the season-start Monday; rotates every Monday.
 function weekIndexFor(dk) {
   const start=new Date(2026,5,29);
@@ -246,32 +288,32 @@ function tacticalFor(dk) {
 // `sessions` array may hold one or two types. One milestone fires per log.
 const MILESTONES = [
   { id:'first-session', check:(all)=>all.length===1,
-    emoji:'⚽', title:'First session logged!',
-    message:'Every elite player started somewhere. This is your somewhere.' },
+    emoji:'⚽', title:"Erste Einheit eingetragen!",
+    message:"Jeder gute Spieler hat irgendwann angefangen. Das ist dein Anfang." },
   { id:'first-match', check:(all,entry)=>entry.sessions.includes('Match')&&all.filter(e=>e.sessions.includes('Match')).length===1,
-    emoji:'🏟️', title:'First match logged!',
-    message:'Game on. This is what all the training is for.' },
+    emoji:'🏟️', title:"Erstes Spiel eingetragen!",
+    message:"Anpfiff. Dafür trainierst du." },
   { id:'first-gym-week', check:(all)=>all.filter(e=>e.sessions.includes('Gym')).length===2,
-    emoji:'🏋️', title:'First double gym week!',
-    message:'Two gym sessions in a week. This is the pattern that changes everything.' },
+    emoji:'🏋️', title:"Zweimal Krafttraining geschafft!",
+    message:"Zwei Krafteinheiten eingetragen. Mit Regelmässigkeit legst du die Grundlage für Fortschritt." },
   { id:'sessions-10', check:(all)=>all.length===10,
-    emoji:'🔟', title:'10 sessions logged!',
-    message:'10 sessions in. The habit is forming.' },
+    emoji:'🔟', title:"10 Einheiten eingetragen!",
+    message:"Zehn Einheiten geschafft. Deine Gewohnheit wächst." },
   { id:'sessions-25', check:(all)=>all.length===25,
-    emoji:'💪', title:'25 sessions!',
-    message:'Consistency is the hardest skill. You\'re building it.' },
+    emoji:'💪', title:"25 Einheiten!",
+    message:"Dranbleiben ist die schwierigste Disziplin. Du wirst darin immer besser." },
   { id:'sessions-50', check:(all)=>all.length===50,
-    emoji:'🌟', title:'50 sessions logged!',
-    message:'50 sessions. This isn\'t a phase — it\'s who you are now.' },
+    emoji:'🌟', title:"50 Einheiten eingetragen!",
+    message:"50 Einheiten. Das ist keine kurze Phase mehr – Training gehört zu deinem Alltag." },
   { id:'first-preseason', check:(all,entry,phase)=>phase==='Pre-Season'&&all.filter(e=>e.phase==='Pre-Season').length===1,
-    emoji:'🚀', title:'Pre-season starts!',
-    message:'The work you did in the off-season starts paying off now.' },
+    emoji:'🚀', title:"Die Vorbereitung beginnt!",
+    message:"Deine Arbeit in der Saisonpause beginnt sich auszuzahlen." },
   { id:'first-match-season', check:(all,entry,phase)=>phase==='Autumn Season'&&all.filter(e=>e.sessions.includes('Match')&&e.phase==='Autumn Season').length===1,
-    emoji:'🏆', title:'First competitive match!',
-    message:'Season is live. Everything you built in the off-season is for this.' },
+    emoji:'🏆', title:"Erstes Saisonspiel!",
+    message:"Die Saison läuft. Jetzt bringst du deine erarbeitete Grundlage auf den Platz." },
   { id:'gym-streak-4', check:(all)=>all.filter(e=>e.sessions.includes('Gym')).length>=8,
-    emoji:'🔥', title:'4 weeks of gym consistency!',
-    message:'Four straight weeks in the gym. The on/off pattern is broken.' },
+    emoji:'🔥', title:"Acht Krafteinheiten geschafft!",
+    message:"Achtmal an deiner Kraft gearbeitet. Mach weiter und bleib regelmässig dran." },
 ];
 
 // Midnight & Ice. Legacy token aliases keep every existing view on one palette.
@@ -283,7 +325,7 @@ const C = {
   warm:"#344858", done:"#9CCBD3", doneLt:"rgba(156,203,211,.08)",
   accent:"#9CCBD3", subtle:"#243746", ink:"#101A25",
 };
-const PHASE_LABELS = {"Off-Season":"Off-Season","Pre-Season":"Vorbereitung","Autumn Season":"Herbstsaison","Winter Break":"Winterpause","Spring Season":"Frühlingssaison","Summer Break":"Sommerpause"};
+const PHASE_LABELS = {"Off-Season":"Saisonpause","Pre-Season":"Vorbereitung","Autumn Season":"Herbstsaison","Winter Break":"Winterpause","Spring Season":"Frühlingssaison","Summer Break":"Sommerpause"};
 const phaseLabel = p => PHASE_LABELS[p] || p;
 const shortDate = dk => new Date(dk+"T12:00:00").toLocaleDateString("de-CH",{day:"numeric",month:"short"});
 function weekAround(dk) {
@@ -369,7 +411,7 @@ button,a,input,summary{touch-action:manipulation}h1,h2,h3,p{margin:0}h1,h2,h3{fo
 .session-marks{display:inline-flex;align-items:center;justify-content:center;gap:3px;vertical-align:middle;color:#9CCBD3}
 .primary{background:#9CCBD3;color:#101A25;border:0;border-radius:14px;min-height:48px;padding:12px 18px;font-weight:600}
 .secondary{background:transparent;color:#B3DCE2;border:1px solid #486171;border-radius:14px;min-height:48px;padding:12px 18px}
-.range-nav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:20px}.range-nav>div{text-align:center;min-width:0}.range-nav strong{display:block;font-size:16px;font-weight:500}.range-nav small{display:block;color:#A5B8C8;font-size:12px;margin-top:5px}
+.range-nav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:20px}.range-nav>div{text-align:center;min-width:0;display:flex;flex-direction:column;align-items:center}.range-nav strong{display:block;font-size:16px;font-weight:500}.range-nav small{display:block;color:#A5B8C8;font-size:12px;margin-top:5px}
 .week-row{display:flex;align-items:center;gap:4px;border-bottom:1px solid #2D4151;padding:7px 0}.week-row:first-child{border-top:1px solid #2D4151}
 .week-open{min-width:0;flex:1;display:flex;align-items:center;gap:14px;text-align:left;border:0;background:transparent;padding:12px 0;min-height:70px}
 .date-tile{flex-shrink:0;text-align:center;width:42px;color:#A5B8C8}.date-tile small{display:block;font-size:10px;margin-bottom:5px}.date-tile strong{font-size:22px;font-weight:400}
@@ -383,7 +425,7 @@ button,a,input,summary{touch-action:manipulation}h1,h2,h3,p{margin:0}h1,h2,h3{fo
 .phase-item.current button{background:#1C2937;border:1px solid #648694;border-radius:18px;padding:18px}.phase-item h3{font-size:20px;color:#EDF2F5;margin:8px 0}.phase-item p{font-size:13px;line-height:1.6;margin-top:10px}.phase-item small{font-size:11px}
 .sheet-backdrop{position:fixed;inset:0;z-index:50;background:rgba(4,10,17,.75);backdrop-filter:blur(5px)}.sheet{position:fixed;left:50%;transform:translateX(-50%);bottom:0;z-index:51;width:100%;max-width:560px;max-height:90dvh;overflow:auto;background:#1C2937;border:1px solid #344858;border-radius:26px 26px 0 0;padding:12px 20px calc(24px + env(safe-area-inset-bottom));box-shadow:0 -12px 70px #0006}
 .sheet-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sheet h2{font-size:22px}.sheet-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:20px 0}
-.session-option{position:relative;min-height:90px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:10px;border-radius:14px;border:1px solid #344858;background:#15222F;color:#A5B8C8;padding:12px 5px;font-size:11px}
+.session-option{position:relative;min-height:90px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:10px;border-radius:14px;border:1px solid #344858;background:#15222F;color:#A5B8C8;padding:12px 5px;font-size:11px;overflow-wrap:anywhere;hyphens:auto}
 .session-option[aria-pressed=true]{border-color:#9CCBD3;background:#29424E;color:#EDF2F5}.sheet-footer{display:flex;gap:12px;margin-top:12px}.sheet-footer>*{flex:1}
 .modal-input{width:100%;background:#101A25;color:#EDF2F5;border:1px solid #486171;border-radius:12px;padding:14px;margin:12px 0}
 .toast{position:fixed;top:calc(14px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);width:max-content;max-width:90vw;z-index:80;background:#29424E;color:#EDF2F5;border:1px solid #9CCBD3;border-radius:16px;padding:14px 20px;box-shadow:0 10px 40px #0006}
@@ -500,9 +542,9 @@ function SetupScreen({initName,isEdit,onBack,onSave}) {
         if(!data||typeof data.playerName!=="string"||!data.plan||typeof data.plan!=="object"||Array.isArray(data.plan))throw new Error("invalid");
         if(Object.values(data.plan).some(e=>!e||typeof e!=="object"||Array.isArray(e)))throw new Error("invalid");
         setPendingImport(parsed);
-      } catch(e) { setPendingImport(null); setImportError("Backup konnte nicht gelesen oder gespeichert werden. Bitte prüfe die Datei und den verfügbaren Speicher."); }
+      } catch(e) { setPendingImport(null); setImportError("Die Sicherung konnte nicht gelesen oder gespeichert werden. Bitte prüfe die Datei und den verfügbaren Speicher."); }
     };
-    reader.onerror=()=>{ setPendingImport(null); setImportError("Backup konnte nicht gelesen oder gespeichert werden. Bitte prüfe die Datei und den verfügbaren Speicher."); };
+    reader.onerror=()=>{ setPendingImport(null); setImportError("Die Sicherung konnte nicht gelesen oder gespeichert werden. Bitte prüfe die Datei und den verfügbaren Speicher."); };
     reader.readAsText(file);
   };
   const confirmImport=()=>{
@@ -515,7 +557,7 @@ function SetupScreen({initName,isEdit,onBack,onSave}) {
       }
       try { sessionStorage.setItem('justRestored','1'); } catch {}
       window.location.reload();
-    } catch(e) { setPendingImport(null); setImportError("Backup konnte nicht gelesen oder gespeichert werden. Bitte prüfe die Datei und den verfügbaren Speicher."); }
+    } catch(e) { setPendingImport(null); setImportError("Die Sicherung konnte nicht gelesen oder gespeichert werden. Bitte prüfe die Datei und den verfügbaren Speicher."); }
   };
 
   return <main className="app-shell settings-screen">
@@ -529,12 +571,12 @@ function SetupScreen({initName,isEdit,onBack,onSave}) {
       <button className="primary" style={{width:"100%",marginTop:20}} disabled={!ok} onClick={()=>onSave(n.trim())}>{isEdit?"Speichern":"Los geht’s →"}</button>
     </section>
     <section className="settings-backup"><div className="section-heading"><h2>Deine Daten</h2></div>
-      <p className="helper-text">Alles wird nur auf diesem Gerät gespeichert. Sichere dein Backup zum Beispiel in iCloud Drive.</p>
+      <p className="helper-text">Alles wird nur auf diesem Gerät gespeichert. Speichere eine Sicherung zum Beispiel in iCloud Drive.</p>
       {isEdit&&<button className="secondary" onClick={exportData}>Daten exportieren</button>}
-      <button className="secondary" onClick={()=>fileRef.current?.click()}>Backup wiederherstellen</button>
+      <button className="secondary" onClick={()=>fileRef.current?.click()}>Sicherung wiederherstellen</button>
       <input ref={fileRef} type="file" accept=".json" onChange={onFilePick} hidden/>
       {importError&&<p role="alert" className="helper-text">{importError}</p>}
-      {pendingImport&&<div className="panel settings-card" role="alert"><p>Das Backup ersetzt die aktuellen Trainingsdaten. Fortfahren?</p>
+      {pendingImport&&<div className="panel settings-card" role="alert"><p>Die Sicherung ersetzt die aktuellen Trainingsdaten. Fortfahren?</p>
         <div className="sheet-footer"><button className="secondary" onClick={()=>setPendingImport(null)}>Abbrechen</button><button className="primary" onClick={confirmImport}>Wiederherstellen</button></div></div>}
     </section></div>
   </main>;
@@ -594,16 +636,16 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
         <input id="custom-session" className="modal-input" autoFocus value={otherText} maxLength={100} onChange={e=>setOtherText(e.target.value)}
           placeholder="Zum Beispiel Schwimmen, Physio …" onKeyDown={e=>{if(e.key==="Enter")save();}}/>
         <button className="text-btn" onClick={()=>setOtherMode(false)}>← Zur Auswahl</button></div>
-      :<><p className="helper-text">Bis zu zwei Einheiten. Speichern ändert nur den Plan — geloggt wird über LOG.</p>
+      :<><p className="helper-text">Bis zu zwei Einheiten. Speichern ändert nur den Plan. Über FERTIG trägst du das absolvierte Training ein.</p>
         <div className="sheet-grid">{options.map(opt=><button key={opt.label} className="session-option" onClick={()=>toggle(opt.label)}
           aria-pressed={selected.includes(opt.label)} disabled={!selected.includes(opt.label)&&selected.length>=SHEET_MAX}>
           <Icon name={opt.label} size={25}/><span>{displayName(opt.label)}</span>{selected.includes(opt.label)&&<span className="option-check">✓</span>}
         </button>)}</div>
         <div className="sheet-footer"><button className="secondary" onClick={()=>setOtherMode(true)}>Andere Einheit</button>
-          <button className="secondary" aria-pressed={selected.length===0} onClick={()=>setSelected([])}>Rest day</button></div>
+          <button className="secondary" aria-pressed={selected.length===0} onClick={()=>setSelected([])}>Ruhetag</button></div>
       </>}
       <button className="primary" style={{width:"100%",marginTop:16}} onClick={save} disabled={otherMode&&!otherText.trim()}>
-        Speichern{!otherMode&&!selected.length?" · Rest day":""}
+        Speichern{!otherMode&&!selected.length?" · Ruhetag":""}
       </button>
     </section>
   </>;
@@ -681,18 +723,18 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
       style={{animation:direction>0?"slideLeft .22s ease-out":"slideRight .22s ease-out"}}>
       <div className="session-top"><span className="eyebrow">{e.completed?"Training erledigt":sessions.length?"Dein Training":"Zeit zum Auftanken"}</span>
         <div className="session-art">{sessions.length?sessions.map(s=><Icon key={s} name={s} size={28}/>):<Icon name="rest" size={28}/>}</div></div>
-      <h2>{sessions.length?sessions.map((s,i)=><span key={s}>{i>0&&<><br/><span style={{fontWeight:300,color:C.muted}}>+ </span></>}{displayName(s)}</span>):"Rest day"}</h2>
-      <p className="session-subtitle">{e.completed?"Ein weiterer Schritt auf deinem Weg.":sessions.length?"Dein Plan steht. Mach ihn zu deinem Fortschritt.":"Erholung gehört zum Training."}</p>
+      <h2>{sessions.length?sessions.map((s,i)=><span key={s}>{i>0&&<><br/><span style={{fontWeight:300,color:C.muted}}>+ </span></>}{displayName(s)}</span>):"Ruhetag"}</h2>
+      <p className="session-subtitle">{sessionSubtitle(e)}</p>
       <div className="session-actions">
         <div><button className="text-btn" onClick={()=>setSheetOpen(true)}><Icon name="edit" size={16}/> Ändern</button>
           <button className="text-btn" onClick={()=>setNotesOpen(o=>!o)} aria-expanded={notesOpen}><Icon name="note" size={16}/> {e.notes?"Notiz":"Notiz hinzufügen"}</button></div>
         {sessions.length>0&&<button className={"log-circle"+(e.completed?" logged":"")}
-          aria-label={e.completed?"Log rückgängig machen":"Training loggen"}
+          aria-label={e.completed?"Eintrag rückgängig machen":"Training als erledigt eintragen"}
           onClick={()=>e.completed?setConfirmUnlog(true):updDay(viewKey,{completed:true})}>
-          {e.completed?<Chk size={26} color={C.ink}/>:<span>LOG</span>}
+          {e.completed?<Chk size={26} color={C.ink}/>:<span>FERTIG</span>}
         </button>}
       </div>
-      {confirmUnlog&&<div className="inline-confirm"><p>Diesen Log entfernen?</p>
+      {confirmUnlog&&<div className="inline-confirm"><p>Diesen Trainingseintrag entfernen?</p>
         <button className="text-btn" onClick={()=>{updDay(viewKey,{completed:false,feeling:null});setConfirmUnlog(false);}}>Entfernen</button>
         <button className="text-btn" onClick={()=>setConfirmUnlog(false)}>Abbrechen</button></div>}
       {notesOpen?<div className="notes"><label htmlFor="day-note" className="eyebrow">Deine Notiz</label>
@@ -709,7 +751,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
     <WeeklyTargets plan={plan}/>
     {next&&<div className="next-line"><span>Als Nächstes</span><strong>{next.label}</strong><span>{next.when}</span></div>}
     <TacticalCard dk={viewKey}/>
-    <button className="coach-entry" onClick={onOpenCoach}><Icon name="coach" size={20}/><span>Frag deinen Coach</span><Icon name="arrow" size={18}/></button>
+    <button className="coach-entry" onClick={onOpenCoach}><Icon name="coach" size={20}/><span>Frag deinen Trainer</span><Icon name="arrow" size={18}/></button>
     <BodyCompLine key={"body-"+viewKey} entry={e} dateKey={viewKey} updDay={updDay}/>
     {sheetOpen&&<WorkoutSheet dateKey={viewKey} entry={e} updDay={updDay} onClose={()=>setSheetOpen(false)}/>}
   </div>;
@@ -738,13 +780,13 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
       {wkOff!==0&&<button className="text-btn" onClick={()=>setWkOff(0)}>Aktuelle Woche</button>}
     </div><NavArrow dir="right" onClick={()=>nav(1)}/></div>
     {swapFrom&&<div className="swap-banner" role="status"><span>Zweiten Tag zum Tauschen wählen.</span><button className="text-btn" onClick={()=>setSwapFrom(null)}>Abbrechen</button></div>}
-    {flashed.length>0&&<p role="status" style={{color:C.accent,fontSize:13}}>✓ Einheiten getauscht. Notizen und Logs bleiben beim Datum.</p>}
+    {flashed.length>0&&<p role="status" style={{color:C.accent,fontSize:13}}>✓ Einheiten getauscht. Notizen und Einträge bleiben beim Datum.</p>}
     <div key={wkOff} style={{animation:direction>0?"slideLeft .22s ease-out":"slideRight .22s ease-out"}}>
       {days.map((dk,i)=>{const e=plan[dk]||{};return <div className="week-row" key={dk}
         style={{borderColor:swapFrom===dk||flashed.includes(dk)?C.accent:undefined}}>
-        <button className="week-open" onClick={()=>pick(dk)} aria-label={shortDate(dk)+" · "+(sessionsLabel(e)||"Rest day")+(e.completed?" · erledigt":"")}>
+        <button className="week-open" onClick={()=>pick(dk)} aria-label={shortDate(dk)+" · "+(sessionsLabel(e)||"Ruhetag")+(e.completed?" · erledigt":"")}>
           <span className={"date-tile"+(dk===today?" current":"")}><small>{DN[i]}</small><strong>{Number(dk.slice(-2))}</strong></span>
-          <span className="week-info"><strong>{sessionsLabel(e)||"Rest day"}</strong><small><SessionMarks entry={e}/>{e.completed?"Erledigt":getSessions(e).length?"Geplant":"Erholung"}</small></span>
+          <span className="week-info"><strong>{sessionsLabel(e)||"Ruhetag"}</strong><small><SessionMarks entry={e}/>{e.completed?"Erledigt":getSessions(e).length?"Geplant":"Erholung"}</small></span>
           {e.completed&&<span style={{color:C.accent}}><Chk size={16} color={C.accent}/></span>}
         </button>
         <div className="week-controls">
@@ -753,7 +795,7 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
         </div>
       </div>;})}
     </div>
-    <p className="helper-text">Tag öffnen, um zu loggen. Über ⇅ kannst du zwei Trainingstage tauschen.</p>
+    <p className="helper-text">Tag öffnen, um Training einzutragen. Über ⇅ kannst du zwei Trainingstage tauschen.</p>
     {sheetDk&&<WorkoutSheet dateKey={sheetDk} entry={plan[sheetDk]||{}} updDay={updDay} onClose={()=>setSheetDk(null)}/>}
   </div>;
 }
@@ -777,14 +819,14 @@ function MonthView({today,plan,moOff,setMoOff,onGoToDay}) {
         {DN.map((d,i)=><span className="calendar-label" key={i}>{d}</span>)}
         {days.map((dk,i)=>{if(!dk)return <span key={"empty"+i}/>;const e=plan[dk]||{}, has=getSessions(e).length>0;
           return <button key={dk} className={(has?"planned ":"")+(e.completed?"done ":"")+(dk===today?"today":"")}
-            onClick={()=>onGoToDay(dk)} title={shortDate(dk)+" · "+(sessionsLabel(e)||"Rest day")}
-            aria-label={shortDate(dk)+" · "+(sessionsLabel(e)||"Rest day")+(e.completed?" · erledigt":"")}>
+            onClick={()=>onGoToDay(dk)} title={shortDate(dk)+" · "+(sessionsLabel(e)||"Ruhetag")}
+            aria-label={shortDate(dk)+" · "+(sessionsLabel(e)||"Ruhetag")+(e.completed?" · erledigt":"")}>
             <span>{Number(dk.slice(-2))}</span><SessionMarks entry={e} size={13}/>{e.completed&&<span className="done-dot">✓</span>}
           </button>;})}
       </div>
     </section>
     <div className="legend"><span>✓ Erledigt</span><span>Symbol: geplant</span><span>Hell umrandet: heute</span></div>
-    <p className="helper-text">Ein Tag, dein Plan. Tippe auf ein Datum für Training, Notizen und Logs.</p>
+    <p className="helper-text">Ein Tag, dein Plan. Tippe auf ein Datum für Training, Notizen und Einträge.</p>
   </div>;
 }
 
@@ -945,9 +987,9 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
     const daysToNextPhase=next?daysUntil(next.start):(curPhase?daysUntil(curPhase.end):null);
     return {
       playerName:playerName?.trim()||null,
-      phase:curPhase?{name:curPhase.name,description:curPhase.description}:null,
-      nextPhase:next?.name||null, daysToNextPhase,
-      today:{date:viewKey,label:`${dayName}, ${dayFull}`,workout:sessionsLabel(e)||"Rest day",
+      phase:curPhase?{name:phaseLabel(curPhase.name),description:curPhase.description}:null,
+      nextPhase:next?phaseLabel(next.name):null, daysToNextPhase,
+      today:{date:viewKey,label:`${dayName}, ${dayFull}`,workout:sessionsLabel(e)||"Ruhetag",
         completed:!!e.completed,feeling:feelingLabel(e.feeling)},
       recentSessions, week, tactical:tacticalFor(viewKey),
     };
@@ -986,11 +1028,11 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
         <button onClick={onBack} aria-label="Zurück" style={{background:"none",border:"none",cursor:"pointer",
           color:C.muted,fontSize:24,width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",
           flexShrink:0,WebkitTapHighlightColor:"transparent"}}>←</button>
-        <div style={{flex:1,textAlign:"center",fontSize:16,fontWeight:700,color:C.text}}>Coach</div>
+        <div style={{flex:1,textAlign:"center",fontSize:16,fontWeight:700,color:C.text}}>KI-Trainer</div>
         {messages.length>0
           ? <button disabled={sending} onClick={newCoachChat} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,
               fontSize:12,fontWeight:600,textDecoration:"underline",minHeight:44,padding:"0 8px",flexShrink:0,
-              WebkitTapHighlightColor:"transparent"}}>Neuer Chat</button>
+              WebkitTapHighlightColor:"transparent"}}>Neues Gespräch</button>
           : <div style={{width:44,flexShrink:0}}/>}
       </div>
 
@@ -1022,7 +1064,7 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
         {coachError&&(
           <div style={{alignSelf:"stretch"}}>
             <p style={{margin:"0 0 8px",fontSize:14,color:C.muted,lineHeight:1.5}}>
-              Der Coach ist gerade nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.
+              Der Trainer ist gerade nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.
             </p>
             {messages.length>0&&(
               <button onClick={retryCoach} style={{fontSize:14,fontWeight:600,color:C.sageDk,background:C.surface,
@@ -1037,7 +1079,7 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
         padding:"10px 16px calc(2px + env(safe-area-inset-bottom,0px))",display:"flex",gap:8,alignItems:"center"}}>
         <input ref={inputRef} type="text" value={input} onChange={ev=>setInput(ev.target.value)}
           onKeyDown={ev=>{ if (ev.key==="Enter"){ ev.preventDefault(); sendCoach(); } }}
-          aria-label="Nachricht an deinen Coach" placeholder="Frag deinen Coach …" disabled={sending}
+          aria-label="Nachricht an deinen Trainer" placeholder="Frag deinen Trainer …" disabled={sending}
           style={{flex:1,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",fontFamily:"inherit",
             fontSize:15,color:C.text,background:C.bg,outline:"none",boxSizing:"border-box",WebkitAppearance:"none"}}/>
         <button onClick={sendCoach} disabled={sending||!input.trim()}
@@ -1102,12 +1144,12 @@ export default function App() {
   };
   const goToDay=dk=>{setDayOff(daysUntil(dk)??0);setView("today");window.scrollTo(0,0);};
   const today=todayStr(),phase=phaseForDate(today);
-  const tabs=[["today","Heute"],["week","Woche"],["month","Monat"],["journey","Journey"]];
+  const tabs=[["today","Heute"],["week","Woche"],["month","Monat"],["journey","Entwicklung"]];
   const headings={today:"Heute zählt.",week:"Deine Woche.",month:"Der Überblick.",journey:"Dein Weg."};
   let content;
   if(loading)content=<main className="app-shell"><p className="loading-state">Dein Plan wird geladen …</p></main>;
   else if(loadError)content=<main className="app-shell"><div className="view" style={{paddingTop:80}}><h1>Daten nicht lesbar.</h1>
-    <p className="helper-text">Deine gespeicherten Daten wurden nicht verändert. Bitte prüfe den Browser-Zugriff oder sichere die vorhandenen Daten, bevor du ein Backup wiederherstellst.</p>
+    <p className="helper-text">Deine gespeicherten Daten wurden nicht verändert. Bitte prüfe den Browser-Zugriff oder sichere die vorhandenen Daten, bevor du eine Sicherung wiederherstellst.</p>
     <button className="secondary" onClick={()=>window.location.reload()}>Erneut versuchen</button></div></main>;
   else if(screen==="setup")content=<SetupScreen initName={playerName} isEdit={!!playerName} onBack={playerName?()=>setScreen("main"):null}
     onSave={n=>{setPlayerName(n);save(plan,n);setScreen("main");}}/>;
@@ -1126,7 +1168,7 @@ export default function App() {
       onClick={()=>{setView(key);if(key==="today")setDayOff(0);window.scrollTo(0,0);}}><TabIcon name={key}/><span>{label}</span></button>)}</nav>
   </main>;
   return <><style>{UI_CSS}</style>{content}
-    {restoredToast&&<div className="toast" role="status">✓ Backup wiederhergestellt</div>}
+    {restoredToast&&<div className="toast" role="status">✓ Sicherung wiederhergestellt</div>}
     {storageError&&<div className="toast" role="alert"><p>{storageError}</p><button className="text-btn" onClick={()=>save()}>Erneut speichern</button></div>}
     {celebration&&!storageError&&<div className="toast milestone-toast" role="status"><span>{celebration.emoji}</span><div><strong>{celebration.title}</strong><p>{celebration.message}</p></div>
       <button className="icon-btn" aria-label="Hinweis schließen" onClick={()=>setCelebration(null)}><Icon name="close" size={18}/></button></div>}
