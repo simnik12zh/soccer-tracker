@@ -1,24 +1,19 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const SK = "soccer-v3";
 const SK_PREV = "soccer-v2";   // migrated from on first load of this version
-const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-const DL = ["M","T","W","T","F","S","S"];
-const DN = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const MONTHS = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+const DN = ["Mo","Di","Mi","Do","Fr","Sa","So"];
 
 function pad(n) { return String(n).padStart(2,"0"); }
 function dateKey(d) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
 function todayStr() { return dateKey(new Date()); }
 function offsetDate(off) { const d=new Date(); d.setDate(d.getDate()+off); return dateKey(d); }
 
-// Storage: localStorage works in published artifacts with no login required.
-async function storeGet(key) { try { return localStorage.getItem(key); } catch(e) { return null; } }
-async function storeSet(key, value) { try { localStorage.setItem(key, value); } catch(e) {} }
-
 function daysUntil(ds) {
   if (!ds) return null;
-  const t=new Date(ds+"T00:00:00"), n=new Date(); n.setHours(0,0,0,0);
-  return Math.ceil((t-n)/86400000);
+  const [y,m,d]=ds.split("-").map(Number), n=new Date();
+  return Math.round((Date.UTC(y,m-1,d)-Date.UTC(n.getFullYear(),n.getMonth(),n.getDate()))/86400000);
 }
 // Mon=0 … Sun=6 weekday index.
 function dow0(d) { return (d.getDay()+6)%7; }
@@ -39,17 +34,17 @@ function daysBeforeStr(dateStr, n) {
 // ─── Season phases ──────────────────────────────────────────────────────────────
 const PHASES = [
   { name:'Off-Season',   start:'2026-06-29', end:'2026-08-05',
-    description:'Gym consistency and body composition. Build the athletic base. Two gym sessions per week minimum.', color:'#E8174A' },
+    description:'Gym consistency and body composition. Build the athletic base. Two gym sessions per week minimum.', color:'#9CCBD3' },
   { name:'Pre-Season',   start:'2026-08-06', end:'2026-09-06',
-    description:'Conditioning ramp-up. Team training resumes. Stay sharp and arrive fit.', color:'#E8174A' },
+    description:'Conditioning ramp-up. Team training resumes. Stay sharp and arrive fit.', color:'#9CCBD3' },
   { name:'Autumn Season',start:'2026-09-07', end:'2026-11-15',
-    description:'Perform. Recover. Maintain fitness. Matches on Saturdays — manage your load around them.', color:'#E8174A' },
+    description:'Perform. Recover. Maintain fitness. Matches on Saturdays — manage your load around them.', color:'#9CCBD3' },
   { name:'Winter Break', start:'2026-11-16', end:'2027-04-04',
-    description:'Prime body composition window. Gym consistency block. Build strength for spring.', color:'#E8174A' },
+    description:'Prime body composition window. Gym consistency block. Build strength for spring.', color:'#9CCBD3' },
   { name:'Spring Season',start:'2027-04-05', end:'2027-06-30',
-    description:'Perform. Maintain. Manage load. Finish the season strong.', color:'#E8174A' },
+    description:'Perform. Maintain. Manage load. Finish the season strong.', color:'#9CCBD3' },
   { name:'Summer Break', start:'2027-07-01', end:'2027-08-05',
-    description:'Rest. Recover. Recharge. You earned it.', color:'#E8174A' },
+    description:'Rest. Recover. Recharge. You earned it.', color:'#9CCBD3' },
 ];
 const SEASON_START = '2026-06-29';
 const SEASON_END = '2027-08-05';
@@ -104,21 +99,21 @@ function buildDefaultPlan() {
 
 // ─── Session types ──────────────────────────────────────────────────────────────
 const TIPS = {
-  'Match': { emoji:'⚽', label:'Match day', color:'#E8174A',
+  'Match': { emoji:'⚽', label:'Match day', color:'#9CCBD3',
     text:'Game day. Arrive early, warm up properly. Focus on scanning before every touch — decide before you receive. Defend with your brain first.' },
-  'Team Training': { emoji:'👥', label:'Team session', color:'#E8174A',
+  'Team Training': { emoji:'👥', label:'Team session', color:'#9CCBD3',
     text:'Team session. Work on your positioning and communication. Practice scanning constantly — build the habit in training so it\'s automatic in matches.' },
-  'Futsal': { emoji:'⚽', label:'Pickup/Futsal', color:'#E8174A',
+  'Futsal': { emoji:'⚽', label:'Pickup/Futsal', color:'#9CCBD3',
     text:'Fast game, small spaces. Perfect for sharpening your first touch and decision speed. Focus on quick scanning before receiving.' },
-  'Gym': { emoji:'🏋️', label:'Gym session', color:'#E8174A',
+  'Gym': { emoji:'🏋️', label:'Gym session', color:'#9CCBD3',
     text:'Full body strength work. Include glute med activation and hip stability in your warm-up. Consistency here is what separates you from where you want to be.' },
-  'Pilates': { emoji:'🤸', label:'Pilates', color:'#FF6B9D',
+  'Pilates': { emoji:'🤸', label:'Pilates', color:'#B3DCE2',
     text:'Core strength, stability, posture. Especially important for hip stability and longevity. This is your injury prevention session — don\'t skip it.' },
-  'Mobility': { emoji:'🦵', label:'Prehab/Rehab', color:'#FF6B9D',
+  'Mobility': { emoji:'🦵', label:'Prehab/Rehab', color:'#B3DCE2',
     text:'Strengthen what football overloads. Glute med left, inner chain right, plus mobility to finish. 2×/week — the difference between managing these complaints and outgrowing them.' },
-  'Easy run': { emoji:'🏃', label:'Light run', color:'#FF6B9D',
+  'Easy run': { emoji:'🏃', label:'Light run', color:'#B3DCE2',
     text:'Easy pace only. This is active recovery, not fitness work. Keep it conversational and short.' },
-  'Walking': { emoji:'🚶', label:'Walking', color:'#FF6B9D',
+  'Walking': { emoji:'🚶', label:'Walking', color:'#B3DCE2',
     text:'Active recovery. Keep moving without loading the body.' },
 };
 function getTip(workout) {
@@ -155,8 +150,8 @@ function sessionEmoji(w) {
 // through getSessions so old localStorage data keeps working.
 function getSessions(e) {
   if (!e) return [];
-  if (Array.isArray(e.sessions)) return e.sessions.filter(s=>s&&s.trim());
-  if (e.workout && e.workout.trim()) return [e.workout.trim()];
+  if (Array.isArray(e.sessions)) return e.sessions.filter(s=>typeof s==="string"&&s.trim());
+  if (typeof e.workout==="string" && e.workout.trim()) return [e.workout.trim()];
   return [];
 }
 // Display-name layer. The stored type id stays 'Futsal' (so existing logged data
@@ -168,24 +163,7 @@ function displayName(type) { return TYPE_LABELS[type] || type; }
 function sessionsLabel(e) { return getSessions(e).map(displayName).join(' + '); }
 function sessionsEmojiStr(e) { return getSessions(e).map(sessionEmoji).join(''); }
 
-// ─── Readiness check-in ──────────────────────────────────────────────────────────
-// Two daily tap-to-cycle indicators (left hip niggle + general leg freshness).
-// Stored per day as an OPTIONAL `readiness` object on the plan entry — days
-// without it (all existing data) simply read as unset, so no storage migration.
-// Traffic-light colors are functional, with a text label so state isn't
-// color-only. Cycle: unset → green → amber → red → unset.
-const READINESS_INDICATORS = [
-  { key:'hip',  label:'Hip',  question:"How's the left hip?", words:{green:'good',  amber:'ok', red:'sore'} },
-  { key:'legs', label:'Legs', question:'Leg freshness',       words:{green:'fresh', amber:'ok', red:'heavy'} },
-];
-const READINESS_COLORS = {
-  green:{ dot:'#2E9E44', bg:'rgba(46,158,68,0.10)',  border:'rgba(46,158,68,0.45)' },
-  amber:{ dot:'#D97706', bg:'rgba(217,119,6,0.10)',  border:'rgba(217,119,6,0.45)' },
-  red:  { dot:'#D92D20', bg:'rgba(217,45,32,0.08)',  border:'rgba(217,45,32,0.45)' },
-};
-function nextReadiness(cur) {
-  return cur==null?'green' : cur==='green'?'amber' : cur==='amber'?'red' : null;
-}
+
 
 // The next scheduled non-rest session strictly after today, for the "Next up" line.
 function nextUp(plan) {
@@ -195,9 +173,9 @@ function nextUp(plan) {
     const dk=dateKey(d);
     if (getSessions(plan[dk]).length>0) {
       const day=new Date(dk+"T00:00:00");
-      const when=i===1?'tomorrow'
-        :i<=6?day.toLocaleDateString('en-US',{weekday:'long'})
-        :day.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      const when=i===1?'morgen'
+        :i<=6?day.toLocaleDateString('de-CH',{weekday:'long'})
+        :day.toLocaleDateString('de-CH',{month:'short',day:'numeric'});
       return { label:sessionsLabel(plan[dk]), when };
     }
   }
@@ -217,8 +195,7 @@ const PHASE_TARGETS = {
   'Summer Break':  {},
 };
 
-// Bottom-sheet options. Core session types are multi-select toggles (max 2);
-// Other / Rest day are single immediate actions handled separately.
+// Bottom-sheet options. Every change is a draft until Save, including Rest day.
 const ALTS = [
   { emoji:'⚽', label:'Match' },
   { emoji:'👥', label:'Team Training' },
@@ -256,7 +233,7 @@ const TACTICAL_PROMPTS = [
 function weekIndexFor(dk) {
   const start=new Date(2026,5,29);
   const d=new Date(dk+"T00:00:00"); d.setDate(d.getDate()-dow0(d)); // Monday of dk's week
-  return Math.floor((d-start)/(7*86400000));
+  return Math.round((Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())-Date.UTC(start.getFullYear(),start.getMonth(),start.getDate()))/(7*86400000));
 }
 function tacticalFor(dk) {
   const len=TACTICAL_PROMPTS.length;
@@ -297,18 +274,161 @@ const MILESTONES = [
     message:'Four straight weeks in the gym. The on/off pattern is broken.' },
 ];
 
-// ─── Colours (pink/red palette) ──────────────────────────────────────────────────
+// Midnight & Ice. Legacy token aliases keep every existing view on one palette.
 const C = {
-  bg:"#FFF0F5", card:"#FFFFFF", surface:"#FFFFFF",
-  border:"#F0C0D0", borderSt:"#E8174A",
-  text:"#1A0A10", muted:"#8A4D5E",
-  sage:"#FF6B9D", sageLt:"rgba(255,107,157,0.15)", sageDk:"#C0134A",
-  warm:"#F0C0D0", done:"#E8174A", doneLt:"rgba(232,23,74,0.06)",
-  accent:"#E8174A", subtle:"#FDE0EA",
+  bg:"#101A25", card:"#1C2937", surface:"#1C2937",
+  border:"#344858", borderSt:"#647F93",
+  text:"#EDF2F5", muted:"#A5B8C8",
+  sage:"#9CCBD3", sageLt:"rgba(156,203,211,.10)", sageDk:"#B3DCE2",
+  warm:"#344858", done:"#9CCBD3", doneLt:"rgba(156,203,211,.08)",
+  accent:"#9CCBD3", subtle:"#243746", ink:"#101A25",
 };
+const PHASE_LABELS = {"Off-Season":"Off-Season","Pre-Season":"Vorbereitung","Autumn Season":"Herbstsaison","Winter Break":"Winterpause","Spring Season":"Frühlingssaison","Summer Break":"Sommerpause"};
+const phaseLabel = p => PHASE_LABELS[p] || p;
+const shortDate = dk => new Date(dk+"T12:00:00").toLocaleDateString("de-CH",{day:"numeric",month:"short"});
+function weekAround(dk) {
+  const d=new Date(dk+"T12:00:00"); d.setDate(d.getDate()-dow0(d));
+  return Array.from({length:7},(_,i)=>{const n=new Date(d);n.setDate(d.getDate()+i);return dateKey(n);});
+}
+function Icon({name,size=22,...props}) {
+  const paths={
+    today:<><path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/></>,
+    week:<><path d="M4 21V12h3v9M11 21V3h3v18M18 21V8h3v13"/></>,
+    month:<><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></>,
+    journey:<><path d="m2 21 8-17 5 10 3-5 5 12z"/><path d="m7 11 3 3 3-3"/></>,
+    edit:<><path d="m15 4 5 5M4 20l5-1L21 7l-5-5L4 14z"/></>,
+    note:<><path d="M5 3h10l4 4v14H5zM14 3v5h5M8 12h8M8 16h5"/></>,
+    coach:<path d="M21 11a9 9 0 0 1-9 9H4l-2 2V11a9 9 0 0 1 19 0Z"/>,
+    arrow:<path d="m7 17 10-10M7 7h10v10"/>,
+    close:<path d="m6 6 12 12M6 18 18 6"/>,
+    swap:<path d="M7 20V4m-4 4 4-4 4 4M17 4v16m-4-4 4 4 4-4"/>,
+    Gym:<><path d="m6 9 12 6M3 7l-2 5 4 2 3-7-4-2-1 2M21 17l2-5-4-2-3 7 4 2 1-2"/></>,
+    Mobility:<><circle cx="14" cy="4" r="2"/><path d="m9 8 5 1 4-2M14 9l-3 6 6 6M11 15l-5 5M10 8 6 12"/></>,
+    ball:<><circle cx="12" cy="12" r="9"/><path d="m12 7 5 4-2 5H9l-2-5zM12 3v4M3 10l4 1M6 19l3-3M18 19l-3-3M21 10l-4 1"/></>,
+    "Team Training":<><circle cx="9" cy="7" r="3"/><path d="M3 21v-4a6 6 0 0 1 12 0v4M17 4a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 4v3"/></>,
+    rest:<path d="M20 14A9 9 0 0 1 10 3a9 9 0 1 0 10 11Z"/>,
+    settings:<><circle cx="12" cy="12" r="3"/><path d="m9 2-1 3-3 1-3 3 2 3-2 3 3 3 3 1 1 3h6l1-3 3-1 3-3-2-3 2-3-3-3-3-1-1-3z"/></>,
+    focus:<><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m12 12 9-9"/></>,
+  };
+  const resolved=name==="Match"||name==="Futsal"?"ball":name==="Walking"||name==="Easy run"||name==="Pilates"?"Mobility":name==="Sick/Injured"?"rest":name;
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>{paths[resolved]||paths.Mobility}</svg>;
+}
+function SessionMarks({entry,size=16}) {
+  return <span className="session-marks">{getSessions(entry).map(s=><Icon key={s} name={s} size={size}/>)}</span>;
+}
+function PitchTexture() {
+  return <svg className="pitch-texture" viewBox="0 0 500 300" fill="none" aria-hidden="true">
+    <g transform="translate(270 -95) rotate(28)" stroke="currentColor" strokeWidth="1">
+      <rect x="0" y="0" width="220" height="340" rx="2"/><path d="M0 170h220"/>
+      <circle cx="110" cy="170" r="38"/><path d="M45 0v65h130V0M45 340v-65h130v65"/>
+    </g></svg>;
+}
+const UI_CSS = `
+:root{color-scheme:dark;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#101A25;color:#EDF2F5;font-synthesis:none}
+*{box-sizing:border-box}body{margin:0}button,input,textarea{font:inherit}button{color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+button:disabled{cursor:default;opacity:.45}button:not(:disabled):active{transform:scale(.98)}button{transition:background .18s,border-color .18s,transform .15s}
+input,textarea{min-width:0;font-size:16px!important}input::placeholder,textarea::placeholder{color:#839BAD}
+button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid #B3DCE2!important;outline-offset:4px}
+button,a,input,summary{touch-action:manipulation}h1,h2,h3,p{margin:0}h1,h2,h3{font-weight:600;letter-spacing:-.035em}
+.app-shell{max-width:560px;margin:auto;min-height:100dvh;background:radial-gradient(ellipse 100% 500px at 80% 0%,#223B50 0%,#101A25 85%);padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+.app-header{position:relative;isolation:isolate;overflow:hidden;padding:calc(22px + env(safe-area-inset-top)) 22px 18px}
+.pitch-texture{position:absolute;inset:0;width:100%;height:100%;color:#9CCBD3;opacity:.14;z-index:-1;pointer-events:none}
+.brand-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}
+.brand{font-size:10px;letter-spacing:.26em;color:#B3DCE2;font-weight:600}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;border:0;border-radius:12px;background:transparent;color:#A5B8C8}
+.app-header h1{font-size:clamp(34px,9vw,46px);line-height:1.1;margin-bottom:10px;letter-spacing:-.055em}
+.subtitle{color:#A5B8C8;font-size:15px;line-height:1.5}
+.phase-link{display:inline-flex;gap:8px;align-items:center;color:#A5B8C8;background:none;border:0;padding:4px 0;min-height:44px;font-size:12px}
+.view{padding:0 20px 24px}.eyebrow{font-size:10px;letter-spacing:.17em;text-transform:uppercase;color:#B3DCE2;font-weight:600}
+.section-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:26px 0 14px}.section-heading h2{font-size:20px}.section-heading small{font-size:11px;color:#A5B8C8}
+.panel{background:linear-gradient(135deg,#1C2C3A,#192632);border:1px solid #2A3C4B;border-radius:22px}
+.day-strip{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;margin:8px 0 20px}
+.day-chip{border:1px solid transparent;background:transparent;border-radius:16px;padding:12px 0 9px;min-width:0;display:flex;flex-direction:column;align-items:center;gap:8px}
+.day-chip .day-label{font-size:10px;text-transform:uppercase;color:#A5B8C8;letter-spacing:.06em}
+.day-chip strong{font-size:20px;font-weight:500}.day-chip[aria-pressed=true]{background:#9CCBD3;color:#101A25}
+.day-chip[aria-pressed=true] .day-label{color:#233B47}.day-marker{height:5px;width:5px;border-radius:50%;background:#577184}.day-chip[aria-pressed=true] .day-marker{background:#274854}
+.session-card{padding:23px 20px;position:relative;overflow:hidden}.session-card h2{font-size:clamp(26px,7.2vw,36px);line-height:1.12;margin:20px 0 12px;max-width:95%;overflow-wrap:anywhere}
+.session-sub{font-size:14px;color:#A5B8C8;line-height:1.6}.session-card-top{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.session-art{color:#9CCBD3;opacity:.65;display:flex;gap:5px}.session-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:22px}
+.action-links{display:flex;gap:8px;flex-wrap:wrap}.text-btn{display:inline-flex;gap:8px;align-items:center;min-height:44px;padding:6px 0;border:0;background:transparent;color:#A5B8C8;font-size:12px}
+.log-circle{width:78px;height:78px;flex-shrink:0;border-radius:50%;border:2px solid #9CCBD3;background:transparent;color:#B3DCE2;font-size:13px;letter-spacing:.1em;font-weight:700;display:flex;align-items:center;justify-content:center}
+.log-circle.logged{background:#9CCBD3;color:#101A25;animation:checkPop .3s ease-out}
+.session-details{border-top:1px solid #344858;margin-top:20px;padding-top:4px}.session-details summary{font-size:12px;color:#A5B8C8;cursor:pointer;min-height:44px;display:flex;align-items:center;justify-content:space-between}
+.session-details summary:after{content:"+";font-size:18px}.session-details[open] summary:after{content:"−"}
+.notes{width:100%;padding:12px;background:#101A25;color:#EDF2F5;border:1px solid #344858;border-radius:12px;margin-top:12px;line-height:1.5}
+.target-panel{padding:0 18px}.target-row{display:flex;align-items:center;gap:14px;padding:18px 0}.target-row+.target-row{border-top:1px solid #344858}
+.target-content{flex:1;min-width:0}.target-label{display:flex;justify-content:space-between;gap:12px;font-size:14px;margin-bottom:11px}.target-label span:last-child{font-variant-numeric:tabular-nums;color:#B3DCE2}
+.target-track{display:flex;gap:5px}.target-segment{height:9px;border:1px solid #486171;border-radius:20px;flex:1;background:#263C4D}.target-segment.filled{background:#9CCBD3;border-color:#9CCBD3}
+.next-line{display:flex;align-items:center;gap:12px;font-size:12px;color:#A5B8C8;padding:21px 4px}
+.focus-card{padding:21px;margin:0 0 18px;position:relative}.focus-card:before{content:"";position:absolute;top:23px;bottom:23px;left:0;background:#9CCBD3;width:3px;border-radius:5px}
+.focus-card h3{font-size:19px;line-height:1.3;margin:10px 0}.focus-card p{color:#A5B8C8;font-size:13px;line-height:1.65}
+.coach-entry{display:flex;align-items:center;justify-content:space-between;width:100%;border:1px solid #789BAF;border-radius:16px;background:transparent;color:#B3DCE2;padding:12px 16px;min-height:48px;font-size:14px}
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:560px;z-index:40;display:flex;gap:4px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:rgba(16,26,37,.95);backdrop-filter:blur(18px);border-top:1px solid #344858}
+.nav button{flex:1;min-width:0;min-height:56px;background:none;border:0;color:#A5B8C8;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:10px}
+.nav button[aria-current=page]{color:#B3DCE2;background:rgba(156,203,211,.08)}.nav button[aria-current=page] svg{stroke-width:2}
+.session-marks{display:inline-flex;align-items:center;justify-content:center;gap:3px;vertical-align:middle;color:#9CCBD3}
+.primary{background:#9CCBD3;color:#101A25;border:0;border-radius:14px;min-height:48px;padding:12px 18px;font-weight:600}
+.secondary{background:transparent;color:#B3DCE2;border:1px solid #486171;border-radius:14px;min-height:48px;padding:12px 18px}
+.range-nav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:20px}.range-nav>div{text-align:center;min-width:0}.range-nav strong{display:block;font-size:16px;font-weight:500}.range-nav small{display:block;color:#A5B8C8;font-size:12px;margin-top:5px}
+.week-row{display:flex;align-items:center;gap:4px;border-bottom:1px solid #2D4151;padding:7px 0}.week-row:first-child{border-top:1px solid #2D4151}
+.week-open{min-width:0;flex:1;display:flex;align-items:center;gap:14px;text-align:left;border:0;background:transparent;padding:12px 0;min-height:70px}
+.date-tile{flex-shrink:0;text-align:center;width:42px;color:#A5B8C8}.date-tile small{display:block;font-size:10px;margin-bottom:5px}.date-tile strong{font-size:22px;font-weight:400}
+.week-info{flex:1;min-width:0}.week-info strong{display:block;font-size:14px;line-height:1.4;font-weight:500}.week-info small{display:flex;gap:6px;align-items:center;margin-top:5px;color:#A5B8C8;font-size:11px}
+.calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.calendar button{min-width:0;min-height:57px;border:1px solid transparent;border-radius:13px;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;position:relative;font-size:14px}
+.calendar button.planned{background:#1C2937}.calendar button.done{border-color:#769CA9;background:#203944}.calendar button.today{outline:2px solid #9CCBD3;outline-offset:-2}.calendar-label{text-align:center;font-size:10px;color:#A5B8C8;padding:10px 0}
+.done-dot{position:absolute;right:3px;top:3px;color:#9CCBD3}.legend{display:flex;flex-wrap:wrap;gap:16px;margin:18px 0;color:#A5B8C8;font-size:11px}.legend span{display:flex;align-items:center;gap:6px}
+.journey-summary{padding:22px;margin-bottom:22px}.journey-summary strong{font-size:42px;letter-spacing:-.06em;font-weight:500;display:block;margin:12px 0 3px}
+.phase-item{position:relative;padding:0 0 24px 23px;border-left:1px solid #344858;margin-left:5px}.phase-item:before{content:"";position:absolute;left:-5px;top:14px;width:9px;height:9px;border-radius:50%;background:#344858;border:2px solid #101A25}
+.phase-item.current:before{background:#9CCBD3;box-shadow:0 0 0 4px rgba(156,203,211,.1)}.phase-item button{width:100%;text-align:left;background:none;border:0;padding:10px 0;color:#A5B8C8}
+.phase-item.current button{background:#1C2937;border:1px solid #648694;border-radius:18px;padding:18px}.phase-item h3{font-size:20px;color:#EDF2F5;margin:8px 0}.phase-item p{font-size:13px;line-height:1.6;margin-top:10px}.phase-item small{font-size:11px}
+.sheet-backdrop{position:fixed;inset:0;z-index:50;background:rgba(4,10,17,.75);backdrop-filter:blur(5px)}.sheet{position:fixed;left:50%;transform:translateX(-50%);bottom:0;z-index:51;width:100%;max-width:560px;max-height:90dvh;overflow:auto;background:#1C2937;border:1px solid #344858;border-radius:26px 26px 0 0;padding:12px 20px calc(24px + env(safe-area-inset-bottom));box-shadow:0 -12px 70px #0006}
+.sheet-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.sheet h2{font-size:22px}.sheet-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:20px 0}
+.session-option{position:relative;min-height:90px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:10px;border-radius:14px;border:1px solid #344858;background:#15222F;color:#A5B8C8;padding:12px 5px;font-size:11px}
+.session-option[aria-pressed=true]{border-color:#9CCBD3;background:#29424E;color:#EDF2F5}.sheet-footer{display:flex;gap:12px;margin-top:12px}.sheet-footer>*{flex:1}
+.modal-input{width:100%;background:#101A25;color:#EDF2F5;border:1px solid #486171;border-radius:12px;padding:14px;margin:12px 0}
+.toast{position:fixed;top:calc(14px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);width:max-content;max-width:90vw;z-index:80;background:#29424E;color:#EDF2F5;border:1px solid #9CCBD3;border-radius:16px;padding:14px 20px;box-shadow:0 10px 40px #0006}
+@keyframes enter{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}.view{animation:enter .25s ease-out}
+@keyframes checkPop{50%{transform:scale(1.08)}}@media(min-width:600px){.app-shell{border-left:1px solid #263C4D;border-right:1px solid #263C4D}.view{padding-left:26px;padding-right:26px}.app-header{padding-left:28px;padding-right:28px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+.header-subtitle{color:#A5B8C8;font-size:15px;line-height:1.6}.app-header h1{white-space:pre-line}
+.day-chip small{font-size:10px;color:#A5B8C8;letter-spacing:.06em}.day-chip[aria-pressed=true] small{color:#233B47}
+.day-marker{height:12px;width:auto;min-width:5px;background:none!important;font-size:14px;line-height:10px}
+.session-top{display:flex;justify-content:space-between;align-items:center;gap:12px}.session-subtitle{font-size:13px;color:#A5B8C8;line-height:1.6}
+.session-actions>div{display:flex;gap:12px;flex-wrap:wrap}.session-actions .text-btn{font-size:11px}
+.notes{background:transparent;padding:0;border:0}.notes textarea{width:100%;display:block;margin-top:10px;padding:12px;color:#EDF2F5;background:#101A25;border:1px solid #486171;border-radius:12px;resize:vertical}
+.saved-note{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.6;color:#A5B8C8;border-top:1px solid #344858;padding-top:16px;margin-top:16px}
+.inline-confirm{display:flex;gap:12px;align-items:center;flex-wrap:wrap;border-top:1px solid #344858;margin-top:16px;font-size:13px}
+.feeling-row{border-top:1px solid #344858;margin-top:20px;padding-top:16px;font-size:12px;color:#A5B8C8}
+.feeling-row>div{display:flex;gap:6px;margin-top:10px}.feeling-row button{min-width:44px;height:44px;background:transparent;border:1px solid #344858;border-radius:12px;font-size:22px}
+.feeling-row button[aria-pressed=true]{border-color:#9CCBD3;background:#29424E}
+.next-line{flex-wrap:wrap;gap:5px 10px;line-height:1.6}.next-line strong{font-weight:500;color:#EDF2F5}.next-line>span:last-child{margin-left:auto}
+.week-controls{display:flex;flex-direction:column}.week-controls .icon-btn{min-height:36px}.date-tile.current{color:#B3DCE2}
+.swap-banner{border:1px solid #648694;background:#203944;border-radius:14px;padding:12px;display:flex;align-items:center;gap:8px;font-size:12px}
+.helper-text{font-size:13px;color:#A5B8C8;line-height:1.7;margin:12px 0}.body-entry{margin-top:12px;font-size:12px}
+.body-editor{margin-top:16px;padding:18px}.body-fields{display:flex;gap:12px;margin-top:12px}.body-fields label{min-width:0;flex:1;font-size:11px;color:#A5B8C8}
+.journey-summary>div:nth-child(2){display:flex;align-items:center;gap:20px}.journey-summary span{font-size:13px;color:#A5B8C8;line-height:1.6}
+.journey-summary p{font-size:12px;color:#A5B8C8;margin-top:14px}
+progress{width:100%;height:5px;display:block;margin-top:18px;border:0;border-radius:99px;overflow:hidden;background:#344858}
+progress::-webkit-progress-bar{background:#344858}progress::-webkit-progress-value{background:#9CCBD3}progress::-moz-progress-bar{background:#9CCBD3}
+.section-heading>span{font-size:11px;color:#A5B8C8}
+.phase-timeline{padding-left:6px}.phase-item{display:block;width:calc(100% - 5px);text-align:left;color:#A5B8C8;background:transparent;border:0;border-left:1px solid #344858;padding:16px 16px 28px 24px}
+.phase-item.current{background:#1C2937;box-shadow:inset 0 0 0 1px #648694;border-radius:0 18px 18px 0;margin-bottom:16px}
+.phase-item:before{top:21px}.phase-count{display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:12px;color:#B3DCE2}
+.trend-panel{padding:22px}.metric-switch{display:flex;gap:8px;margin:16px 0}.metric-switch button{padding:10px 16px;min-height:44px;border:1px solid #344858;border-radius:99px;background:transparent;font-size:12px;color:#A5B8C8}
+.metric-switch button[aria-pressed=true]{background:#29424E;border-color:#9CCBD3;color:#EDF2F5}.trend-value{font-size:32px;letter-spacing:-.04em}.trend-value span{font-size:16px;color:#A5B8C8}
+.chart-caption{font-size:10px;color:#A5B8C8;line-height:1.5;margin-top:10px}
+.sheet-handle{width:32px;height:4px;background:#648694;border-radius:4px;margin:0 auto 18px}.sheet h2{margin-top:8px}.option-check{position:absolute;right:7px;top:5px;color:#B3DCE2}
+.settings-card{padding:22px}.settings-backup>.secondary{display:block;width:100%;margin-top:12px}.settings-backup{margin-top:30px}
+.settings-screen{padding-bottom:calc(40px + env(safe-area-inset-bottom))}.loading-state{padding:80px 24px;color:#A5B8C8;text-align:center}
+.milestone-toast{display:flex;align-items:center;gap:12px;max-width:520px;width:90vw}.milestone-toast>span{font-size:26px}.milestone-toast strong{font-size:14px}.milestone-toast p{font-size:12px;line-height:1.6;color:#B6C9D5;margin-top:3px}
+@keyframes slideLeft{from{opacity:.3;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
+@keyframes slideRight{from{opacity:.3;transform:translateX(-16px)}to{opacity:1;transform:translateX(0)}}
+@media(max-width:360px){.view{padding-left:14px;padding-right:14px}.session-card{padding:20px 16px}.log-circle{width:68px;height:68px}.session-actions>div{gap:2px;flex-direction:column}.sheet{padding-left:14px;padding-right:14px}.feeling-row>div{gap:3px}}
+
+`;
 
 // ─── Small chrome ────────────────────────────────────────────────────────────────
-function Chk({size=14,color="#fff"}) {
+function Chk({size=14,color=C.ink}) {
   return <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
     <path d="M3 8.5l3.5 3.5 6.5-7" stroke={color} strokeWidth="2.2"
       strokeLinecap="round" strokeLinejoin="round"/>
@@ -316,42 +436,23 @@ function Chk({size=14,color="#fff"}) {
 }
 function NavArrow({onClick,dir}) {
   return (
-    <button onClick={onClick} aria-label={dir==="left"?"Previous":"Next"} style={{
+    <button onClick={onClick} aria-label={dir==="left"?"Zurück":"Weiter"} style={{
       width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",
       background:"none",border:`1px solid ${C.border}`,borderRadius:12,
       cursor:"pointer",color:C.muted,fontSize:20,flexShrink:0,
       WebkitTapHighlightColor:"transparent"}}>{dir==="left"?"‹":"›"}</button>
   );
 }
-function TabIcon({name,size=23}) {
-  const p={width:size,height:size,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",
-    strokeWidth:2,strokeLinecap:"round",strokeLinejoin:"round"};
-  if (name==="today") return <svg {...p}>
-    <rect x="3" y="4" width="18" height="17" rx="2.5"/>
-    <path d="M3 9h18M8 2.5v3.5M16 2.5v3.5"/>
-    <circle cx="12" cy="15" r="1.7" fill="currentColor" stroke="none"/></svg>;
-  if (name==="week") return <svg {...p}>
-    <path d="M8 6h12M8 12h12M8 18h12"/>
-    <circle cx="4" cy="6" r="1.1" fill="currentColor" stroke="none"/>
-    <circle cx="4" cy="12" r="1.1" fill="currentColor" stroke="none"/>
-    <circle cx="4" cy="18" r="1.1" fill="currentColor" stroke="none"/></svg>;
-  if (name==="month") return <svg {...p}>
-    <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
-    <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>;
-  if (name==="journey") return <svg {...p}><path d="M5 21V3M5 4h12l-2 3.5L17 11H5"/></svg>;   // flag
-  return <svg {...p}>   {/* routine — checklist */}
-    <path d="M4 5.5l1.5 1.5L8 4.5M4 12l1.5 1.5L8 10.5M4 18.5l1.5 1.5L8 17"/>
-    <path d="M11 6h9M11 12.5h9M11 19h9"/></svg>;
-}
+function TabIcon({name,size=23}) { return <Icon name={name} size={size}/>; }
 
-// ─── Tip card ────────────────────────────────────────────────────────────────────
+
 function TipCard({workout}) {
   const tip=getTip(workout);
   if (!tip) return null;
   return (
     <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
       <span style={{display:'inline-block',fontSize:11,fontWeight:700,color:tip.color,
-        background:'rgba(232,23,74,0.1)',borderRadius:20,padding:'4px 11px',marginBottom:9}}>
+        background:'rgba(156,203,211,0.1)',borderRadius:20,padding:'4px 11px',marginBottom:9}}>
         {tip.emoji} {tip.label}
       </span>
       <p style={{margin:0,fontSize:13,color:C.muted,lineHeight:1.6,letterSpacing:"0.01em"}}>{tip.text}</p>
@@ -362,15 +463,8 @@ function TipCard({workout}) {
 // ─── Tactical prompt card ────────────────────────────────────────────────────────
 function TacticalCard({dk}) {
   const t=tacticalFor(dk);
-  return (
-    <div style={{marginTop:16,padding:'14px 16px',background:'rgba(255,107,157,0.07)',
-      border:`1px solid ${C.border}`,borderRadius:16}}>
-      <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.1em',
-        color:C.sageDk,marginBottom:6}}>This week's focus</div>
-      <div style={{fontSize:15,fontWeight:700,color:C.text,lineHeight:1.3,marginBottom:5}}>{t.focus}</div>
-      <div style={{fontSize:13,color:C.muted,lineHeight:1.55}}>{t.detail}</div>
-    </div>
-  );
+  return <section className="panel focus-card"><div className="eyebrow">Dein taktischer Fokus</div>
+    <h3>{t.focus}</h3><p>{t.detail}</p></section>;
 }
 
 // ─── Setup / settings ────────────────────────────────────────────────────────────
@@ -402,10 +496,13 @@ function SetupScreen({initName,isEdit,onBack,onSave}) {
       try {
         const parsed=JSON.parse(reader.result);
         if (!parsed||!parsed.plan||!parsed.version) throw new Error("invalid");
+        const data=typeof parsed.plan==="string"?JSON.parse(parsed.plan):parsed.plan;
+        if(!data||typeof data.playerName!=="string"||!data.plan||typeof data.plan!=="object"||Array.isArray(data.plan))throw new Error("invalid");
+        if(Object.values(data.plan).some(e=>!e||typeof e!=="object"||Array.isArray(e)))throw new Error("invalid");
         setPendingImport(parsed);
-      } catch(e) { setPendingImport(null); setImportError("Invalid backup file — please select a valid soccer backup"); }
+      } catch(e) { setPendingImport(null); setImportError("Backup konnte nicht gelesen oder gespeichert werden. Bitte prüfe die Datei und den verfügbaren Speicher."); }
     };
-    reader.onerror=()=>{ setPendingImport(null); setImportError("Invalid backup file — please select a valid soccer backup"); };
+    reader.onerror=()=>{ setPendingImport(null); setImportError("Backup konnte nicht gelesen oder gespeichert werden. Bitte prüfe die Datei und den verfügbaren Speicher."); };
     reader.readAsText(file);
   };
   const confirmImport=()=>{
@@ -418,271 +515,117 @@ function SetupScreen({initName,isEdit,onBack,onSave}) {
       }
       try { sessionStorage.setItem('justRestored','1'); } catch {}
       window.location.reload();
-    } catch(e) { setPendingImport(null); setImportError("Invalid backup file — please select a valid soccer backup"); }
+    } catch(e) { setPendingImport(null); setImportError("Backup konnte nicht gelesen oder gespeichert werden. Bitte prüfe die Datei und den verfügbaren Speicher."); }
   };
 
-  const inp={
-    width:"100%",border:`1px solid ${C.border}`,borderRadius:12,
-    padding:"14px 16px",fontFamily:"inherit",fontSize:16,color:C.text,
-    background:C.bg,outline:"none",boxSizing:"border-box",WebkitAppearance:"none",
-  };
-  return (
-    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"system-ui,sans-serif",
-      position:"relative",display:"flex",flexDirection:"column",
-      alignItems:"center",justifyContent:"center",
-      padding:"env(safe-area-inset-top,20px) 20px env(safe-area-inset-bottom,20px)"}}>
-      {isEdit&&onBack&&(
-        <div style={{position:"absolute",top:0,left:0,right:0,background:C.surface,
-          borderBottom:`1px solid ${C.border}`,padding:"env(safe-area-inset-top,0px) 20px 0",
-          display:"flex",alignItems:"center",gap:12,minHeight:56}}>
-          <button onClick={onBack} aria-label="Back" style={{background:"none",border:"none",cursor:"pointer",
-            color:C.muted,fontSize:24,width:44,height:44,display:"flex",alignItems:"center",
-            justifyContent:"center",flexShrink:0,marginLeft:-10,WebkitTapHighlightColor:"transparent"}}>←</button>
-          <span style={{fontSize:17,fontWeight:600,color:C.text}}>Settings</span>
-        </div>
-      )}
-      {!isEdit&&<>
-        <div style={{fontSize:56,marginBottom:20}}>⚽</div>
-        <div style={{fontSize:28,fontWeight:700,textAlign:"center",marginBottom:10,
-          lineHeight:1.25,color:C.text}}>Your season,<br/>your edge</div>
-        <div style={{fontSize:15,color:C.muted,textAlign:"center",marginBottom:40,
-          lineHeight:1.6,maxWidth:280}}>
-          Your full-season plan is ready. Train smart, log every session, play for life.
-        </div>
-      </>}
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,
-        borderRadius:16,padding:24,width:"100%",maxWidth:400}}>
-        <label style={{fontSize:12,textTransform:"uppercase",letterSpacing:".08em",
-          color:C.muted,display:"block",marginBottom:8}}>What's your name?</label>
-        <input style={inp} placeholder="e.g. Nikola" value={n}
-          onChange={e=>setN(e.target.value)}
-          onKeyDown={e=>{ if(e.key==="Enter"&&ok) onSave(n.trim()); }}/>
-        <button disabled={!ok} onClick={()=>onSave(n.trim())} style={{
-          width:"100%",padding:16,background:ok?C.done:C.muted,color:"#fff",
-          border:"none",borderRadius:12,fontFamily:"inherit",fontSize:17,fontWeight:600,
-          cursor:ok?"pointer":"default",marginTop:24,WebkitTapHighlightColor:"transparent"}}>
-          {isEdit?"Save changes":"Let's go →"}
-        </button>
-      </div>
-
-      {isEdit&&(
-        <div style={{width:"100%",maxWidth:400,marginTop:18}}>
-          <button onClick={exportData} style={{width:"100%",padding:16,background:C.done,
-            color:"#fff",border:"none",borderRadius:12,fontFamily:"inherit",fontSize:16,
-            fontWeight:600,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>
-            📥 Export my data
-          </button>
-          <div style={{display:"flex",flexDirection:"column",gap:5,margin:"16px 4px 20px"}}>
-            <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Your data is stored on this device only.</div>
-            <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>After exporting, tap “More…” → “Save to Files” → iCloud Drive to keep a safe backup.</div>
-            <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Restore anytime from the same file.</div>
-          </div>
-          <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{width:"100%",padding:16,
-            background:C.surface,color:C.sageDk,border:`1.5px solid ${C.sage}`,borderRadius:12,
-            fontFamily:"inherit",fontSize:16,fontWeight:600,cursor:"pointer",
-            WebkitTapHighlightColor:"transparent"}}>
-            📤 Restore from backup
-          </button>
-          <input ref={fileRef} type="file" accept=".json" onChange={onFilePick} style={{display:"none"}}/>
-          {importError&&(
-            <div style={{marginTop:12,fontSize:13,color:"#c05050",textAlign:"center",lineHeight:1.4}}>{importError}</div>
-          )}
-          {pendingImport&&(
-            <div style={{marginTop:14,padding:16,background:C.surface,border:`1px solid ${C.border}`,borderRadius:16}}>
-              <div style={{fontSize:14,color:C.text,lineHeight:1.5,marginBottom:14}}>
-                This will restore your training data. Your current data will be replaced. Continue?
-              </div>
-              <div style={{display:"flex",gap:10}}>
-                <button onClick={()=>setPendingImport(null)} style={{flex:1,padding:13,
-                  background:C.bg,border:`1px solid ${C.border}`,borderRadius:12,fontFamily:"inherit",
-                  fontSize:15,cursor:"pointer",color:C.muted,WebkitTapHighlightColor:"transparent"}}>Cancel</button>
-                <button onClick={confirmImport} style={{flex:1,padding:13,background:C.done,
-                  color:"#fff",border:"none",borderRadius:12,fontFamily:"inherit",fontSize:15,
-                  fontWeight:600,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>Confirm</button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
+  return <main className="app-shell settings-screen">
+    <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Soccer Tracker</span>
+      {onBack&&<button className="icon-btn" aria-label="Zurück" onClick={onBack}><Icon name="close"/></button>}</div>
+      <h1>{isEdit?"Dein Profil.":"Deine Saison.\nDein Fortschritt."}</h1>
+      <p className="header-subtitle">{isEdit?"Deine Daten bleiben bei dir.":"Trainiere bewusst. Bleib im Spiel."}</p></header>
+    <div className="view"><section className="panel settings-card"><label htmlFor="player-name" className="eyebrow">Wie heißt du?</label>
+      <input id="player-name" className="modal-input" autoComplete="given-name" value={n} placeholder="Dein Name" maxLength={80}
+        onChange={e=>setN(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&ok)onSave(n.trim());}}/>
+      <button className="primary" style={{width:"100%",marginTop:20}} disabled={!ok} onClick={()=>onSave(n.trim())}>{isEdit?"Speichern":"Los geht’s →"}</button>
+    </section>
+    <section className="settings-backup"><div className="section-heading"><h2>Deine Daten</h2></div>
+      <p className="helper-text">Alles wird nur auf diesem Gerät gespeichert. Sichere dein Backup zum Beispiel in iCloud Drive.</p>
+      {isEdit&&<button className="secondary" onClick={exportData}>Daten exportieren</button>}
+      <button className="secondary" onClick={()=>fileRef.current?.click()}>Backup wiederherstellen</button>
+      <input ref={fileRef} type="file" accept=".json" onChange={onFilePick} hidden/>
+      {importError&&<p role="alert" className="helper-text">{importError}</p>}
+      {pendingImport&&<div className="panel settings-card" role="alert"><p>Das Backup ersetzt die aktuellen Trainingsdaten. Fortfahren?</p>
+        <div className="sheet-footer"><button className="secondary" onClick={()=>setPendingImport(null)}>Abbrechen</button><button className="primary" onClick={confirmImport}>Wiederherstellen</button></div></div>}
+    </section></div>
+  </main>;
 }
 
 // ─── Swipe ───────────────────────────────────────────────────────────────────────
-function useSwipe(onLeft, onRight) {
-  const touchStartX = useRef(null);
+function useSwipe(onLeft,onRight) {
+  const start=useRef(null);
   return {
-    onTouchStart: (e) => { touchStartX.current = e.touches[0].clientX; },
-    onTouchEnd: (e) => {
-      if (touchStartX.current === null) return;
-      const delta = e.changedTouches[0].clientX - touchStartX.current;
-      if (Math.abs(delta) > 50) (delta < 0 ? onLeft : onRight)();
-      touchStartX.current = null;
-    },
+    onTouchStart:e=>{start.current=null;if(e.target.closest("button,input,textarea,summary,[role=dialog]"))return;start.current={x:e.touches[0].clientX,y:e.touches[0].clientY};},
+    onTouchEnd:e=>{if(!start.current)return;const dx=e.changedTouches[0].clientX-start.current.x,dy=e.changedTouches[0].clientY-start.current.y;
+      start.current=null;if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.5)(dx<0?onLeft:onRight)();},
+    onTouchCancel:()=>{start.current=null;}
   };
 }
 
 // ─── Workout bottom sheet ────────────────────────────────────────────────────────
 // Shared by Today and Week views. Core session types are MULTI-select (tap up to
 // two — e.g. "Gym + Mobility"); confirm writes a `sessions` array. Other prompts
-// for free text, Rest clears the day — both are single immediate actions. Pre-seeds
+// for free text, Rest clears the day — both require Save. Pre-seeds
 // the selection from the day's current sessions so editing keeps what's there.
 const SHEET_MAX = 2;
 function WorkoutSheet({dateKey:dk,entry,updDay,onClose}) {
-  const [otherMode,setOtherMode]=useState(false);
-  const [otherText,setOtherText]=useState("");
-  // Only pre-seed known toggle types; free-text / legacy values start empty.
-  const known=ALTS.map(a=>a.label);
-  const [selected,setSelected]=useState(()=>getSessions(entry).filter(s=>known.includes(s)).slice(0,SHEET_MAX));
-
-  // The sheet only sets/changes the day's session(s) — same for every day. It never
-  // marks the day done; logging happens exclusively via the LOG circle on the card.
-  const toggle=(label)=>{
-    setSelected(sel=>{
-      if (sel.includes(label)) return sel.filter(s=>s!==label);
-      if (sel.length>=SHEET_MAX) return sel;          // cap at two
-      return [...sel,label];
-    });
+  const [otherMode,setOtherMode]=useState(false), [otherText,setOtherText]=useState("");
+  const [selected,setSelected]=useState(()=>getSessions(entry).slice(0,SHEET_MAX));
+  const dialog=useRef(null), closeRef=useRef(onClose);
+  closeRef.current=onClose;
+  useEffect(()=>{
+    const previous=document.activeElement, overflow=document.body.style.overflow;
+    document.body.style.overflow="hidden";dialog.current?.focus();
+    const key=ev=>{
+      if(ev.key==="Escape"){ev.preventDefault();closeRef.current();return;}
+      if(ev.key!=="Tab")return;
+      const items=[...dialog.current.querySelectorAll('button:not(:disabled),input,textarea,[tabindex="0"]')];
+      const first=items[0],last=items.at(-1);
+      if(ev.shiftKey&&(document.activeElement===first||document.activeElement===dialog.current)){ev.preventDefault();last?.focus();}
+      else if(!ev.shiftKey&&(document.activeElement===last||document.activeElement===dialog.current)){ev.preventDefault();first?.focus();}
+    };
+    document.addEventListener("keydown",key);
+    return ()=>{document.body.style.overflow=overflow;document.removeEventListener("keydown",key);previous?.focus();};
+  },[]);
+  const toggle=label=>setSelected(sel=>sel.includes(label)?sel.filter(s=>s!==label):sel.length<SHEET_MAX?[...sel,label]:sel);
+  const save=()=>{
+    if(otherMode&&!otherText.trim())return;
+    const sessions=otherMode?["⋯ "+otherText.trim()]:selected;
+    updDay(dk,{sessions,workout:"",...(!sessions.length?{completed:false,feeling:null}:{})});
+    closeRef.current();
   };
-  const confirmSelection=()=>{
-    if (!selected.length) return;
-    updDay(dk,{sessions:selected,workout:''});        // keep completed/feeling/notes
-    onClose();
-  };
-  const confirmOther=()=>{
-    const t=otherText.trim();
-    if (!t) return;
-    updDay(dk,{sessions:[`⋯ ${t}`],workout:''});
-    onClose();
-  };
-  const chooseRest=()=>{ updDay(dk,{sessions:[],workout:'',completed:false,feeling:null}); onClose(); };
-
-  const confirmLabel=selected.length
-    ? `Save ${selected.map(s=>`${sessionEmoji(s)} ${displayName(s)}`).join(" + ")}`
-    : "Select a session";
-
-  return (
-    <>
-      <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",
-        zIndex:50,WebkitTapHighlightColor:"transparent"}}/>
-      <div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:51,maxWidth:480,margin:"0 auto",
-        background:C.surface,borderRadius:"20px 20px 0 0",boxShadow:"0 -8px 30px rgba(0,0,0,0.18)",
-        padding:"8px 16px calc(20px + env(safe-area-inset-bottom))",animation:"sheetUp .25s ease-out"}}>
-        <style>{"@keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}"}</style>
-        <button onClick={onClose} aria-label="Close"
-          style={{display:"block",width:"100%",background:"none",border:"none",cursor:"pointer",
-            padding:"6px 0 14px",WebkitTapHighlightColor:"transparent"}}>
-          <div style={{width:40,height:5,borderRadius:3,background:C.borderSt,margin:"0 auto"}}/>
-        </button>
-        {otherMode ? (
-          <>
-            <div style={{fontSize:16,fontWeight:600,color:C.text,margin:"4px 4px 16px"}}>What are you doing?</div>
-            <div style={{display:"flex",gap:10}}>
-              <input autoFocus value={otherText} onChange={ev=>setOtherText(ev.target.value)}
-                onKeyDown={ev=>{ if(ev.key==="Enter") confirmOther(); }}
-                placeholder="e.g. Swim, Run, Physio"
-                style={{flex:1,border:`1px solid ${C.border}`,borderRadius:12,padding:"13px 15px",
-                  fontFamily:"inherit",fontSize:16,color:C.text,background:C.bg,outline:"none",
-                  boxSizing:"border-box",WebkitAppearance:"none"}}/>
-              <button onClick={confirmOther} disabled={!otherText.trim()}
-                style={{flexShrink:0,padding:"0 20px",background:otherText.trim()?C.done:C.muted,
-                  color:"#fff",border:"none",borderRadius:12,fontFamily:"inherit",fontSize:15,
-                  fontWeight:600,cursor:otherText.trim()?"pointer":"default",WebkitTapHighlightColor:"transparent"}}>Confirm</button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",margin:"4px 4px 14px"}}>
-              <span style={{fontSize:16,fontWeight:600,color:C.text}}>What are you doing?</span>
-              <span style={{fontSize:11,color:C.muted}}>pick up to {SHEET_MAX}</span>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-              {ALTS.map(opt=>{
-                const on=selected.includes(opt.label);
-                const full=!on&&selected.length>=SHEET_MAX;
-                return (
-                  <button key={opt.label} onClick={()=>toggle(opt.label)} disabled={full}
-                    aria-pressed={on}
-                    style={{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",
-                      justifyContent:"center",gap:5,minHeight:64,padding:"12px 4px",
-                      background:on?C.sageLt:C.bg,border:`${on?2:1}px solid ${on?C.done:C.border}`,
-                      borderRadius:12,cursor:full?"default":"pointer",opacity:full?0.45:1,
-                      fontFamily:"inherit",WebkitTapHighlightColor:"transparent"}}>
-                    {on&&<span style={{position:"absolute",top:4,right:4,width:16,height:16,borderRadius:"50%",
-                      background:C.done,display:"flex",alignItems:"center",justifyContent:"center"}}><Chk size={9}/></span>}
-                    <span style={{fontSize:24,lineHeight:1}}>{opt.emoji}</span>
-                    <span style={{fontSize:11,color:on?C.sageDk:C.muted,fontWeight:on?700:400,
-                      textAlign:"center",lineHeight:1.15}}>{displayName(opt.label)}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <button onClick={confirmSelection} disabled={!selected.length}
-              style={{width:"100%",marginTop:14,padding:"14px",background:selected.length?C.done:C.muted,
-                color:"#fff",border:"none",borderRadius:12,fontFamily:"inherit",fontSize:15,fontWeight:600,
-                cursor:selected.length?"pointer":"default",WebkitTapHighlightColor:"transparent"}}>
-              {confirmLabel}
-            </button>
-            <div style={{display:"flex",gap:10,marginTop:10}}>
-              <button onClick={()=>setOtherMode(true)} style={{flex:1,padding:"11px",background:C.surface,
-                color:C.muted,border:`1px solid ${C.border}`,borderRadius:12,fontFamily:"inherit",fontSize:14,
-                fontWeight:500,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>⋯ Something else</button>
-              <button onClick={chooseRest} style={{flex:1,padding:"11px",background:C.surface,
-                color:C.muted,border:`1px solid ${C.border}`,borderRadius:12,fontFamily:"inherit",fontSize:14,
-                fontWeight:500,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>😴 Rest day</button>
-            </div>
-          </>
-        )}
-      </div>
-    </>
-  );
+  const options=[...ALTS,...selected.filter(s=>!ALTS.some(a=>a.label===s)).map(label=>({label}))];
+  return <>
+    <div className="sheet-backdrop" onClick={onClose}/>
+    <section className="sheet" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabIndex={-1}>
+      <div className="sheet-handle"/>
+      <div className="sheet-heading"><div><div className="eyebrow">{shortDate(dk)} · Dein Plan</div>
+        <h2 id="sheet-title">Was steht an?</h2></div><button className="icon-btn" onClick={onClose} aria-label="Schließen"><Icon name="close"/></button></div>
+      {otherMode?<div><label htmlFor="custom-session" className="helper-text">Deine eigene Einheit</label>
+        <input id="custom-session" className="modal-input" autoFocus value={otherText} maxLength={100} onChange={e=>setOtherText(e.target.value)}
+          placeholder="Zum Beispiel Schwimmen, Physio …" onKeyDown={e=>{if(e.key==="Enter")save();}}/>
+        <button className="text-btn" onClick={()=>setOtherMode(false)}>← Zur Auswahl</button></div>
+      :<><p className="helper-text">Bis zu zwei Einheiten. Speichern ändert nur den Plan — geloggt wird über LOG.</p>
+        <div className="sheet-grid">{options.map(opt=><button key={opt.label} className="session-option" onClick={()=>toggle(opt.label)}
+          aria-pressed={selected.includes(opt.label)} disabled={!selected.includes(opt.label)&&selected.length>=SHEET_MAX}>
+          <Icon name={opt.label} size={25}/><span>{displayName(opt.label)}</span>{selected.includes(opt.label)&&<span className="option-check">✓</span>}
+        </button>)}</div>
+        <div className="sheet-footer"><button className="secondary" onClick={()=>setOtherMode(true)}>Andere Einheit</button>
+          <button className="secondary" aria-pressed={selected.length===0} onClick={()=>setSelected([])}>Rest day</button></div>
+      </>}
+      <button className="primary" style={{width:"100%",marginTop:16}} onClick={save} disabled={otherMode&&!otherText.trim()}>
+        Speichern{!otherMode&&!selected.length?" · Rest day":""}
+      </button>
+    </section>
+  </>;
 }
 
 // ─── Weekly targets ──────────────────────────────────────────────────────────────
 // Priority session types for the current phase (Gym + Mobility, 2×/week each).
 // Each session in a day's array counts once toward its own target — no double count.
 function WeeklyTargets({plan}) {
-  const today=todayStr();
-  if (isHoliday(today)) return null;             // Ibiza / Tuscany: no targets
-  const phase=phaseForDate(today);
+  const today=todayStr(),phase=phaseForDate(today),days=weekOf(0);
   const targets=phase?PHASE_TARGETS[phase.name]:null;
-  if (!targets||!Object.keys(targets).length) return null;
+  if(isHoliday(today)||!targets||!Object.keys(targets).length)return null;
   const counts={};
-  weekOf(0).forEach(dk=>{
-    const e=plan[dk];
-    if (e?.completed) getSessions(e).forEach(s=>{ counts[s]=(counts[s]||0)+1; });
-  });
-  return (
-    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,
-      padding:"12px 14px",marginBottom:16}}>
-      <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:".06em",marginBottom:9}}>Weekly targets</div>
-      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-        {Object.entries(targets).map(([type,goal])=>{
-          const got=Math.min(counts[type]||0,goal);
-          const met=(counts[type]||0)>=goal;
-          return (
-            <div key={type} style={{flex:1,minWidth:120,display:"flex",alignItems:"center",gap:9}}>
-              <span style={{fontSize:18,lineHeight:1}}>{sessionEmoji(type)}</span>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
-                  <span style={{fontSize:13,fontWeight:600,color:C.text}}>{displayName(type)}</span>
-                  <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:met?C.done:C.muted}}>
-                    {counts[type]||0}/{goal}
-                  </span>
-                </div>
-                <div style={{display:"flex",gap:3}}>
-                  {Array.from({length:goal},(_,i)=>(
-                    <div key={i} style={{flex:1,height:5,borderRadius:99,
-                      background:i<got?C.done:C.border}}/>
-                  ))}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+  days.forEach(dk=>{if(plan[dk]?.completed)new Set(getSessions(plan[dk])).forEach(s=>{counts[s]=(counts[s]||0)+1;});});
+  return <section aria-label="Wochenziele">
+    <div className="section-heading"><h2>Wochenziele</h2><small>{shortDate(days[0])} – {shortDate(days[6])}</small></div>
+    <div className="panel target-panel">{Object.entries(targets).map(([type,goal])=><div className="target-row" key={type}>
+      <Icon name={type} size={26}/><div className="target-content">
+        <div className="target-label"><span>{displayName(type)}</span><span>{counts[type]||0} / {goal}{counts[type]>=goal?" ✓":""}</span></div>
+        <div className="target-track" aria-hidden="true">{Array.from({length:goal},(_,i)=><span key={i} className={"target-segment"+(i<(counts[type]||0)?" filled":"")}/>)}</div>
+      </div></div>)}</div>
+  </section>;
 }
 
 // ─── Body-comp entry line (Today) ───────────────────────────────────────────────
@@ -691,523 +634,158 @@ function WeeklyTargets({plan}) {
 // inputs. Weight and body fat are independent (either alone is valid). Saving
 // only writes weight/bodyFat — it never touches sessions or completion.
 function BodyCompLine({entry,dateKey:dk,updDay}) {
-  const [open,setOpen]=useState(false);
-  const [w,setW]=useState("");
-  const [bf,setBf]=useState("");
-  useEffect(()=>{ setOpen(false); },[dk]);   // collapse when the viewed day changes
-
-  const has=entry.weight!=null||entry.bodyFat!=null;
-  const startEdit=()=>{
-    setW(entry.weight!=null?String(entry.weight):"");
-    setBf(entry.bodyFat!=null?String(entry.bodyFat):"");
-    setOpen(true);
-  };
-  const parse=(s)=>{ const v=parseFloat(String(s).replace(",",".")); return isNaN(v)?null:Math.round(v*10)/10; };
-  const save=()=>{ updDay(dk,{weight:parse(w),bodyFat:parse(bf)}); setOpen(false); };
-
-  const inp={width:"100%",border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 12px",
-    fontFamily:"monospace",fontSize:15,color:C.text,background:C.surface,outline:"none",
-    boxSizing:"border-box",WebkitAppearance:"none"};
-
-  if (open) return (
-    <div style={{marginTop:12,padding:"12px 14px",background:C.surface,
-      border:`1px solid ${C.border}`,borderRadius:12}}>
-      <div style={{display:"flex",gap:10}}>
-        {[["Weight (kg)",w,setW,"78.4"],["Body fat % (optional)",bf,setBf,"15.8"]].map(([lbl,val,set,ph])=>(
-          <label key={lbl} style={{flex:1,minWidth:0}}>
-            <span style={{display:"block",fontSize:10,color:C.muted,textTransform:"uppercase",
-              letterSpacing:".05em",marginBottom:5}}>{lbl}</span>
-            <input type="text" inputMode="decimal" value={val} placeholder={ph}
-              onChange={ev=>set(ev.target.value)} style={inp}/>
-          </label>
-        ))}
-      </div>
-      <div style={{display:"flex",gap:10,marginTop:10}}>
-        <button onClick={save} style={{flex:1,padding:"10px",background:C.done,color:"#fff",border:"none",
-          borderRadius:12,fontFamily:"inherit",fontSize:14,fontWeight:600,cursor:"pointer",
-          WebkitTapHighlightColor:"transparent"}}>Save</button>
-        <button onClick={()=>setOpen(false)} style={{flex:1,padding:"10px",background:"none",
-          border:`1px solid ${C.border}`,borderRadius:12,fontFamily:"inherit",fontSize:14,color:C.muted,
-          cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>Cancel</button>
-      </div>
-    </div>
-  );
-
-  return (
-    <button onClick={startEdit}
-      style={{display:"flex",alignItems:"center",gap:6,marginTop:6,background:"none",border:"none",
-        cursor:"pointer",color:C.muted,fontSize:13,fontWeight:500,minHeight:44,padding:"4px 2px",
-        fontFamily:"inherit",WebkitTapHighlightColor:"transparent"}}>
-      {has
-        ? <>⚖️ <span style={{fontFamily:"monospace",fontWeight:700,color:C.text}}>
-              {entry.weight!=null?`${entry.weight.toFixed(1)} kg`:""}
-              {entry.weight!=null&&entry.bodyFat!=null?" · ":""}
-              {entry.bodyFat!=null?`${entry.bodyFat.toFixed(1)}%`:""}
-            </span><span style={{fontSize:12}}>✏️</span></>
-        : <>＋ Log weight</>}
-    </button>
-  );
+  const [open,setOpen]=useState(false),[w,setW]=useState(""),[bf,setBf]=useState("");
+  const parse=value=>value.trim()===""?null:Number(value.replace(",","."));
+  const weight=parse(w),fat=parse(bf);
+  const valid=(weight===null||Number.isFinite(weight)&&weight>0&&weight<=500)&&(fat===null||Number.isFinite(fat)&&fat>0&&fat<100);
+  const start=()=>{setW(entry.weight==null?"":String(entry.weight));setBf(entry.bodyFat==null?"":String(entry.bodyFat));setOpen(true);};
+  const save=()=>{if(!valid)return;updDay(dk,{weight:weight==null?null:Math.round(weight*10)/10,bodyFat:fat==null?null:Math.round(fat*10)/10});setOpen(false);};
+  if(!open)return <button className="text-btn body-entry" onClick={start}><Icon name="journey" size={17}/>
+    {entry.weight!=null||entry.bodyFat!=null?[entry.weight!=null?entry.weight+" kg":null,entry.bodyFat!=null?entry.bodyFat+" %":null].filter(Boolean).join(" · "):"Körperwerte eintragen"}
+  </button>;
+  return <section className="panel body-editor"><div className="eyebrow">Körperwerte · optional</div><div className="body-fields">
+    <label>Gewicht (kg)<input className="modal-input" inputMode="decimal" value={w} onChange={e=>setW(e.target.value)} placeholder="78,4"/></label>
+    <label>Körperfett (%)<input className="modal-input" inputMode="decimal" value={bf} onChange={e=>setBf(e.target.value)} placeholder="15,8"/></label>
+    </div>{!valid&&<p role="alert" className="helper-text">Bitte gültige Werte eingeben.</p>}
+    <div className="sheet-footer"><button className="primary" disabled={!valid} onClick={save}>Speichern</button><button className="secondary" onClick={()=>setOpen(false)}>Abbrechen</button></div>
+  </section>;
 }
 
 // ─── Today view ──────────────────────────────────────────────────────────────────
-function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach,onOpenMK,mkLoggedToday}) {
-  const viewKey=offsetDate(dayOff);
-  const e=plan[viewKey]||{};
-  const isToday=dayOff===0;
+function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
+  const viewKey=offsetDate(dayOff), e=plan[viewKey]||{};
   const [sheetOpen,setSheetOpen]=useState(false);
-  const [direction,setDirection]=useState(null);
-  const [animating,setAnimating]=useState(false);
   const [notesOpen,setNotesOpen]=useState(false);
   const [confirmUnlog,setConfirmUnlog]=useState(false);
-  useEffect(()=>{ setNotesOpen(false); setConfirmUnlog(false); },[viewKey]);
-
-  const navDay=(delta)=>{
-    setSheetOpen(false);
-    setDirection(delta>0?'left':'right');
-    setDayOff(o=>o+delta);
-    setAnimating(true);
-    setTimeout(()=>setAnimating(false),250);
-  };
+  const [direction,setDirection]=useState(1);
+  useEffect(()=>{setNotesOpen(false);setConfirmUnlog(false);setSheetOpen(false);},[viewKey]);
+  const navDay=delta=>{setDirection(delta);setDayOff(o=>o+delta);};
   const swipe=useSwipe(()=>navDay(1),()=>navDay(-1));
-  const handleUnlog=()=>{ updDay(viewKey,{completed:false,feeling:null}); setConfirmUnlog(false); };
-
-  const d=new Date(viewKey+"T00:00:00");
-  const dayName=d.toLocaleDateString("en-US",{weekday:"long"});
-  const dayFull=d.toLocaleDateString("en-US",{month:"long",day:"numeric"});
-  const sessions=getSessions(e);
-  const hasWorkout=sessions.length>0;
-
-  // Readiness is a check-in about how the player feels TODAY, so it always binds
-  // to the real today — not the viewed day — and stays put while days slide.
-  const todayKey=todayStr();
-  const readiness=plan[todayKey]?.readiness||{};
-  const setReadiness=(key)=>{
-    const next=nextReadiness(readiness[key]);
-    updDay(todayKey,{readiness:{...readiness,[key]:next}});
-  };
-  const next=nextUp(plan);
-
-  return (
-    <div {...swipe} style={{padding:"16px 16px 24px"}}>
-      <style>{"@keyframes checkPop{0%{transform:scale(1)}50%{transform:scale(1.15)}100%{transform:scale(1)}}@keyframes slideInLeft{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes slideInRight{from{transform:translateX(-100%);opacity:0}to{transform:translateX(0);opacity:1}}"}</style>
-      {/* Next up — thin secondary line under the phase header */}
-      {next&&(
-        <div style={{fontSize:12,color:C.muted,textAlign:"center",marginBottom:12}}>
-          Next: <span style={{fontWeight:600}}>{next.label}</span> · {next.when}
-        </div>
-      )}
-
-      {/* Readiness check-in — tap cycles unset → good → ok → sore */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:16}}>
-        {READINESS_INDICATORS.map(ind=>{
-          const st=readiness[ind.key];
-          const c=st?READINESS_COLORS[st]:null;
-          const word=st?ind.words[st]:"tap to set";
-          return (
-            <button key={ind.key} onClick={()=>setReadiness(ind.key)}
-              aria-label={`${ind.question} — ${st?word:"not set"}, tap to change`}
-              style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,
-                minHeight:48,padding:"10px 8px",fontFamily:"inherit",cursor:"pointer",
-                background:c?c.bg:C.surface,border:`1.5px solid ${c?c.border:C.border}`,
-                borderRadius:12,WebkitTapHighlightColor:"transparent"}}>
-              <span aria-hidden="true" style={{width:12,height:12,borderRadius:"50%",flexShrink:0,
-                background:c?c.dot:"transparent",border:c?"none":`1.5px dashed ${C.muted}`}}/>
-              <span style={{fontSize:13,fontWeight:700,color:C.text}}>{ind.label}</span>
-              <span style={{fontSize:12,color:c?c.dot:C.muted,fontWeight:st?700:400}}>{word}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Weekly targets — priority session types for the current phase */}
-      <WeeklyTargets plan={plan}/>
-
-      {/* Day content — slides on day change; stats above stay fixed. */}
-      <div style={{overflow:"hidden"}}>
-      <div key={dayOff} style={{animation:animating?`${direction==="left"?"slideInLeft":"slideInRight"} 220ms ease-out`:undefined}}>
-      {/* Day navigation */}
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-        <NavArrow onClick={()=>navDay(-1)} dir="left"/>
-        <div style={{flex:1,textAlign:"center"}}>
-          <div style={{fontSize:11,fontWeight:700,marginBottom:2,color:isToday?C.sageDk:C.muted,
-            textTransform:"uppercase",letterSpacing:".1em"}}>
-            {isToday?"Today":dayOff<0?`${Math.abs(dayOff)} day${Math.abs(dayOff)>1?"s":""} ago`:`In ${dayOff} day${dayOff>1?"s":""}`}
-          </div>
-          <div style={{fontSize:17,fontWeight:600,color:C.text}}>{dayName}, {dayFull}</div>
-          {!isToday&&<button onClick={()=>setDayOff(0)} style={{
-            fontSize:11,fontWeight:700,color:C.sageDk,background:C.sageLt,border:"none",borderRadius:999,
-            padding:"8px 14px",cursor:"pointer",marginTop:4,display:"inline-flex",alignItems:"center",gap:4,
-            WebkitTapHighlightColor:"transparent"}}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            Today</button>}
-        </div>
-        <NavArrow onClick={()=>navDay(1)} dir="right"/>
-      </div>
-
-      {/* Workout card */}
-      <div style={{background:e.completed?C.doneLt:C.surface,
-        border:`1px solid ${e.completed?"rgba(232,23,74,0.3)":C.border}`,borderRadius:16,padding:"20px 20px 16px"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
-          <div style={{flex:1}}>
-            <div style={{fontSize:17,fontWeight:600,lineHeight:1.35,
-              color:hasWorkout?C.text:C.muted,fontStyle:hasWorkout?"normal":"italic"}}>
-              {hasWorkout?<><span style={{marginRight:8}}>{sessionsEmojiStr(e)}</span>{sessionsLabel(e)}</>:"Rest day"}
-            </div>
-          </div>
-          {hasWorkout&&(e.completed
-            ? <button onClick={()=>setConfirmUnlog(true)} aria-label="Completed — tap to undo"
-                style={{width:64,height:64,borderRadius:"50%",border:"none",background:C.done,cursor:"pointer",
-                  display:"flex",flexShrink:0,alignItems:"center",justifyContent:"center",
-                  animation:"checkPop .35s ease-out",WebkitTapHighlightColor:"transparent"}}><Chk size={22}/></button>
-            : <button onClick={()=>updDay(viewKey,{completed:true})} aria-label="Mark as done"
-                style={{width:64,height:64,borderRadius:"50%",border:`2.5px solid ${C.done}`,background:C.sageLt,
-                  cursor:"pointer",display:"flex",flexShrink:0,alignItems:"center",justifyContent:"center",
-                  WebkitTapHighlightColor:"transparent"}}>
-                <span style={{fontSize:11,fontWeight:700,color:C.sageDk,letterSpacing:'.08em'}}>LOG</span>
-              </button>
-          )}
-          <button onClick={()=>setSheetOpen(true)} aria-label="Change session"
-            style={{width:44,height:44,border:"none",background:"transparent",color:C.muted,cursor:"pointer",
-              display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:10,
-              WebkitTapHighlightColor:"transparent"}}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M7 16V4m0 0L3 8m4-4l4 4"/><path d="M17 8v12m0 0l4-4m-4 4l-4-4"/>
-            </svg>
-          </button>
-        </div>
-
-        {confirmUnlog && (
-          <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 0',borderTop:`1px solid ${C.border}`}}>
-            <span style={{fontSize:13,color:C.muted,flex:1}}>Remove this log entry?</span>
-            <button onClick={handleUnlog} style={{fontSize:12,fontWeight:700,color:'#E8174A',background:'none',
-              border:'none',padding:'4px 8px',cursor:'pointer',WebkitTapHighlightColor:'transparent'}}>Remove</button>
-            <button onClick={()=>setConfirmUnlog(false)} style={{fontSize:12,fontWeight:600,color:C.muted,background:'none',
-              border:'none',padding:'4px 8px',cursor:'pointer',WebkitTapHighlightColor:'transparent'}}>Cancel</button>
-          </div>
-        )}
-
-        {sessions.map(s=><TipCard key={s} workout={s}/>)}
-
-        {/* Feeling rating — shown when completed */}
-        {e.completed&&(
-          <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid rgba(232,23,74,0.2)`}}>
-            {e.feeling
-              ? <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:24}}>{FEELINGS.find(f=>f.value===e.feeling)?.emoji}</span>
-                  <span style={{fontSize:13,color:C.muted}}>{FEELINGS.find(f=>f.value===e.feeling)?.label}</span>
-                  <button onClick={()=>updDay(viewKey,{feeling:null})} style={{fontSize:11,color:C.muted,
-                    background:"none",border:"none",cursor:"pointer",marginLeft:"auto",
-                    minHeight:44,padding:"0 8px",WebkitTapHighlightColor:"transparent"}}>change</button>
-                </div>
-              : <div>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>How did it feel?</div>
-                  <div style={{display:"flex",gap:8}}>
-                    {FEELINGS.map(f=>(
-                      <button key={f.value} onClick={()=>updDay(viewKey,{feeling:f.value})} title={f.label} aria-label={f.label}
-                        style={{fontSize:22,background:"none",border:`1px solid ${C.border}`,borderRadius:12,
-                          width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",
-                          flexShrink:0,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>{f.emoji}</button>
-                    ))}
-                  </div>
-                </div>}
-          </div>
-        )}
-
-        {/* Notes — collapsible */}
-        {notesOpen ? (
-          <textarea rows={2} autoFocus placeholder="Notes — how it felt, what you worked on…"
-            value={e.notes||""} onChange={ev=>updDay(viewKey,{notes:ev.target.value})}
-            onBlur={()=>setNotesOpen(false)}
-            style={{width:"100%",marginTop:14,border:`1px solid ${C.border}`,borderRadius:12,padding:"11px 14px",
-              fontFamily:"inherit",fontSize:15,color:C.text,background:e.completed?"rgba(255,255,255,.5)":C.bg,
-              resize:"none",outline:"none",lineHeight:1.5,boxSizing:"border-box"}}/>
-        ) : (e.notes||"").trim() ? (
-          <div onClick={()=>setNotesOpen(true)} style={{display:"flex",alignItems:"flex-start",gap:8,marginTop:14,
-            cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>
-            <p style={{margin:0,flex:1,fontSize:14,color:C.text,lineHeight:1.55,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{e.notes}</p>
-            <span style={{fontSize:13,color:C.muted,flexShrink:0,lineHeight:1.55}}>✏️</span>
-          </div>
-        ) : hasWorkout ? (
-          <button onClick={()=>setNotesOpen(true)} style={{marginTop:10,background:"none",border:"none",cursor:"pointer",
-            color:C.muted,fontSize:13,fontWeight:500,minHeight:44,padding:"4px 0",display:"flex",alignItems:"center",
-            WebkitTapHighlightColor:"transparent"}}>📝 Add note</button>
-        ) : null}
-      </div>
-
-      {/* Optional body-comp entry — quiet line, works on rest days too */}
-      <BodyCompLine entry={e} dateKey={viewKey} updDay={updDay}/>
-      </div>{/* /key wrapper */}
-      </div>{/* /overflow wrapper */}
-
-      {/* Mediale Kette rechts — Rehab-Session (eigener Flow, kein Plan-Eintrag) */}
-      <button onClick={onOpenMK} style={{width:"100%",marginTop:16,padding:"14px 16px",background:C.surface,
-        border:`1px solid ${C.border}`,borderRadius:16,fontFamily:"inherit",cursor:"pointer",
-        display:"flex",alignItems:"center",gap:12,textAlign:"left",WebkitTapHighlightColor:"transparent"}}>
-        <span style={{fontSize:22,lineHeight:1}}>🩹</span>
-        <span style={{flex:1,minWidth:0}}>
-          <span style={{display:"block",fontSize:15,fontWeight:700,color:C.text}}>Mediale Kette rechts</span>
-          <span style={{display:"block",fontSize:12,color:C.muted,marginTop:2}}>
-            {mkLoggedToday?"Heute erledigt":"Rehab · Block A täglich"}
-          </span>
-        </span>
-        {mkLoggedToday
-          ? <span style={{width:22,height:22,borderRadius:"50%",background:C.done,display:"flex",
-              alignItems:"center",justifyContent:"center",flexShrink:0}}><Chk size={12}/></span>
-          : <span style={{fontSize:18,color:C.muted,flexShrink:0}}>›</span>}
-      </button>
-
-      {/* Tactical prompt of the week */}
-      <TacticalCard dk={viewKey}/>
-
-      {/* Ask the coach — always reachable, including rest days */}
-      <button onClick={onOpenCoach} style={{width:"100%",marginTop:16,padding:"14px",background:C.done,
-        color:"#fff",border:"none",borderRadius:12,fontFamily:"inherit",fontSize:15,fontWeight:600,cursor:"pointer",
-        display:"flex",alignItems:"center",justifyContent:"center",gap:8,WebkitTapHighlightColor:"transparent"}}>
-        💬 Ask the coach
-      </button>
-
-      {sheetOpen&&(
-        <WorkoutSheet dateKey={viewKey} entry={e} updDay={updDay} onClose={()=>setSheetOpen(false)}/>
-      )}
+  const sessions=getSessions(e), next=nextUp(plan);
+  const go=dk=>{setDirection(dk>viewKey?1:-1);setDayOff(daysUntil(dk));};
+  return <div className="view" {...swipe}>
+    <div className="range-nav">
+      <NavArrow dir="left" onClick={()=>navDay(-1)}/>
+      <div><span>{dayOff===0?"Heute · ":""}{shortDate(viewKey)}</span>
+        {dayOff!==0&&<button className="text-btn" onClick={()=>setDayOff(0)}>Zu heute</button>}</div>
+      <NavArrow dir="right" onClick={()=>navDay(1)}/>
     </div>
-  );
+    <div className="day-strip" aria-label="Tag auswählen">
+      {weekAround(viewKey).map((dk,i)=><button key={dk} className="day-chip" aria-pressed={dk===viewKey}
+        aria-label={shortDate(dk)+(plan[dk]?.completed?" · erledigt":"")} onClick={()=>go(dk)}>
+        <small>{DN[i]}</small><strong>{Number(dk.slice(-2))}</strong>
+        <span className="day-marker">{plan[dk]?.completed?"✓":getSessions(plan[dk]).length?"·":" "}</span>
+      </button>)}
+    </div>
+    <section key={"session-"+viewKey} className="panel session-card" aria-label="Training"
+      style={{animation:direction>0?"slideLeft .22s ease-out":"slideRight .22s ease-out"}}>
+      <div className="session-top"><span className="eyebrow">{e.completed?"Training erledigt":sessions.length?"Dein Training":"Zeit zum Auftanken"}</span>
+        <div className="session-art">{sessions.length?sessions.map(s=><Icon key={s} name={s} size={28}/>):<Icon name="rest" size={28}/>}</div></div>
+      <h2>{sessions.length?sessions.map((s,i)=><span key={s}>{i>0&&<><br/><span style={{fontWeight:300,color:C.muted}}>+ </span></>}{displayName(s)}</span>):"Rest day"}</h2>
+      <p className="session-subtitle">{e.completed?"Ein weiterer Schritt auf deinem Weg.":sessions.length?"Dein Plan steht. Mach ihn zu deinem Fortschritt.":"Erholung gehört zum Training."}</p>
+      <div className="session-actions">
+        <div><button className="text-btn" onClick={()=>setSheetOpen(true)}><Icon name="edit" size={16}/> Ändern</button>
+          <button className="text-btn" onClick={()=>setNotesOpen(o=>!o)} aria-expanded={notesOpen}><Icon name="note" size={16}/> {e.notes?"Notiz":"Notiz hinzufügen"}</button></div>
+        {sessions.length>0&&<button className={"log-circle"+(e.completed?" logged":"")}
+          aria-label={e.completed?"Log rückgängig machen":"Training loggen"}
+          onClick={()=>e.completed?setConfirmUnlog(true):updDay(viewKey,{completed:true})}>
+          {e.completed?<Chk size={26} color={C.ink}/>:<span>LOG</span>}
+        </button>}
+      </div>
+      {confirmUnlog&&<div className="inline-confirm"><p>Diesen Log entfernen?</p>
+        <button className="text-btn" onClick={()=>{updDay(viewKey,{completed:false,feeling:null});setConfirmUnlog(false);}}>Entfernen</button>
+        <button className="text-btn" onClick={()=>setConfirmUnlog(false)}>Abbrechen</button></div>}
+      {notesOpen?<div className="notes"><label htmlFor="day-note" className="eyebrow">Deine Notiz</label>
+        <textarea id="day-note" autoFocus rows={3} placeholder="Was lief gut? Was nimmst du mit?"
+          value={e.notes||""} onChange={ev=>updDay(viewKey,{notes:ev.target.value})}/></div>
+        :e.notes&&<p className="saved-note">{e.notes}</p>}
+      {e.completed&&<div className="feeling-row"><span>Wie war das Training?</span><div>
+        {FEELINGS.map(f=><button key={f.value} title={f.label} aria-label={f.label} aria-pressed={e.feeling===f.value}
+          onClick={()=>updDay(viewKey,{feeling:e.feeling===f.value?null:f.value})}>{f.emoji}</button>)}
+      </div></div>}
+      {sessions.length>0&&<details className="session-details"><summary>Hinweise zur Einheit</summary>
+        {sessions.map(s=><TipCard key={s} workout={s}/>)}</details>}
+    </section>
+    <WeeklyTargets plan={plan}/>
+    {next&&<div className="next-line"><span>Als Nächstes</span><strong>{next.label}</strong><span>{next.when}</span></div>}
+    <TacticalCard dk={viewKey}/>
+    <button className="coach-entry" onClick={onOpenCoach}><Icon name="coach" size={20}/><span>Frag deinen Coach</span><Icon name="arrow" size={18}/></button>
+    <BodyCompLine key={"body-"+viewKey} entry={e} dateKey={viewKey} updDay={updDay}/>
+    {sheetOpen&&<WorkoutSheet dateKey={viewKey} entry={e} updDay={updDay} onClose={()=>setSheetOpen(false)}/>}
+  </div>;
 }
 
 // ─── Week view ───────────────────────────────────────────────────────────────────
 function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
   const days=weekOf(wkOff);
-  const fmt=dk=>new Date(dk+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"});
-  const wkPlanned=days.filter(dk=>getSessions(plan[dk]).length>0).length;
-  const wkDone=days.filter(dk=>plan[dk]?.completed).length;
-  const [direction,setDirection]=useState(null);
-  const [animating,setAnimating]=useState(false);
-  const [sheetDk,setSheetDk]=useState(null);
-  const [swapFrom,setSwapFrom]=useState(null);
-  const [swapConfirmed,setSwapConfirmed]=useState(null);
-  const swapTimer=useRef(null);
-  useEffect(()=>()=>{ if (swapTimer.current) clearTimeout(swapTimer.current); },[]);
-  const navWeek=(delta)=>{
+  const planned=days.filter(d=>getSessions(plan[d]).length).length;
+  const done=days.filter(d=>plan[d]?.completed&&getSessions(plan[d]).length).length;
+  const [sheetDk,setSheetDk]=useState(null), [swapFrom,setSwapFrom]=useState(null), [flashed,setFlashed]=useState([]);
+  const [direction,setDirection]=useState(1);
+  const timer=useRef(null);
+  useEffect(()=>()=>clearTimeout(timer.current),[]);
+  const nav=delta=>{setSwapFrom(null);setDirection(delta);setWkOff(o=>o+delta);};
+  const swipe=useSwipe(()=>nav(1),()=>nav(-1));
+  const pick=dk=>{
+    if(!swapFrom){onGoToDay(dk);return;}
+    if(swapFrom!==dk){onSwapDays(swapFrom,dk);setFlashed([swapFrom,dk]);clearTimeout(timer.current);timer.current=setTimeout(()=>setFlashed([]),1800);}
     setSwapFrom(null);
-    setDirection(delta>0?'left':'right');
-    setWkOff(w=>w+delta);
-    setAnimating(true);
-    setTimeout(()=>setAnimating(false),250);
   };
-  const swipe=useSwipe(()=>navWeek(1),()=>navWeek(-1));
-  const onCardTap=(dk)=>{
-    if (swapFrom===null) setSwapFrom(dk);
-    else if (swapFrom===dk) setSwapFrom(null);
-    else {
-      onSwapDays(swapFrom,dk); setSwapFrom(null);
-      setSwapConfirmed([swapFrom,dk]);
-      if (swapTimer.current) clearTimeout(swapTimer.current);
-      swapTimer.current=setTimeout(()=>setSwapConfirmed(null),1500);
-    }
-  };
-  const openSheet=(dk)=>{ setSwapFrom(null); setSheetDk(dk); };
-
-  return (
-    <div {...swipe} onClick={()=>{ if(swapFrom!==null) setSwapFrom(null); }} style={{padding:"16px 16px 0"}}>
-      <style>{"@keyframes slideInLeft{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes slideInRight{from{transform:translateX(-100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes swapFlash{0%{background:rgba(232,23,74,0.15)}50%{background:rgba(232,23,74,0.25)}100%{background:transparent}}"}</style>
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
-        <NavArrow onClick={()=>navWeek(-1)} dir="left"/>
-        <div style={{flex:1,textAlign:"center"}}>
-          <div style={{fontSize:13,color:C.muted}}>{fmt(days[0])} – {fmt(days[6])}</div>
-          {wkPlanned>0&&(
-            <div style={{fontSize:15,fontWeight:700,fontFamily:"monospace",marginTop:2}}>
-              <span style={{color:wkDone>0?C.done:C.muted}}>{wkDone}</span>
-              <span style={{color:C.muted}}> / {wkPlanned} sessions</span>
-            </div>
-          )}
-          {wkOff!==0&&<button onClick={()=>setWkOff(0)} style={{fontSize:11,fontWeight:700,color:C.sageDk,
-            background:C.sageLt,border:"none",borderRadius:999,padding:"8px 14px",cursor:"pointer",marginTop:4,
-            display:"inline-flex",alignItems:"center",gap:4,WebkitTapHighlightColor:"transparent"}}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            This week</button>}
+  return <div className="view" {...swipe}>
+    <div className="range-nav"><NavArrow dir="left" onClick={()=>nav(-1)}/><div>
+      <strong>{shortDate(days[0])} – {shortDate(days[6])}</strong>
+      <small>{done} / {planned} Trainingstage erledigt</small>
+      {wkOff!==0&&<button className="text-btn" onClick={()=>setWkOff(0)}>Aktuelle Woche</button>}
+    </div><NavArrow dir="right" onClick={()=>nav(1)}/></div>
+    {swapFrom&&<div className="swap-banner" role="status"><span>Zweiten Tag zum Tauschen wählen.</span><button className="text-btn" onClick={()=>setSwapFrom(null)}>Abbrechen</button></div>}
+    {flashed.length>0&&<p role="status" style={{color:C.accent,fontSize:13}}>✓ Einheiten getauscht. Notizen und Logs bleiben beim Datum.</p>}
+    <div key={wkOff} style={{animation:direction>0?"slideLeft .22s ease-out":"slideRight .22s ease-out"}}>
+      {days.map((dk,i)=>{const e=plan[dk]||{};return <div className="week-row" key={dk}
+        style={{borderColor:swapFrom===dk||flashed.includes(dk)?C.accent:undefined}}>
+        <button className="week-open" onClick={()=>pick(dk)} aria-label={shortDate(dk)+" · "+(sessionsLabel(e)||"Rest day")+(e.completed?" · erledigt":"")}>
+          <span className={"date-tile"+(dk===today?" current":"")}><small>{DN[i]}</small><strong>{Number(dk.slice(-2))}</strong></span>
+          <span className="week-info"><strong>{sessionsLabel(e)||"Rest day"}</strong><small><SessionMarks entry={e}/>{e.completed?"Erledigt":getSessions(e).length?"Geplant":"Erholung"}</small></span>
+          {e.completed&&<span style={{color:C.accent}}><Chk size={16} color={C.accent}/></span>}
+        </button>
+        <div className="week-controls">
+          <button className="icon-btn" aria-label={"Einheiten tauschen: "+shortDate(dk)} aria-pressed={swapFrom===dk} onClick={()=>setSwapFrom(swapFrom===dk?null:dk)}><Icon name="swap" size={17}/></button>
+          <button className="icon-btn" aria-label={"Training ändern: "+shortDate(dk)} onClick={()=>{setSwapFrom(null);setSheetDk(dk);}}><Icon name="edit" size={17}/></button>
         </div>
-        <NavArrow onClick={()=>navWeek(1)} dir="right"/>
-      </div>
-
-      {swapFrom!==null&&(
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:14,
-          padding:"10px 14px",background:C.sageLt,borderRadius:12}}>
-          <span style={{fontSize:13,fontWeight:600,color:C.sageDk}}>Tap another day to swap sessions</span>
-          <button onClick={(ev)=>{ ev.stopPropagation(); setSwapFrom(null); }} style={{flexShrink:0,fontSize:12,
-            fontWeight:700,color:C.muted,background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,
-            padding:"5px 12px",cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>✕ Cancel swap</button>
-        </div>
-      )}
-      {swapConfirmed && (
-        <div style={{textAlign:'center',fontSize:13,fontWeight:600,color:'#E8174A',padding:'6px 0',marginBottom:8,
-          animation:'swapFlash 1.5s ease forwards'}}>✓ Sessions swapped</div>
-      )}
-
-      <div style={{overflow:"hidden"}}>
-      <div key={wkOff} style={{animation:animating?`${direction==="left"?"slideInLeft":"slideInRight"} 220ms ease-out`:undefined}}>
-      {/* Strip */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:5,marginBottom:16}}>
-        {days.map((dk,i)=>{
-          const en=plan[dk]||{};
-          const isT=dk===today;
-          const ss=getSessions(en);
-          const has=ss.length>0;
-          return (
-            <button key={dk} onClick={()=>onGoToDay(dk)}
-              aria-label={`${DN[i]}, ${fmt(dk)} — ${sessionsLabel(en)||"Rest"}${en.completed?" (done)":""}`}
-              style={{position:"relative",display:"block",width:"100%",fontFamily:"inherit",
-                background:en.completed?C.doneLt:isT?C.sageLt:C.surface,
-                border:`1.5px solid ${en.completed?C.done:isT?C.sage:C.border}`,borderRadius:12,
-                padding:"13px 2px 11px",textAlign:"center",cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>
-              {en.completed&&<span aria-hidden="true" style={{position:"absolute",top:3,right:3,width:13,height:13,
-                borderRadius:"50%",background:C.done,display:"flex",alignItems:"center",justifyContent:"center"}}><Chk size={8}/></span>}
-              <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:".04em",
-                color:isT?C.sageDk:C.muted,fontWeight:isT?600:400,marginBottom:3}}>{DL[i]}</div>
-              <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:4}}>{new Date(dk+"T00:00:00").getDate()}</div>
-              <div style={{fontSize:has&&ss.length>1?10:12,lineHeight:1,whiteSpace:"nowrap"}}>
-                {has?sessionsEmojiStr(en):<span style={{color:C.muted}}>·</span>}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Day list */}
-      {days.map((dk,i)=>{
-        const en=plan[dk]||{};
-        const isT=dk===today;
-        const d=new Date(dk+"T00:00:00");
-        const has=getSessions(en).length>0;
-        const picked=swapFrom===dk;
-        const flashing=swapConfirmed?.includes(dk);
-        return (
-          <div key={dk} style={{background:picked?C.sageLt:en.completed?C.doneLt:C.surface,
-            border:`${picked?2:1}px solid ${picked?C.sage:en.completed?C.done:C.border}`,borderRadius:16,
-            padding:"14px 18px",marginBottom:10,animation:flashing?'swapFlash 1.5s ease forwards':undefined,
-            display:"flex",alignItems:"center",gap:8}}>
-            <button onClick={(ev)=>{ ev.stopPropagation(); onCardTap(dk); }}
-              aria-label={`${DN[i]}, ${fmt(dk)} — ${sessionsLabel(en)||"Rest"}${picked?" (selected — tap another day to swap)":""}`}
-              style={{flex:1,minWidth:0,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,
-                background:"none",border:"none",padding:0,textAlign:"left",fontFamily:"inherit",cursor:"pointer",
-                WebkitTapHighlightColor:"transparent"}}>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:".07em",
-                  color:isT?C.sageDk:C.muted,fontWeight:isT?700:400,marginBottom:4}}>
-                  {isT?"● Today  ·  ":""}{DN[i]}, {fmt(dk)}
-                </div>
-                <div style={{fontSize:15,fontWeight:500,color:has?C.text:C.muted,fontStyle:has?"normal":"italic",
-                  whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-                  {has?<><span style={{marginRight:7}}>{sessionsEmojiStr(en)}</span>{sessionsLabel(en)}</>:"Rest"}
-                </div>
-              </div>
-              <div style={{width:22,display:"flex",justifyContent:"center",alignItems:"center",flexShrink:0}}>
-                {en.completed
-                  ? <div style={{width:22,height:22,borderRadius:"50%",background:C.done,display:"flex",
-                      alignItems:"center",justifyContent:"center"}}><Chk size={12}/></div>
-                  : <div style={{width:8,height:8,borderRadius:"50%",background:C.border}}/>}
-              </div>
-            </button>
-            <button onClick={(ev)=>{ ev.stopPropagation(); openSheet(dk); }} aria-label="Change session"
-              style={{width:40,height:40,flexShrink:0,border:"none",background:"transparent",color:C.muted,
-                cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
-                WebkitTapHighlightColor:"transparent"}}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M7 16V4m0 0L3 8m4-4l4 4"/><path d="M17 8v12m0 0l4-4m-4 4l-4-4"/>
-              </svg>
-            </button>
-          </div>
-        );
-      })}
-      </div>{/* /week-slide */}
-      </div>{/* /overflow */}
-
-      {sheetDk&&(
-        <WorkoutSheet dateKey={sheetDk} entry={plan[sheetDk]||{}} updDay={updDay} onClose={()=>setSheetDk(null)}/>
-      )}
+      </div>;})}
     </div>
-  );
+    <p className="helper-text">Tag öffnen, um zu loggen. Über ⇅ kannst du zwei Trainingstage tauschen.</p>
+    {sheetDk&&<WorkoutSheet dateKey={sheetDk} entry={plan[sheetDk]||{}} updDay={updDay} onClose={()=>setSheetDk(null)}/>}
+  </div>;
 }
 
 // ─── Month view ──────────────────────────────────────────────────────────────────
 function MonthView({today,plan,moOff,setMoOff,onGoToDay}) {
-  const now=new Date();
-  const t=new Date(now.getFullYear(),now.getMonth()+moOff,1);
-  const y=t.getFullYear(), m=t.getMonth();
-  const days=monthGrid(y,m);
-  const real=days.filter(Boolean);
-  const mPlanned=real.filter(dk=>getSessions(plan[dk]).length>0).length;
-  const mDone=real.filter(dk=>plan[dk]?.completed).length;
-  const [direction,setDirection]=useState(null);
-  const [animating,setAnimating]=useState(false);
-  const navMonth=(delta)=>{
-    setDirection(delta>0?'left':'right');
-    setMoOff(o=>o+delta);
-    setAnimating(true);
-    setTimeout(()=>setAnimating(false),250);
-  };
-  const swipe=useSwipe(()=>navMonth(1),()=>navMonth(-1));
-
-  return (
-    <div {...swipe} style={{padding:"16px 16px 0"}}>
-      <style>{"@keyframes slideInLeft{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes slideInRight{from{transform:translateX(-100%);opacity:0}to{transform:translateX(0);opacity:1}}"}</style>
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-        <NavArrow onClick={()=>navMonth(-1)} dir="left"/>
-        <div style={{flex:1,textAlign:"center"}}>
-          <div style={{fontSize:18,fontWeight:700,color:C.text}}>{MONTHS[m]} {y}</div>
-          {mPlanned>0&&(
-            <div style={{fontSize:13,color:C.muted,marginTop:2,fontFamily:"monospace"}}>
-              <span style={{color:mDone>0?C.done:C.muted,fontWeight:700}}>{mDone}</span>
-              <span> / {mPlanned} sessions</span>
-            </div>
-          )}
-          {moOff!==0&&<button onClick={()=>setMoOff(0)} style={{fontSize:11,fontWeight:700,color:C.sageDk,
-            background:C.sageLt,border:"none",borderRadius:999,padding:"8px 14px",cursor:"pointer",marginTop:4,
-            display:"inline-flex",alignItems:"center",gap:4,WebkitTapHighlightColor:"transparent"}}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            This month</button>}
-        </div>
-        <NavArrow onClick={()=>navMonth(1)} dir="right"/>
+  const now=new Date(), month=new Date(now.getFullYear(),now.getMonth()+moOff,1);
+  const days=monthGrid(month.getFullYear(),month.getMonth()), real=days.filter(Boolean);
+  const done=real.filter(d=>plan[d]?.completed&&getSessions(plan[d]).length).length;
+  const planned=real.filter(d=>getSessions(plan[d]).length).length;
+  const [direction,setDirection]=useState(1);
+  const nav=delta=>{setDirection(delta);setMoOff(o=>o+delta);};
+  const swipe=useSwipe(()=>nav(1),()=>nav(-1));
+  return <div className="view" {...swipe}>
+    <div className="range-nav"><NavArrow dir="left" onClick={()=>nav(-1)}/><div>
+      <strong>{MONTHS[month.getMonth()]} {month.getFullYear()}</strong><small>{done} / {planned} Trainingstage erledigt</small>
+      {moOff!==0&&<button className="text-btn" onClick={()=>setMoOff(0)}>Aktueller Monat</button>}
+    </div><NavArrow dir="right" onClick={()=>nav(1)}/></div>
+    <section className="panel" style={{padding:"20px 10px"}}>
+      <div key={moOff} className="calendar" style={{animation:direction>0?"slideLeft .22s ease-out":"slideRight .22s ease-out"}}>
+        {DN.map((d,i)=><span className="calendar-label" key={i}>{d}</span>)}
+        {days.map((dk,i)=>{if(!dk)return <span key={"empty"+i}/>;const e=plan[dk]||{}, has=getSessions(e).length>0;
+          return <button key={dk} className={(has?"planned ":"")+(e.completed?"done ":"")+(dk===today?"today":"")}
+            onClick={()=>onGoToDay(dk)} title={shortDate(dk)+" · "+(sessionsLabel(e)||"Rest day")}
+            aria-label={shortDate(dk)+" · "+(sessionsLabel(e)||"Rest day")+(e.completed?" · erledigt":"")}>
+            <span>{Number(dk.slice(-2))}</span><SessionMarks entry={e} size={13}/>{e.completed&&<span className="done-dot">✓</span>}
+          </button>;})}
       </div>
-      <div style={{overflow:"hidden"}}>
-      <div key={moOff} style={{animation:animating?`${direction==="left"?"slideInLeft":"slideInRight"} 220ms ease-out`:undefined}}>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
-        {DL.map((l,i)=>(
-          <div key={i} style={{fontSize:10,textTransform:"uppercase",letterSpacing:".04em",
-            color:C.muted,textAlign:"center",padding:"4px 0",fontWeight:500}}>{l}</div>
-        ))}
-        {days.map((dk,i)=>{
-          if (!dk) return <div key={`e${i}`}/>;
-          const en=plan[dk]||{};
-          const ss=getSessions(en);
-          const has=ss.length>0;
-          const isT=dk===today;
-          return (
-            <button key={dk} onClick={()=>onGoToDay(dk)}
-              aria-label={`${new Date(dk+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})} — ${sessionsLabel(en)||"Rest"}${en.completed?" (done)":""}`}
-              style={{position:"relative",width:"100%",padding:0,fontFamily:"inherit",aspectRatio:"1",borderRadius:10,display:"flex",
-                flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,cursor:"pointer",
-                background:en.completed?C.doneLt:has?C.surface:"transparent",
-                border:`1.5px solid ${en.completed?C.done:isT?C.sage:has?C.border:"transparent"}`,
-                outline:isT?`2px solid ${C.sage}`:"none",outlineOffset:-1,WebkitTapHighlightColor:"transparent"}}>
-              {en.completed&&<span aria-hidden="true" style={{position:"absolute",top:2,right:2,width:12,height:12,
-                borderRadius:"50%",background:C.done,display:"flex",alignItems:"center",justifyContent:"center"}}><Chk size={7}/></span>}
-              <div style={{fontSize:13,fontWeight:(has||isT)?600:400,color:(has||isT)?C.text:C.borderSt,lineHeight:1}}>
-                {new Date(dk+"T00:00:00").getDate()}
-              </div>
-              {has&&<div style={{fontSize:ss.length>1?10:12,lineHeight:1,whiteSpace:"nowrap",
-                opacity:en.completed?1:0.9}}>{sessionsEmojiStr(en)}</div>}
-            </button>
-          );
-        })}
-      </div>
-      </div>{/* /month-slide */}
-      </div>{/* /overflow */}
-    </div>
-  );
+    </section>
+    <div className="legend"><span>✓ Erledigt</span><span>Symbol: geplant</span><span>Hell umrandet: heute</span></div>
+    <p className="helper-text">Ein Tag, dein Plan. Tippe auf ein Datum für Training, Notizen und Logs.</p>
+  </div>;
 }
 
 // ─── Body composition ────────────────────────────────────────────────────────────
@@ -1217,7 +795,7 @@ function MonthView({today,plan,moOff,setMoOff,onGoToDay}) {
 const BF_GOAL = 14;   // upper end of the 13–14% target band
 
 function bodyCompReadings(plan, field) {
-  return Object.keys(plan).filter(dk=>plan[dk]?.[field]!=null).sort()
+  return Object.keys(plan).filter(dk=>dk<=todayStr()&&Number.isFinite(plan[dk]?.[field])&&plan[dk][field]>0).sort()
     .map(dk=>({date:dk, value:plan[dk][field]}));
 }
 
@@ -1253,7 +831,7 @@ function TrendChart({readings, series, target}) {
     else cur.push(p);
   }
   if (cur.length>1) segs.push(cur);
-  const fmtD=(dk)=>new Date(dk+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"});
+  const fmtD=(dk)=>new Date(dk+"T00:00:00").toLocaleDateString("de-CH",{month:"short",day:"numeric"});
   const midDk=days[Math.floor(days.length/2)];
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{display:"block",width:"100%",height:"auto"}}>
@@ -1264,7 +842,7 @@ function TrendChart({readings, series, target}) {
       {/* target reference */}
       {target!=null&&(<>
         <line x1={L} x2={W-R} y1={y(target)} y2={y(target)} stroke={C.muted} strokeWidth="1" strokeDasharray="4 4" opacity="0.7"/>
-        <text x={W-R} y={y(target)-4} fontSize="9" fill={C.muted} textAnchor="end">{target}% goal</text>
+        <text x={W-R} y={y(target)-4} fontSize="9" fill={C.muted} textAnchor="end">{target}% Ziel</text>
       </>)}
       {/* raw readings — visible noise, clearly secondary */}
       {readings.filter(r=>days.includes(r.date)).map(r=>(
@@ -1285,137 +863,46 @@ function TrendChart({readings, series, target}) {
 
 // Journey section: metric toggle, rolling-average summary line, trend chart.
 function BodyCompTrend({plan}) {
-  const [metric,setMetric]=useState('bodyFat');
-  const today=todayStr();
-  const cfg=metric==='bodyFat'
-    ? { field:'bodyFat', unit:'%', target:BF_GOAL, thresh:0.15 }
-    : { field:'weight',  unit:' kg', target:null,  thresh:0.3 };
-  const readings=bodyCompReadings(plan,cfg.field);
-  const hasAny=bodyCompReadings(plan,'bodyFat').length>0||bodyCompReadings(plan,'weight').length>0;
-
-  let body;
-  if (!readings.length) {
-    body=(
-      <p style={{margin:"4px 0 0",fontSize:13,color:C.muted,lineHeight:1.5}}>
-        Log weight on the Today view to see your trend here.
-      </p>
-    );
-  } else {
-    // Domain: first reading → today, min 14 days so early charts stay readable.
-    let from=readings[0].date;
-    if (daysBeforeStr(today,13)<from) from=daysBeforeStr(today,13);
-    const series=rollingSeries(readings,from,today);
-    const avgPts=series.filter(p=>p.value!=null);
-    const nowAvg=avgPts[avgPts.length-1]?.value;
-    // Trend: rolling avg now vs ~14 days earlier (earliest available if younger).
-    const cut=daysBeforeStr(today,14);
-    const before=avgPts.filter(p=>p.date<=cut);
-    const ref=(before.length?before[before.length-1]:avgPts[0])?.value;
-    const delta=nowAvg!=null&&ref!=null?nowAvg-ref:0;
-    const trend=Math.abs(delta)<cfg.thresh?'holding steady':delta<0?'trending down':'trending up';
-    const parts=[`${nowAvg.toFixed(1)}${cfg.unit}`,trend];
-    if (cfg.target!=null) {
-      const gap=nowAvg-cfg.target;
-      parts.push(gap>0?`${gap.toFixed(1)}% to goal`:'at goal');
-    }
-    body=(<>
-      <div style={{fontSize:13,color:C.muted,marginBottom:8}}>
-        <span style={{fontFamily:"monospace",fontWeight:700,color:C.text}}>{parts[0]}</span>
-        {parts.slice(1).map((p,i)=><span key={i}> · {p}</span>)}
-      </div>
-      <TrendChart readings={readings} series={series} target={cfg.target}/>
-      <div style={{fontSize:10,color:C.muted,marginTop:4}}>7-day rolling average · dots are single readings</div>
-    </>);
-  }
-
-  return (
-    <div style={{marginBottom:20}}>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-        <div style={{flex:1,fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:C.muted}}>Body composition</div>
-        {hasAny&&["bodyFat","weight"].map(m=>(
-          <button key={m} onClick={()=>setMetric(m)} aria-pressed={metric===m}
-            style={{fontSize:11,fontWeight:700,padding:"5px 11px",borderRadius:999,cursor:"pointer",
-              fontFamily:"inherit",WebkitTapHighlightColor:"transparent",
-              background:metric===m?C.sageLt:"transparent",
-              border:`1px solid ${metric===m?C.sage:C.border}`,
-              color:metric===m?C.sageDk:C.muted}}>
-            {m==="bodyFat"?"Body fat %":"Weight"}
-          </button>
-        ))}
-      </div>
-      {body}
-    </div>
-  );
+  const [metric,setMetric]=useState("bodyFat");
+  const readings=bodyCompReadings(plan,metric), today=todayStr();
+  const from=readings.length&&readings[0].date<daysBeforeStr(today,13)?readings[0].date:daysBeforeStr(today,13);
+  const series=readings.length?rollingSeries(readings,from,today):[];
+  const points=series.filter(p=>p.value!=null),latest=points.at(-1);
+  return <section className="panel trend-panel">
+    <div className="eyebrow">Körperentwicklung</div>
+    <div className="metric-switch">{[["bodyFat","Körperfett"],["weight","Gewicht"]].map(([key,label])=>
+      <button key={key} aria-pressed={metric===key} onClick={()=>setMetric(key)}>{label}</button>)}</div>
+    {latest?<><div className="trend-value">{latest.value.toFixed(1)}<span>{metric==="bodyFat"?" %":" kg"}</span></div>
+      <p className="helper-text">7-Tage-Mittel · Stand {shortDate(latest.date)}{metric==="bodyFat"?" · Ziel 14 %":""}</p>
+      <TrendChart readings={readings} series={series} target={metric==="bodyFat"?BF_GOAL:null}/>
+      <p className="chart-caption">Linie: 7-Tage-Mittel · Punkte: einzelne Messungen</p></>
+      :<p className="helper-text">Trage unter Heute deine Körperwerte ein. Hier siehst du die Entwicklung — ohne tägliches Rauschen.</p>}
+  </section>;
 }
 
 // ─── Journey view ────────────────────────────────────────────────────────────────
 function JourneyView({plan,today,onGoToDay}) {
-  const phaseDays=(p)=>{
-    const days=[]; const d=new Date(p.start+"T00:00:00");
-    while (dateKey(d)<=p.end) { days.push(dateKey(d)); d.setDate(d.getDate()+1); }
-    return days;
-  };
-  const fmtMD=(s)=>new Date(s+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
-  const curPhase=phaseForDate(today);
-
-  // Whole-season totals — the long-horizon view belongs here, not on Today.
-  const allE=Object.values(plan);
-  const seasonPlanned=allE.filter(e=>getSessions(e).length>0).length;
-  const seasonDone=allE.filter(e=>e.completed).length;
-  const seasonPct=seasonPlanned>0?Math.round(seasonDone/seasonPlanned*100):0;
-
-  return (
-    <div style={{padding:"16px 16px 32px"}}>
-      {/* Season summary */}
-      <div style={{marginBottom:20}}>
-        <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:C.muted,marginBottom:6}}>Full season</div>
-        <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:9}}>
-          <span style={{fontFamily:"monospace",fontSize:24,fontWeight:800,color:C.text}}>{seasonPct}%</span>
-          <span style={{fontSize:13,color:C.muted}}>{seasonDone} of {seasonPlanned} sessions logged</span>
-        </div>
-        <div style={{height:6,background:"rgba(255,107,157,0.18)",borderRadius:99,overflow:"hidden"}}>
-          <div style={{height:"100%",width:`${seasonPct}%`,background:C.done,borderRadius:99,transition:"width .6s ease"}}/>
-        </div>
-      </div>
-
-      {/* Body composition trend — long-horizon metric, so it lives here */}
-      <BodyCompTrend plan={plan}/>
-
-      {PHASES.map((phase,pi)=>{
-        const days=phaseDays(phase);
-        const planned=days.filter(dk=>getSessions(plan[dk]).length>0).length;
-        const done=days.filter(dk=>plan[dk]?.completed).length;
-        const isCurrent=phase===curPhase;
-        const isPast=today>phase.end;
-        const pct=planned>0?Math.round(done/planned*100):0;
-        return (
-          <button key={phase.name} onClick={()=>onGoToDay(phase.start)}
-            aria-label={`${phase.name}, ${fmtMD(phase.start)} to ${fmtMD(phase.end)}`}
-            style={{display:"block",width:"100%",textAlign:"left",fontFamily:"inherit",cursor:"pointer",
-              background:isCurrent?C.doneLt:C.surface,
-              border:`${isCurrent?2:1}px solid ${isCurrent?C.done:C.border}`,borderRadius:16,
-              padding:"18px 18px",marginBottom:14,WebkitTapHighlightColor:"transparent"}}>
-            <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
-              <span style={{fontSize:20,fontWeight:800,color:C.text}}>{phase.name}</span>
-              <span style={{fontSize:11,fontWeight:700,color:C.sageDk,textTransform:"uppercase",letterSpacing:".08em"}}>Phase {pi+1}</span>
-              {isCurrent&&<span style={{fontSize:10,fontWeight:700,color:"#fff",background:C.done,
-                borderRadius:20,padding:"2px 9px"}}>NOW</span>}
-            </div>
-            <div style={{fontSize:12,color:C.muted,fontFamily:"monospace",marginTop:5}}>{fmtMD(phase.start)} – {fmtMD(phase.end)}</div>
-            <div style={{fontSize:13,color:C.muted,lineHeight:1.5,marginTop:8}}>{phase.description}</div>
-            <div style={{height:6,background:"rgba(255,107,157,0.18)",borderRadius:3,marginTop:12,overflow:"hidden"}}>
-              <div style={{height:"100%",width:`${isPast||isCurrent?pct:0}%`,background:C.done}}/>
-            </div>
-            <div style={{fontSize:12,color:C.muted,fontFamily:"monospace",marginTop:8}}>
-              {(isPast||isCurrent)
-                ? <><span style={{color:C.done}}>{done}</span> / {planned} sessions{planned>0?` · ${pct}%`:""}</>
-                : `${planned} sessions planned`}
-            </div>
-          </button>
-        );
-      })}
-    </div>
-  );
+  const entries=Object.values(plan), planned=entries.filter(e=>getSessions(e).length).length;
+  const done=entries.filter(e=>e.completed&&getSessions(e).length).length;
+  const current=phaseForDate(today), idx=PHASES.indexOf(current), next=PHASES[idx+1];
+  return <div className="view">
+    <section className="panel journey-summary"><div className="eyebrow">Deine Saison · 2026 / 27</div>
+      <div><strong>{done}</strong><span>Trainingstage erledigt<br/>von {planned} geplant</span></div>
+      <progress aria-label="Saisonfortschritt" max={Math.max(planned,1)} value={done}/>
+      <p>{current?(next?daysUntil(next.start)+" Tage bis "+phaseLabel(next.name):daysUntil(current.end)+" Tage bis Saisonende"):today<SEASON_START?"Deine Saison startet am "+shortDate(SEASON_START):"Saison abgeschlossen."}</p>
+    </section>
+    <BodyCompTrend plan={plan}/>
+    <div className="section-heading"><h2>Deine Saisonphasen</h2><span>Der lange Blick</span></div>
+    <div className="phase-timeline">{PHASES.map((p,i)=>{
+      const days=Object.entries(plan).filter(([dk])=>dk>=p.start&&dk<=p.end);
+      const total=days.filter(([,e])=>getSessions(e).length).length, count=days.filter(([,e])=>e.completed&&getSessions(e).length).length;
+      return <button key={p.name} className={"phase-item"+(p===current?" current":"")} onClick={()=>onGoToDay(p.start)}>
+        <div className="eyebrow">Phase {i+1}{p===current?" · Aktuell":""}</div><h3>{phaseLabel(p.name)}</h3>
+        <small>{shortDate(p.start)} {p.start.slice(0,4)} — {shortDate(p.end)} {p.end.slice(0,4)}</small>
+        <p>{p.description}</p><div className="phase-count"><span>{count} / {total} Trainingstage</span><Icon name="arrow" size={18}/></div>
+      </button>;
+    })}</div>
+  </div>;
 }
 
 // ─── Coach screen (full-screen chat) ─────────────────────────────────────────────
@@ -1425,7 +912,8 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
   const [sending,setSending]=useState(false);
   const [coachError,setCoachError]=useState(false);
   const coachKey=`coach-${viewKey}`;
-  const inputRef=useRef(null);
+  const inputRef=useRef(null), requestRef=useRef(null);
+  useEffect(()=>()=>requestRef.current?.abort(),[]);
 
   useEffect(()=>{ const t=setTimeout(()=>inputRef.current?.focus(),300); return ()=>clearTimeout(t); },[]);
   useEffect(()=>{
@@ -1437,15 +925,15 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
 
   const e=plan[viewKey]||{};
   const d=new Date(viewKey+"T00:00:00");
-  const dayName=d.toLocaleDateString("en-US",{weekday:"long"});
-  const dayFull=d.toLocaleDateString("en-US",{month:"long",day:"numeric"});
+  const dayName=d.toLocaleDateString("de-CH",{weekday:"long"});
+  const dayFull=d.toLocaleDateString("de-CH",{month:"long",day:"numeric"});
   const feelingLabel=(v)=>FEELINGS.find(f=>f.value===v)?.label||null;
 
   const buildCoachContext=()=>{
     const today=todayStr();
     const cut=daysBeforeStr(today,14);
     const completed=Object.keys(plan).filter(dk=>getSessions(plan[dk]).length>0&&plan[dk].completed).sort();
-    const recentSessions=completed.filter(dk=>dk>=cut).map(dk=>({
+    const recentSessions=completed.filter(dk=>dk>=cut&&dk<=today).map(dk=>({
       date:dk, workout:sessionsLabel(plan[dk]),
       feeling:feelingLabel(plan[dk].feeling), notes:plan[dk].notes?.trim()||null,
     }));
@@ -1455,24 +943,22 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
     const idx=PHASES.findIndex(p=>p===curPhase);
     const next=curPhase?PHASES[idx+1]:null;
     const daysToNextPhase=next?daysUntil(next.start):(curPhase?daysUntil(curPhase.end):null);
-    // Today's readiness check-in (hip / legs traffic lights) — null when unset.
-    const r=plan[today]?.readiness||{};
-    const readiness=(r.hip||r.legs)?{hip:r.hip||null,legs:r.legs||null}:null;
     return {
       playerName:playerName?.trim()||null,
       phase:curPhase?{name:curPhase.name,description:curPhase.description}:null,
       nextPhase:next?.name||null, daysToNextPhase,
       today:{date:viewKey,label:`${dayName}, ${dayFull}`,workout:sessionsLabel(e)||"Rest day",
         completed:!!e.completed,feeling:feelingLabel(e.feeling)},
-      recentSessions, week, tactical:tacticalFor(viewKey), readiness,
+      recentSessions, week, tactical:tacticalFor(viewKey),
     };
   };
 
   const sendToCoach=async(base)=>{
     setSending(true); setCoachError(false);
+    const controller=new AbortController();requestRef.current=controller;
     setMessages([...base,{role:"assistant",content:""}]);
     try {
-      const resp=await fetch("/api/coach",{method:"POST",headers:{"Content-Type":"application/json"},
+      const resp=await fetch("/api/coach",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json"},
         body:JSON.stringify({...buildCoachContext(),messages:base})});
       if (!resp.ok||!resp.body) throw new Error("bad response");
       const reader=resp.body.getReader(), decoder=new TextDecoder();
@@ -1481,30 +967,30 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
       if (!acc.trim()) throw new Error("empty response");
       const final=[...base,{role:"assistant",content:acc}];
       setMessages(final); persistCoach(final);
-    } catch { setCoachError(true); setMessages(base); }
+    } catch(error) { if(error.name!=="AbortError"){setCoachError(true);setMessages(base);} }
     finally { setSending(false); }
   };
   // Context-aware opener — rest days get a recovery-oriented prompt, not "today's session".
-  const opener=getSessions(e).length>0 ? "Tell me about today's session" : "How should I approach this rest day?";
+  const opener=getSessions(e).length>0 ? "Worauf sollte ich bei dieser Einheit achten?" : "Wie nutze ich diesen Ruhetag am besten?";
   const startCoach=()=>sendToCoach([{role:"user",content:opener}]);
   const sendCoach=()=>{ const text=input.trim(); if (!text||sending) return; setInput(""); sendToCoach([...messages,{role:"user",content:text}]); };
   const retryCoach=()=>{ if (!sending&&messages.length) sendToCoach(messages); };
   const newCoachChat=()=>{ setMessages([]); setInput(""); setCoachError(false); try { localStorage.removeItem(coachKey); } catch {} };
 
   return (
-    <div style={{position:"fixed",inset:0,zIndex:60,background:C.bg,display:"flex",flexDirection:"column",
+    <div style={{position:"fixed",inset:0,maxWidth:560,margin:"0 auto",zIndex:60,background:C.bg,display:"flex",flexDirection:"column",
       fontFamily:"system-ui,sans-serif"}}>
       <style>{"@keyframes coachBlink{0%,80%,100%{opacity:.25}40%{opacity:1}}"}</style>
       <div style={{flexShrink:0,background:C.surface,borderBottom:`1px solid ${C.border}`,
         padding:"env(safe-area-inset-top,0px) 12px 0",display:"flex",alignItems:"center",gap:8,minHeight:56}}>
-        <button onClick={onBack} aria-label="Back" style={{background:"none",border:"none",cursor:"pointer",
+        <button onClick={onBack} aria-label="Zurück" style={{background:"none",border:"none",cursor:"pointer",
           color:C.muted,fontSize:24,width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",
           flexShrink:0,WebkitTapHighlightColor:"transparent"}}>←</button>
         <div style={{flex:1,textAlign:"center",fontSize:16,fontWeight:700,color:C.text}}>Coach</div>
         {messages.length>0
-          ? <button onClick={newCoachChat} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,
+          ? <button disabled={sending} onClick={newCoachChat} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,
               fontSize:12,fontWeight:600,textDecoration:"underline",minHeight:44,padding:"0 8px",flexShrink:0,
-              WebkitTapHighlightColor:"transparent"}}>New conversation</button>
+              WebkitTapHighlightColor:"transparent"}}>Neuer Chat</button>
           : <div style={{width:44,flexShrink:0}}/>}
       </div>
 
@@ -1536,12 +1022,12 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
         {coachError&&(
           <div style={{alignSelf:"stretch"}}>
             <p style={{margin:"0 0 8px",fontSize:14,color:C.muted,lineHeight:1.5}}>
-              Couldn't reach the coach right now. Check your connection and try again.
+              Der Coach ist gerade nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.
             </p>
             {messages.length>0&&(
               <button onClick={retryCoach} style={{fontSize:14,fontWeight:600,color:C.sageDk,background:C.surface,
                 border:`1px solid ${C.sage}`,borderRadius:10,padding:"9px 16px",cursor:"pointer",fontFamily:"inherit",
-                WebkitTapHighlightColor:"transparent"}}>↻ Try again</button>
+                WebkitTapHighlightColor:"transparent"}}>Erneut versuchen</button>
             )}
           </div>
         )}
@@ -1551,899 +1037,98 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
         padding:"10px 16px calc(2px + env(safe-area-inset-bottom,0px))",display:"flex",gap:8,alignItems:"center"}}>
         <input ref={inputRef} type="text" value={input} onChange={ev=>setInput(ev.target.value)}
           onKeyDown={ev=>{ if (ev.key==="Enter"){ ev.preventDefault(); sendCoach(); } }}
-          placeholder="Ask the coach…" disabled={sending}
+          aria-label="Nachricht an deinen Coach" placeholder="Frag deinen Coach …" disabled={sending}
           style={{flex:1,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",fontFamily:"inherit",
             fontSize:15,color:C.text,background:C.bg,outline:"none",boxSizing:"border-box",WebkitAppearance:"none"}}/>
         <button onClick={sendCoach} disabled={sending||!input.trim()}
-          style={{padding:"14px 18px",background:input.trim()&&!sending?C.done:C.border,color:"#fff",border:"none",
+          style={{padding:"14px 18px",background:input.trim()&&!sending?C.done:C.border,color:C.ink,border:"none",
             borderRadius:12,fontFamily:"inherit",fontSize:14,fontWeight:600,
-            cursor:input.trim()&&!sending?"pointer":"default",flexShrink:0,WebkitTapHighlightColor:"transparent"}}>Send</button>
+            cursor:input.trim()&&!sending?"pointer":"default",flexShrink:0,WebkitTapHighlightColor:"transparent"}}>Senden</button>
       </div>
     </div>
   );
 }
 
-// ─── Shared step-flow card styles (used by Guided Session) ─────────────────────
-const TR_CARD = {background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,padding:"16px 18px",marginBottom:14};
-const TR_LABEL = {fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:C.muted,marginBottom:8};
-const TR_PRIMARY = {width:"100%",padding:"14px",background:C.done,color:"#fff",border:"none",borderRadius:12,
-  fontFamily:"inherit",fontSize:15,fontWeight:600,cursor:"pointer",WebkitTapHighlightColor:"transparent"};
-const TR_SECONDARY = {width:"100%",padding:"13px",background:C.surface,color:C.sage,border:`1.5px solid ${C.sage}`,
-  borderRadius:12,fontFamily:"inherit",fontSize:15,fontWeight:600,cursor:"pointer",
-  WebkitTapHighlightColor:"transparent",marginTop:10};
 
-// ─── Guided session ──────────────────────────────────────────────────────────────
-// Exercise photos, bundled by Vite (hashed URLs — work offline in the built PWA).
-// Keyed by lowercase-hyphenated filename; add a photo = drop the file in
-// src/assets/exercises/ and reference it via an `img` field below.
-const EX_IMG = Object.fromEntries(
-  Object.entries(import.meta.glob('./assets/exercises/*.jpg', { eager:true, import:'default' }))
-    .map(([path,url])=>[path.split('/').pop().replace('.jpg',''), url])
-);
 
-// Programs are plain data so they're easy to extend later (more programs,
-// tracking). `reps` is a string ("30s", "8 pro Seite"); `sets` is optional —
-// mobility items without sets render just the reps string. `cue`, `tag` and
-// `img` are optional per exercise.
-const PROGRAMS = [
-  {
-    id: 'kombi-block',
-    name: 'Kombi-Block',
-    exercises: [
-      { name:'Side-Lying Hip Abduction',  sets:3, reps:'12 pro Seite', cue:'links betont',              img:EX_IMG['side-lying-hip-abduction'] },
-      { name:'Single-Leg Glute Bridge',   sets:3, reps:'8 pro Seite',  cue:'Becken waagerecht halten',  img:EX_IMG['single-leg-glute-bridge'] },
-      { name:'Side Plank mit Abduktion',  sets:3, reps:'5–8',          cue:'kurz beginnen',             img:EX_IMG['side-plank-with-abduction'] },
-      { name:'Step-Down an Stufe',        sets:3, reps:'6 pro Seite',  cue:'Knie nicht einwärts',       img:EX_IMG['step-down'] },
-      { name:'Iso Adduktoren-Squeeze',    sets:5, reps:'30s',          cue:'schmerzfrei',               img:EX_IMG['isometric-adductor-squeeze'] },
-      { name:'Iso Hamstring-Bridge',      sets:5, reps:'20s',                                           img:EX_IMG['isometric-hamstring-bridge'] },
-      { name:'Copenhagen Plank',          sets:3, reps:'5',            cue:'Knie-Version', tag:'Phase 2', img:EX_IMG['copenhagen-plank'] },
-      { name:'1-Bein Hamstring-Bridge',   sets:3, reps:'8 pro Seite',  tag:'Phase 2',                   img:EX_IMG['single-leg-hamstring-bridge'] },
-      { name:'90/90 Hüft-Switches',       sets:null, reps:'8 pro Seite',                                img:EX_IMG['90-90-hip-switch'] },
-      { name:'T-Spine Rotation',          sets:null, reps:'8 pro Seite',                                img:EX_IMG['t-spine-rotation'] },
-      { name:'Ankle Rocks',               sets:null, reps:'10 pro Seite',                               img:EX_IMG['ankle-rock'] },
-      { name:'Hip Circles / CARs',        sets:null, reps:'5 pro Seite', cue:'langsam',                 img:EX_IMG['hip-cars'] },
-    ],
-  },
-];
-function repsDisplay(ex) { return ex.sets ? `${ex.sets} × ${ex.reps}` : ex.reps; }
-
-// Click-through guided session: start → one exercise per step → done. No images,
-// no phase logic, no tracking — deliberately minimal for v1.
-function GuidedView() {
-  const program=PROGRAMS[0];
-  const total=program.exercises.length;
-  // null = start screen · 0..total-1 = exercise step · total = done screen
-  const [step,setStep]=useState(null);
-
-  if (step===null) return (
-    <div style={{padding:"16px 16px 24px"}}>
-      <div style={{fontSize:18,fontWeight:800,color:C.text,marginBottom:14}}>Guided Session</div>
-      <div style={TR_CARD}>
-        <div style={TR_LABEL}>{program.name}</div>
-        <p style={{margin:"0 0 12px",fontSize:14,color:C.muted,lineHeight:1.6}}>
-          {total} Übungen, Schritt für Schritt. Hüfte, Glutes, Hamstrings, Mobility — dein
-          Präventions-Block zum Durchklicken.
-        </p>
-        {program.exercises.map((ex,i)=>(
-          <div key={ex.name} style={{display:"flex",alignItems:"baseline",gap:8,
-            padding:"7px 0",borderTop:i===0?"none":`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,fontFamily:"monospace",color:C.muted,flexShrink:0,width:18}}>{i+1}</span>
-            <span style={{flex:1,fontSize:13,color:C.text,minWidth:0}}>{ex.name}</span>
-            <span style={{fontSize:12,fontFamily:"monospace",color:C.muted,flexShrink:0}}>{repsDisplay(ex)}</span>
-          </div>
-        ))}
-      </div>
-      <button onClick={()=>setStep(0)} style={TR_PRIMARY}>Session starten</button>
-    </div>
-  );
-
-  if (step>=total) return (
-    <div style={{padding:"16px 16px 24px"}}>
-      <div style={{...TR_CARD,textAlign:"center",padding:"36px 18px"}}>
-        <div style={{fontSize:52,marginBottom:14}}>✅</div>
-        <div style={{fontSize:20,fontWeight:800,color:C.text,marginBottom:8}}>Fertig!</div>
-        <p style={{margin:0,fontSize:14,color:C.muted,lineHeight:1.6}}>
-          {program.name} komplett — alle {total} Übungen durch. Diese Arbeit hält dich auf dem Platz.
-        </p>
-      </div>
-      <button onClick={()=>setStep(null)} style={TR_PRIMARY}>Zur Übersicht</button>
-    </div>
-  );
-
-  const ex=program.exercises[step];
-  return (
-    <div style={{padding:"16px 16px 24px"}}>
-      {/* Progress */}
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-        <div style={{flex:1,fontSize:18,fontWeight:800,color:C.text}}>{program.name}</div>
-        <span style={{fontSize:13,fontWeight:700,fontFamily:"monospace",color:C.sageDk,
-          background:C.sageLt,borderRadius:999,padding:"4px 12px"}}>{step+1}/{total}</span>
-      </div>
-      <div style={{height:5,background:C.border,borderRadius:999,overflow:"hidden",marginBottom:16}}>
-        <div style={{height:"100%",background:C.done,borderRadius:999,
-          width:`${Math.round(((step+1)/total)*100)}%`,transition:"width .25s ease"}}/>
-      </div>
-
-      {/* Exercise card */}
-      <div style={{...TR_CARD,padding:"20px 20px 28px",textAlign:"center"}}>
-        {/* Photo above name/reps. onError hides the img so a missing/broken file
-            falls back to the text-only layout without breaking anything. */}
-        {ex.img&&(
-          <img src={ex.img} alt={ex.name}
-            onError={(ev)=>{ ev.currentTarget.style.display="none"; }}
-            style={{display:"block",width:"100%",height:"auto",borderRadius:12,marginBottom:16}}/>
-        )}
-        {ex.tag&&(
-          <span style={{display:"inline-block",fontSize:10,fontWeight:700,textTransform:"uppercase",
-            letterSpacing:".08em",color:C.sageDk,background:C.sageLt,borderRadius:999,
-            padding:"4px 11px",marginBottom:12}}>{ex.tag}</span>
-        )}
-        <div style={{fontSize:21,fontWeight:800,color:C.text,lineHeight:1.25,marginBottom:14}}>{ex.name}</div>
-        <div style={{fontSize:34,fontWeight:800,fontFamily:"monospace",color:C.done,lineHeight:1.1}}>
-          {repsDisplay(ex)}
-        </div>
-        {ex.cue&&<div style={{fontSize:14,color:C.muted,lineHeight:1.5,marginTop:14}}>{ex.cue}</div>}
-      </div>
-
-      {/* Navigation */}
-      <button onClick={()=>setStep(s=>s+1)} style={TR_PRIMARY}>
-        {step===total-1?"Abschließen ✓":"Weiter →"}
-      </button>
-      <button onClick={()=>setStep(s=>s===0?null:s-1)} style={TR_SECONDARY}>← Zurück</button>
-    </div>
-  );
-}
-
-// ─── Mediale Kette rechts — Rehab-Session ────────────────────────────────────────
-// Insertionsnahe Tendinopathie des Semimembranosus (rechtes Knie innen). Isometrie
-// täglich, exzentrische Belastung phasenweise. Steuergrösse ist NICHT der Kalender,
-// sondern Schmerz ≤3/10 während der Übung und der Zustand am Folgemorgen — die Phase
-// wird deshalb nur vorgeschlagen, nie automatisch hochgeschaltet. Bewusst ohne
-// statische Dehnübungen und ohne Foam Rolling (bei gereizter Sehne kontraproduktiv).
-const MK_EXERCISES = {
-  bridge:     { name: "Long-Lever Bridge", side: "einbeinig rechts", type: "hold",
-                cue: "Rückenlage, rechte Ferse am Boden, Knie nur ~20–30° gebeugt. Linkes Bein anheben, Oberschenkel parallel. Becken hoch bis Schulter–Hüfte–Knie eine Linie bilden.",
-                watch: "Becken kippt nicht zur linken Seite. Kein Hohlkreuz." },
-  knieflex:   { name: "Knieflexion isometrisch", side: "Bauchlage, rechts", type: "hold",
-                cue: "Becken bleibt unten. Rechtes Knie ~30–45° beugen, Fuss leicht nach innen drehen. Linkes Bein über den rechten Knöchel kreuzen und dagegenhalten.",
-                watch: "~70 % Kraft, gleichmässig aufbauen. Hüfte hebt nicht ab." },
-  balance:    { name: "Balance mit Rotation", side: "Stand rechts", type: "reps", reps: "6 pro Richtung",
-                cue: "Einbeinig rechts, Knie minimal gebeugt. Oberkörper langsam nach innen und aussen drehen, bis kurz vor die Schmerzgrenze.",
-                watch: "Knie bleibt über dem zweiten Zeh. Kein Schwung." },
-  stepdown:   { name: "Step-Downs", side: "rechts", type: "reps", reps: "8 Wdh.",
-                cue: "Auf einer Stufe (20–30 cm) rechts stehen. Linke Ferse langsam Richtung Boden senken, antippen, kontrolliert hoch.",
-                watch: "Rechtes Knie bleibt über der Fussmitte, kippt nicht nach innen." },
-  glutemed:   { name: "Glute Med", side: "Seitlage rechts", type: "reps", reps: "12 Wdh.",
-                cue: "Beine gestreckt, rechtes Bein oben. Bein leicht nach hinten und nach oben führen.",
-                watch: "Becken bleibt senkrecht, rollt nicht nach hinten weg." },
-  copenhagen: { name: "Copenhagen Plank", side: "rechts", type: "hold",
-                cue: "Seitstütz auf dem rechten Unterarm, linkes Knie auf einer Bank. Becken anheben, Körper gerade.",
-                watch: "Nur wenn schmerzfrei. Kurzversion: unteres Knie am Boden." },
-  sldl:       { name: "Single-Leg RDL", side: "rechts", type: "reps", reps: "8 Wdh. · 3–4 s runter",
-                cue: "Auf rechts stehen, Kurzhantel in der linken Hand. Hüfte nach hinten schieben, linkes Bein streckt sich nach hinten.",
-                watch: "Rücken gerade. Bewegung kommt aus der Hüfte, nicht aus dem Knie." },
-  slider:     { name: "Slider-Curls", side: "beidbeinig", type: "reps", reps: "6 Wdh. · langsam",
-                cue: "Rückenlage, Fersen auf Slidern oder Handtuch, Becken hoch. Fersen langsam wegschieben, dann zurückziehen.",
-                watch: "Becken bleibt oben über die ganze Bewegung." },
-  nordic:     { name: "Nordics", side: "beidbeinig", type: "reps", reps: "5 Wdh. · nur exzentrisch",
-                cue: "Kniend, Fersen fixiert. Oberkörper gestreckt langsam nach vorne fallen lassen, so lange wie möglich bremsen.",
-                watch: "Nur die Absenkbewegung zählt. Mit den Händen abfangen." },
-};
-
-// hold = Haltezeit in s, rest = Pause in s
-const MK_BLOCKS = {
-  A:     { label: "Block A", title: "Isometrie", freq: "täglich",
-           items: [ { ex: "bridge", sets: 5, hold: 45, rest: 60 },
-                    { ex: "knieflex", sets: 4, hold: 40, rest: 45 } ] },
-  Akurz: { label: "Block A kurz", title: "Isometrie · Erhaltung", freq: "abends",
-           items: [ { ex: "bridge", sets: 3, hold: 30, rest: 45 },
-                    { ex: "knieflex", sets: 3, hold: 30, rest: 45 } ] },
-  B:     { label: "Block B", title: "Kontrolle", freq: "3× pro Woche",
-           items: [ { ex: "balance", sets: 3, rest: 45 },
-                    { ex: "stepdown", sets: 3, rest: 60 },
-                    { ex: "glutemed", sets: 3, rest: 45 },
-                    { ex: "copenhagen", sets: 3, hold: 20, rest: 45 } ] },
-};
-
-// Block C ist phasenabhängig
-const MK_STRENGTH = {
-  1: [],
-  2: [ { ex: "sldl", sets: 3, rest: 90 } ],
-  3: [ { ex: "sldl", sets: 3, rest: 90 }, { ex: "slider", sets: 3, rest: 90 } ],
-  4: [ { ex: "sldl", sets: 3, rest: 90 }, { ex: "slider", sets: 3, rest: 90 }, { ex: "nordic", sets: 3, rest: 120 } ],
-};
-
-// Phase 1 = Woche 1–2, 2 = Woche 3–4, 3 = Woche 5–6, 4 = ab Woche 7.
-function mkWeekOf(startDate) {
-  if (!startDate) return 1;
-  const s=new Date(startDate+"T00:00:00"), n=new Date(); n.setHours(0,0,0,0);
-  return Math.max(1,Math.floor((n-s)/86400000/7)+1);
-}
-function mkDuePhase(startDate) {
-  const w=mkWeekOf(startDate);
-  return w<=2?1:w<=4?2:w<=6?3:4;
-}
-function mkPhaseWeeks(p) { return p===1?"Woche 1–2":p===2?"Woche 3–4":p===3?"Woche 5–6":"ab Woche 7"; }
-// Freischalten nur, wenn die letzten (bis zu) 5 geloggten Sessions alle Schmerz ≤3 hatten.
-// Abgebrochene Sessions haben kein pain und zählen hier nicht mit.
-function mkCanUnlock(mkLog) {
-  const pains=(mkLog||[]).filter(l=>l.pain!=null).slice(-5).map(l=>l.pain);
-  return pains.length>0&&pains.every(p=>p<=3);
-}
-function mkBlocksFor(phase) {
-  const c=MK_STRENGTH[phase]||[];
-  return [
-    { key:"A", ...MK_BLOCKS.A },
-    { key:"Akurz", ...MK_BLOCKS.Akurz },
-    { key:"B", ...MK_BLOCKS.B },
-    { key:"C", label:"Block C", title:"Kraft", freq:c.length?"2× pro Woche":"ab Woche 3", items:c },
-  ];
-}
-function mkTotalSets(items) { return items.reduce((s,i)=>s+i.sets,0); }
-
-// Flache Schrittliste: ready → (hold|work) → rest → … Zwischen zwei Übungen steht
-// ein ready(15 s, "Wechsel") statt einer Pause; vor der ersten Übung ready(6 s).
-function mkBuildSteps(items) {
-  const steps=[];
-  items.forEach((it,ii)=>{
-    const ex=MK_EXERCISES[it.ex];
-    steps.push({ kind:"ready", dur:ii===0?6:15, exKey:it.ex, setNo:1, setsTotal:it.sets,
-      label:ii===0?"Position einnehmen":"Wechsel" });
-    for (let s=1;s<=it.sets;s++) {
-      steps.push({ kind:ex.type==="hold"?"hold":"work", dur:it.hold||0, exKey:it.ex, setNo:s, setsTotal:it.sets });
-      if (s<it.sets) steps.push({ kind:"rest", dur:it.rest, exKey:it.ex, setNo:s, setsTotal:it.sets });
-    }
-  });
-  return steps;
-}
-
-// Signalton über die Web Audio API — keine Audiodatei, keine Dependency.
-// Stumm ist akzeptabel, deshalb alles in try/catch.
-let mkAudio=null;
-function mkBeep(kind) {
-  try {
-    const AC=window.AudioContext||window.webkitAudioContext;
-    if (!AC) return;
-    if (!mkAudio) mkAudio=new AC();
-    if (mkAudio.state==="suspended") mkAudio.resume();
-    const t=mkAudio.currentTime, osc=mkAudio.createOscillator(), g=mkAudio.createGain();
-    const long=kind==="go";
-    osc.type="sine";
-    osc.frequency.value=long?880:660;
-    g.gain.setValueAtTime(0.0001,t);
-    g.gain.exponentialRampToValueAtTime(0.3,t+0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+(long?0.3:0.13));
-    osc.connect(g); g.connect(mkAudio.destination);
-    osc.start(t); osc.stop(t+(long?0.35:0.18));
-  } catch {}
-}
-function mkTime(s) { return s>=60?`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`:String(s); }
-
-const MK_BIGNUM = { fontSize:82,fontWeight:800,lineHeight:1,color:C.text,
-  fontVariantNumeric:"tabular-nums",fontFamily:"system-ui,-apple-system,sans-serif" };
-const MK_CTRL = { flex:1,minHeight:48,padding:"12px 8px",background:C.surface,
-  border:`1px solid ${C.border}`,borderRadius:12,fontFamily:"inherit",fontSize:13,
-  fontWeight:600,color:C.text,cursor:"pointer",WebkitTapHighlightColor:"transparent" };
-
-// Player. Timer ist timestamp-basiert (Ziel-Endzeit in einer ref, Intervall vergleicht
-// gegen Date.now()) — dekrementieren würde driften, sobald der Screen schlafen geht.
-function MKRun({items,blockLabel,onFinish,onAbort}) {
-  const steps=useMemo(()=>mkBuildSteps(items),[items]);
-  const total=useMemo(()=>mkTotalSets(items),[items]);
-  const [idx,setIdx]=useState(0);
-  const [left,setLeft]=useState(steps[0]?.dur??0);
-  const [paused,setPaused]=useState(false);
-  const [confirmAbort,setConfirmAbort]=useState(false);
-  const endRef=useRef(0), heldRef=useRef(0), startRef=useRef(Date.now()), beepRef=useRef(-1);
-
-  const step=steps[idx];
-  const doneSets=steps.slice(0,idx).filter(s=>s.kind==="hold"||s.kind==="work").length;
-
-  // Screen wach halten, solange die Session läuft.
-  useEffect(()=>{
-    let lock=null, gone=false;
-    (async()=>{ try { lock=await navigator.wakeLock?.request("screen"); if (gone) lock?.release(); } catch {} })();
-    return ()=>{ gone=true; try { lock&&lock.release(); } catch {} };
-  },[]);
-
-  // Timer für den neuen Schritt scharf machen.
-  useEffect(()=>{
-    const st=steps[idx];
-    if (!st) return;
-    beepRef.current=-1;
-    if (st.kind==="work") { setLeft(null); mkBeep("go"); return; }
-    endRef.current=Date.now()+st.dur*1000;
-    setLeft(st.dur);
-    mkBeep("go");
-  },[idx,steps]);
-
-  // Tick gegen die Wanduhr, nicht per Dekrement.
-  useEffect(()=>{
-    const st=steps[idx];
-    if (!st||st.kind==="work"||paused) return;
-    const id=setInterval(()=>{
-      const l=Math.max(0,Math.ceil((endRef.current-Date.now())/1000));
-      setLeft(l);
-      if (l>0&&l<=3&&beepRef.current!==l) { beepRef.current=l; mkBeep("tick"); }
-      if (l<=0) { clearInterval(id); setIdx(i=>i+1); }
-    },100);
-    return ()=>clearInterval(id);
-  },[idx,paused,steps]);
-
-  // Durch: Abschlussbildschirm.
-  useEffect(()=>{
-    if (idx>=steps.length) {
-      onFinish({ completedSets:total,totalSets:total,
-        durationSec:Math.round((Date.now()-startRef.current)/1000) });
-    }
-  },[idx,steps.length]);   // eslint-disable-line
-
-  const togglePause=()=>{
-    if (!paused) { heldRef.current=Math.max(0,endRef.current-Date.now()); setPaused(true); }
-    else { endRef.current=Date.now()+heldRef.current; setPaused(false); }
-  };
-  const add10=()=>{
-    if (paused) heldRef.current+=10000; else endRef.current+=10000;
-    setLeft(l=>l==null?l:l+10);
-  };
-  const skip=()=>setIdx(i=>i+1);
-  const abort=()=>onAbort({ completedSets:doneSets,totalSets:total,
-    durationSec:Math.round((Date.now()-startRef.current)/1000) });
-
-  if (!step) return null;
-  const ex=MK_EXERCISES[step.exKey];
-  const nx=steps[idx+1];
-  const nxEx=nx?MK_EXERCISES[nx.exKey]:null;
-  const setsDone=step.kind==="rest"?step.setNo:step.setNo-1;
-  const headline=step.kind==="ready"?step.label:step.kind==="rest"?"Pause":step.kind==="hold"?"Halten":"Los";
-
-  return (
-    <div style={{position:"fixed",inset:0,zIndex:60,background:C.bg,display:"flex",flexDirection:"column",
-      fontFamily:"system-ui,-apple-system,sans-serif",color:C.text}}>
-      {/* Kopf */}
-      <div style={{flexShrink:0,background:C.surface,borderBottom:`1px solid ${C.border}`,
-        padding:"env(safe-area-inset-top,0px) 14px 0",display:"flex",alignItems:"center",gap:10,minHeight:56}}>
-        <span style={{flex:1,fontSize:14,fontWeight:700}}>{blockLabel}</span>
-        <span style={{fontSize:13,fontFamily:"monospace",fontWeight:700,color:C.sageDk,
-          background:C.sageLt,borderRadius:999,padding:"4px 12px"}}>{doneSets}/{total} Sätze</span>
-        <button onClick={()=>setConfirmAbort(true)} style={{background:"none",border:"none",cursor:"pointer",
-          color:C.muted,fontSize:13,fontWeight:600,minHeight:44,padding:"0 4px",fontFamily:"inherit",
-          WebkitTapHighlightColor:"transparent"}}>Abbrechen</button>
-      </div>
-
-      {confirmAbort&&(
-        <div style={{flexShrink:0,display:"flex",alignItems:"center",gap:10,padding:"12px 16px",
-          background:C.surface,borderBottom:`1px solid ${C.border}`}}>
-          <span style={{flex:1,fontSize:13,color:C.muted}}>Session abbrechen? Wird als Teil-Einheit geloggt.</span>
-          <button onClick={abort} style={{fontSize:13,fontWeight:700,color:C.done,background:"none",border:"none",
-            minHeight:44,padding:"0 8px",cursor:"pointer",fontFamily:"inherit"}}>Abbrechen</button>
-          <button onClick={()=>setConfirmAbort(false)} style={{fontSize:13,fontWeight:600,color:C.muted,
-            background:"none",border:"none",minHeight:44,padding:"0 8px",cursor:"pointer",fontFamily:"inherit"}}>Weiter</button>
-        </div>
-      )}
-
-      {/* Mitte */}
-      <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"18px 16px",display:"flex",flexDirection:"column"}}>
-        <div style={{fontSize:12,fontWeight:700,textTransform:"uppercase",letterSpacing:".12em",
-          color:step.kind==="rest"?C.muted:C.sageDk,marginBottom:4}}>{headline}</div>
-        <div style={{fontSize:24,fontWeight:800,lineHeight:1.2,marginBottom:2}}>{ex.name}</div>
-        <div style={{fontSize:13,color:C.muted,marginBottom:14}}>{ex.side} · Satz {step.setNo}/{step.setsTotal}</div>
-
-        {/* Satzfortschritt */}
-        <div style={{display:"flex",gap:4,marginBottom:20}}>
-          {Array.from({length:step.setsTotal},(_,i)=>(
-            <div key={i} style={{flex:1,height:6,borderRadius:999,
-              background:i<setsDone?C.done:i===setsDone&&step.kind!=="rest"?C.sage:C.border}}/>
-          ))}
-        </div>
-
-        {/* Zahl / Aktion */}
-        <div style={{textAlign:"center",padding:"6px 0 18px"}}>
-          {step.kind==="work"
-            ? <>
-                <div style={{...MK_BIGNUM,fontSize:44,color:C.done}}>{ex.reps}</div>
-                <div style={{fontSize:13,color:C.muted,marginTop:8}}>kein Timer — im eigenen Tempo</div>
-              </>
-            : <>
-                <div style={{...MK_BIGNUM,color:paused?C.muted:step.kind==="rest"?C.sage:C.text}}>{mkTime(left??0)}</div>
-                <div style={{fontSize:13,color:C.muted,marginTop:6}}>{paused?"pausiert":"Sekunden"}</div>
-              </>}
-        </div>
-
-        {/* Nächster Schritt in der Pause */}
-        {step.kind==="rest"&&nx&&(
-          <div style={{fontSize:13,color:C.muted,textAlign:"center",marginBottom:16}}>
-            Als Nächstes: <span style={{fontWeight:700,color:C.text}}>{nxEx.name}</span>
-            {nx.kind==="ready"?" · Wechsel":` · Satz ${nx.setNo}/${nx.setsTotal}`}
-          </div>
-        )}
-
-        {/* Cue + Achte auf — immer sichtbar, nicht hinter einem Tap */}
-        <div style={{...TR_CARD,marginTop:"auto",marginBottom:0}}>
-          <p style={{margin:0,fontSize:14,lineHeight:1.55,color:C.text}}>{ex.cue}</p>
-          <p style={{margin:"10px 0 0",paddingTop:10,borderTop:`1px solid ${C.border}`,
-            fontSize:13,lineHeight:1.5,color:C.sageDk,fontWeight:600}}>⚠ {ex.watch}</p>
-        </div>
-      </div>
-
-      {/* Steuerung */}
-      <div style={{flexShrink:0,background:C.surface,borderTop:`1px solid ${C.border}`,
-        padding:"10px 16px calc(10px + env(safe-area-inset-bottom,0px))"}}>
-        {step.kind==="work"
-          ? <button onClick={skip} style={{...TR_PRIMARY,minHeight:56,fontSize:17}}>Satz erledigt ✓</button>
-          : <div style={{display:"flex",gap:8}}>
-              <button onClick={togglePause} style={MK_CTRL}>{paused?"▶ Weiter":"⏸ Pause"}</button>
-              <button onClick={add10} style={MK_CTRL}>+10 s</button>
-              <button onClick={skip} style={MK_CTRL}>{step.kind==="rest"?"Pause ⏭":"Satz ⏭"}</button>
-            </div>}
-      </div>
-    </div>
-  );
-}
-
-// Vollbild-Einstieg: Blockwahl, Phasenstand, Player, Schmerzabfrage.
-function MKSession({mkStartDate,mkPhase,mkLog,onMK,onBack}) {
-  const [mode,setMode]=useState("home");      // home | run | pain
-  const [blockKey,setBlockKey]=useState(null);
-  const [result,setResult]=useState(null);
-  const [pain,setPain]=useState(null);
-
-  const blocks=mkBlocksFor(mkPhase);
-  const block=blocks.find(b=>b.key===blockKey);
-  const due=mkDuePhase(mkStartDate);
-  const week=mkWeekOf(mkStartDate);
-  const canUnlock=mkCanUnlock(mkLog);
-
-  const start=(k)=>{
-    const patch={};
-    if (!mkStartDate) patch.mkStartDate=todayStr();   // erst beim allerersten Start
-    if (Object.keys(patch).length) onMK(patch);
-    setBlockKey(k); setPain(null); setResult(null); setMode("run");
-  };
-  const logSession=(res,painVal)=>{
-    onMK({ mkLog:[...(mkLog||[]),{ type:"mk",date:todayStr(),block:blockKey,phase:mkPhase,
-      pain:painVal,completedSets:res.completedSets,totalSets:res.totalSets,durationSec:res.durationSec }] });
-  };
-
-  if (mode==="run"&&block) return (
-    <MKRun items={block.items} blockLabel={`${block.label} · ${block.title}`}
-      onFinish={(res)=>{ setResult(res); setMode("pain"); }}
-      onAbort={(res)=>{ logSession(res,null); setMode("home"); }}/>
-  );
-
-  if (mode==="pain") return (
-    <div style={{position:"fixed",inset:0,zIndex:60,background:C.bg,overflowY:"auto",
-      fontFamily:"system-ui,-apple-system,sans-serif",color:C.text,
-      padding:"calc(24px + env(safe-area-inset-top,0px)) 16px calc(24px + env(safe-area-inset-bottom,0px))"}}>
-      <div style={{textAlign:"center",marginBottom:20}}>
-        <div style={{fontSize:46,marginBottom:10}}>✅</div>
-        <div style={{fontSize:22,fontWeight:800,marginBottom:6}}>Durch</div>
-        <div style={{fontSize:13,color:C.muted,fontFamily:"monospace"}}>
-          {result.completedSets}/{result.totalSets} Sätze · {Math.floor(result.durationSec/60)}:{String(result.durationSec%60).padStart(2,"0")} min
-        </div>
-      </div>
-      <div style={TR_CARD}>
-        <div style={TR_LABEL}>Schmerz während der Übung</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:6}}>
-          {Array.from({length:11},(_,i)=>(
-            <button key={i} onClick={()=>{ if(pain==null){ setPain(i); logSession(result,i); } }}
-              disabled={pain!=null}
-              style={{minHeight:48,borderRadius:12,fontFamily:"inherit",fontSize:15,fontWeight:700,
-                cursor:pain==null?"pointer":"default",WebkitTapHighlightColor:"transparent",
-                background:pain===i?(i<=3?"rgba(46,158,68,0.14)":"rgba(217,45,32,0.10)"):C.surface,
-                border:`1.5px solid ${pain===i?(i<=3?"#2E9E44":"#D92D20"):C.border}`,
-                color:pain===i?(i<=3?"#2E9E44":"#D92D20"):C.text,
-                opacity:pain!=null&&pain!==i?0.4:1}}>{i}</button>
-          ))}
-        </div>
-        <div style={{fontSize:11,color:C.muted,marginTop:8}}>0 = nichts · 10 = maximal</div>
-      </div>
-      {pain!=null&&(
-        <div style={{...TR_CARD,borderLeft:`3px solid ${pain<=3?"#2E9E44":"#D92D20"}`}}>
-          <p style={{margin:0,fontSize:15,lineHeight:1.6}}>
-            {pain<=3
-              ? "Im grünen Bereich. Entscheidend bleibt der Zustand morgen früh."
-              : "Über 3 — nächstes Mal Haltezeit oder Intensität runter. Übung nicht streichen."}
-          </p>
-        </div>
-      )}
-      <button onClick={()=>setMode("home")} disabled={pain==null}
-        style={{...TR_PRIMARY,background:pain==null?C.muted:C.done,cursor:pain==null?"default":"pointer"}}>
-        Fertig
-      </button>
-    </div>
-  );
-
-  // ── Home ──
-  return (
-    <div style={{position:"fixed",inset:0,zIndex:60,background:C.bg,overflowY:"auto",
-      fontFamily:"system-ui,-apple-system,sans-serif",color:C.text,
-      paddingBottom:"calc(24px + env(safe-area-inset-bottom,0px))"}}>
-      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,
-        padding:"env(safe-area-inset-top,0px) 12px 0",display:"flex",alignItems:"center",gap:8,minHeight:56}}>
-        <button onClick={onBack} aria-label="Zurück" style={{background:"none",border:"none",cursor:"pointer",
-          color:C.muted,fontSize:24,width:44,height:44,display:"flex",alignItems:"center",
-          justifyContent:"center",flexShrink:0,WebkitTapHighlightColor:"transparent"}}>←</button>
-        <div style={{flex:1,fontSize:16,fontWeight:700}}>Mediale Kette rechts</div>
-      </div>
-
-      <div style={{padding:"16px"}}>
-        {/* Phasenstand */}
-        <div style={TR_CARD}>
-          <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-            <span style={{fontSize:20,fontWeight:800}}>Phase {mkPhase}</span>
-            <span style={{fontSize:12,color:C.muted}}>{mkPhaseWeeks(mkPhase)}</span>
-            {mkStartDate&&<span style={{marginLeft:"auto",fontSize:12,color:C.muted,fontFamily:"monospace"}}>Woche {week}</span>}
-          </div>
-          <p style={{margin:"8px 0 0",fontSize:13,color:C.muted,lineHeight:1.55}}>
-            Progression läuft über Schmerz ≤3 und den Zustand am Folgemorgen — nicht über den Kalender.
-          </p>
-
-          {/* Phasenvorschlag — schaltet nie von selbst */}
-          {due>mkPhase&&(
-            <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
-              <div style={{fontSize:14,fontWeight:700,marginBottom:6}}>Woche {week} erreicht — Phase {mkPhase+1} freischalten?</div>
-              {canUnlock
-                ? <button onClick={()=>onMK({mkPhase:mkPhase+1})}
-                    style={{...TR_PRIMARY,marginTop:4}}>Phase {mkPhase+1} freischalten</button>
-                : <p style={{margin:"4px 0 0",fontSize:13,color:"#D92D20",lineHeight:1.5}}>
-                    Noch nicht — Schmerzwerte über 3 in den letzten Einheiten.
-                  </p>}
-            </div>
-          )}
-          {mkPhase>1&&(
-            <button onClick={()=>onMK({mkPhase:mkPhase-1})}
-              style={{marginTop:10,background:"none",border:"none",cursor:"pointer",color:C.muted,
-                fontSize:12,fontWeight:600,minHeight:44,padding:"0 2px",fontFamily:"inherit",
-                WebkitTapHighlightColor:"transparent"}}>↓ Auf Phase {mkPhase-1} zurückstufen</button>
-          )}
-        </div>
-
-        {/* Blöcke */}
-        {blocks.map(b=>{
-          const locked=b.items.length===0;
-          const sets=mkTotalSets(b.items);
-          return (
-            <div key={b.key} style={{...TR_CARD,opacity:locked?0.55:1}}>
-              <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:2}}>
-                <span style={{fontSize:16,fontWeight:800}}>{b.label}</span>
-                <span style={{fontSize:13,color:C.muted}}>{b.title}</span>
-                <span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:C.sageDk,
-                  background:C.sageLt,borderRadius:999,padding:"3px 10px"}}>{b.freq}</span>
-              </div>
-              {locked
-                ? <p style={{margin:"8px 0 0",fontSize:13,color:C.muted}}>Gesperrt in Phase 1 — ab Woche 3.</p>
-                : <>
-                    <div style={{margin:"10px 0 12px"}}>
-                      {b.items.map((it,i)=>{
-                        const ex=MK_EXERCISES[it.ex];
-                        return (
-                          <div key={it.ex} style={{display:"flex",alignItems:"baseline",gap:8,padding:"6px 0",
-                            borderTop:i===0?"none":`1px solid ${C.border}`}}>
-                            <span style={{flex:1,fontSize:13,minWidth:0}}>{ex.name}</span>
-                            <span style={{fontSize:12,fontFamily:"monospace",color:C.muted,flexShrink:0}}>
-                              {it.sets}× {it.hold?`${it.hold}s`:ex.reps}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <button onClick={()=>start(b.key)} style={TR_PRIMARY}>Starten · {sets} Sätze</button>
-                  </>}
-            </div>
-          );
-        })}
-
-        {/* Letzte Einheiten */}
-        {(mkLog||[]).length>0&&(
-          <div style={TR_CARD}>
-            <div style={TR_LABEL}>Letzte Einheiten</div>
-            {(mkLog||[]).slice(-5).reverse().map((l,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"baseline",gap:8,padding:"6px 0",
-                borderTop:i===0?"none":`1px solid ${C.border}`,fontSize:13}}>
-                <span style={{fontFamily:"monospace",color:C.muted,flexShrink:0}}>
-                  {new Date(l.date+"T00:00:00").toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit"})}
-                </span>
-                <span style={{flex:1,minWidth:0}}>{MK_BLOCKS[l.block]?.label||`Block ${l.block}`}</span>
-                <span style={{fontFamily:"monospace",color:C.muted,flexShrink:0}}>{l.completedSets}/{l.totalSets}</span>
-                <span style={{fontFamily:"monospace",fontWeight:700,flexShrink:0,
-                  color:l.pain==null?C.muted:l.pain<=3?"#2E9E44":"#D92D20"}}>
-                  {l.pain==null?"—":`${l.pain}/10`}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Root ────────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [loading,setLoading]=useState(true);
-  const [playerName,setPlayerName]=useState("");
-  const [plan,setPlan]=useState({});
-  const [view,setView]=useState("today");
-  const [screen,setScreen]=useState("main");
-  const [wkOff,setWkOff]=useState(0);
-  const [moOff,setMoOff]=useState(0);
-  const [dayOff,setDayOff]=useState(0);
-  const [restoredToast,setRestoredToast]=useState(false);
-  const [celebration,setCelebration]=useState(null);
-  // Mediale Kette: eigener Log, damit Weekly Targets / Streak / Completion unberührt bleiben.
-  const [mkStartDate,setMkStartDate]=useState(null);
-  const [mkPhase,setMkPhase]=useState(1);
-  const [mkLog,setMkLog]=useState([]);
-
+  const [loading,setLoading]=useState(true),[playerName,setPlayerName]=useState(""),[plan,setPlan]=useState({});
+  const [view,setView]=useState("today"),[screen,setScreen]=useState("main");
+  const [wkOff,setWkOff]=useState(0),[moOff,setMoOff]=useState(0),[dayOff,setDayOff]=useState(0);
+  const [restoredToast,setRestoredToast]=useState(false),[celebration,setCelebration]=useState(null),[storageError,setStorageError]=useState("");
+  const [loadError,setLoadError]=useState(false);
+  // Retired feature data is preserved verbatim for backwards-compatible backups.
+  const storedExtras=useRef({});
   useEffect(()=>{
     (async()=>{
-      let stored=null, migrated=false;
-      try { stored=await storeGet(SK); } catch(e) {}
-      // Key-Bump: beim ersten Start dieser Version die alten Daten übernehmen und
-      // die neuen Felder mit Defaults auffüllen — nichts wegwerfen.
-      if (!stored) {
-        try { const prev=await storeGet(SK_PREV); if (prev) { stored=prev; migrated=true; } } catch(e) {}
-      }
-      if (stored) {
-        try {
+      try{
+        const raw=localStorage.getItem(SK), previous=raw?null:localStorage.getItem(SK_PREV), stored=raw||previous;
+        if(stored){
           const d=JSON.parse(stored);
-          if (d.playerName) setPlayerName(d.playerName);
-          const lp=(d.plan&&Object.keys(d.plan).length>0)?d.plan:buildDefaultPlan();
-          setPlan(lp);
-          const ms=d.mkStartDate??null, mp=d.mkPhase??1, ml=Array.isArray(d.mkLog)?d.mkLog:[];
-          setMkStartDate(ms); setMkPhase(mp); setMkLog(ml);
-          setScreen(d.playerName?"main":"setup");
-          if (migrated) {
-            try { await storeSet(SK,JSON.stringify({ playerName:d.playerName||"",plan:lp,
-              mkStartDate:ms,mkPhase:mp,mkLog:ml })); } catch(e) {}
-          }
-        } catch(e) { setPlan(buildDefaultPlan()); setScreen("setup"); }
-      } else {
-        setPlan(buildDefaultPlan());
-        setScreen("setup");
-      }
+          if(!d||typeof d!=="object"||!d.plan||Array.isArray(d.plan)||typeof d.plan!=="object")throw Error("invalid");
+          const {playerName:name,plan:savedPlan,...extras}=d;
+          storedExtras.current=extras;
+          setPlayerName(typeof name==="string"?name:"");setPlan(savedPlan);setScreen(name?"main":"setup");
+          if(previous)localStorage.setItem(SK,JSON.stringify({...extras,playerName:name||"",plan:savedPlan}));
+        }else{setPlan(buildDefaultPlan());setScreen("setup");}
+      }catch{setLoadError(true);}
       setLoading(false);
     })();
+    try{if(sessionStorage.getItem("justRestored")){sessionStorage.removeItem("justRestored");setRestoredToast(true);}}catch{}
   },[]);
-
-  // Respect prefers-reduced-motion globally + keyboard focus ring. Injected once.
-  useEffect(()=>{
-    if (document.getElementById("a11y-global-style")) return;
-    const s=document.createElement("style");
-    s.id="a11y-global-style";
-    s.textContent="@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}}:focus-visible{outline:2px solid #E8174A !important;outline-offset:2px !important}@keyframes celebFadeIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}";
-    document.head.appendChild(s);
-  },[]);
-
-  useEffect(()=>{
-    try { if (sessionStorage.getItem("justRestored")) { sessionStorage.removeItem("justRestored"); setRestoredToast(true); } } catch {}
-  },[]);
-  useEffect(()=>{
-    if (!restoredToast) return;
-    const t=setTimeout(()=>setRestoredToast(false),3200);
-    return ()=>clearTimeout(t);
-  },[restoredToast]);
-  useEffect(()=>{
-    if (!celebration) return;
-    const t=setTimeout(()=>setCelebration(null),4000);
-    return ()=>clearTimeout(t);
-  },[celebration]);
-
-  // After a session is logged, fire the first not-yet-shown milestone whose check passes.
-  // Each completed day carries a `sessions` array (one or two types) for the checks.
+  useEffect(()=>{if(!restoredToast)return;const t=setTimeout(()=>setRestoredToast(false),3200);return ()=>clearTimeout(t);},[restoredToast]);
+  useEffect(()=>{if(!celebration)return;const t=setTimeout(()=>setCelebration(null),5000);return ()=>clearTimeout(t);},[celebration]);
+  const save=(np,nn)=>{
+    try{localStorage.setItem(SK,JSON.stringify({...storedExtras.current,playerName:nn??playerName,plan:np??plan}));setStorageError("");}
+    catch{setStorageError("Änderungen sind noch nicht gespeichert. Bitte Speicherplatz und Browser-Zugriff prüfen.");}
+  };
   const checkMilestones=(dk,planState)=>{
-    const all=Object.entries(planState)
-      .filter(([k,e])=>e.completed&&getSessions(e).length>0)
-      .map(([k,e])=>({...e,date:k,phase:phaseForDate(k)?.name,sessions:getSessions(e)}))
-      .sort((a,b)=>a.date<b.date?-1:1);
-    const entry=all.find(e=>e.date===dk);
-    if (!entry) return;
-    for (const m of MILESTONES) {
-      const sk=`milestone-${m.id}`;
-      let already=false;
-      try { already=!!localStorage.getItem(sk); } catch {}
-      if (already) continue;
-      if (m.check(all,entry,entry.phase)) {
-        try { localStorage.setItem(sk,'true'); } catch {}
-        setCelebration({emoji:m.emoji,title:m.title,message:m.message});
-        break;
-      }
+    const all=Object.entries(planState).filter(([,e])=>e.completed&&getSessions(e).length)
+      .map(([date,e])=>({...e,date,phase:phaseForDate(date)?.name,sessions:getSessions(e)})).sort((a,b)=>a.date.localeCompare(b.date));
+    const entry=all.find(e=>e.date===dk);if(!entry)return;
+    for(const m of MILESTONES){
+      const key="milestone-"+m.id;let already=false;try{already=!!localStorage.getItem(key);}catch{}
+      if(!already&&m.check(all,entry,entry.phase)){try{localStorage.setItem(key,"true");}catch{}setCelebration(m);break;}
     }
   };
-
-  const save=(np,nn)=>storeSet(SK,JSON.stringify({ playerName:nn??playerName, plan:np??plan,
-    mkStartDate, mkPhase, mkLog })).catch(()=>{});
-  // Mediale-Kette-Felder atomar setzen + persistieren (State-Updates sind async,
-  // deshalb schreibt der Patch explizit die nächsten Werte in den Blob).
-  const updMK=(patch)=>{
-    const ms=patch.mkStartDate!==undefined?patch.mkStartDate:mkStartDate;
-    const mp=patch.mkPhase!==undefined?patch.mkPhase:mkPhase;
-    const ml=patch.mkLog!==undefined?patch.mkLog:mkLog;
-    if (patch.mkStartDate!==undefined) setMkStartDate(ms);
-    if (patch.mkPhase!==undefined) setMkPhase(mp);
-    if (patch.mkLog!==undefined) setMkLog(ml);
-    storeSet(SK,JSON.stringify({ playerName,plan,mkStartDate:ms,mkPhase:mp,mkLog:ml })).catch(()=>{});
+  const updDay=(dk,patch)=>{
+    const np={...plan,[dk]:{...plan[dk],...patch}};setPlan(np);save(np);
+    if(patch.completed===true&&getSessions(np[dk]).length)checkMilestones(dk,np);
   };
-  const updDay=(dk,u)=>{
-    const np={...plan,[dk]:{...plan[dk],...u}}; setPlan(np); save(np);
-    if (u.completed===true&&getSessions(np[dk]).length>0) checkMilestones(dk,np);
-  };
-  // Swap two days' session(s) in a single atomic update. Logged status/notes/feeling
-  // stay with their own date; only the session list moves.
+  // Swap only sessions. Logs, notes, body values and archived check-ins stay dated.
   const swapDays=(a,b)=>{
-    const ea=plan[a]||{}, eb=plan[b]||{};
-    const np={...plan,
-      [a]:{...plan[a],sessions:getSessions(eb),workout:''},
-      [b]:{...plan[b],sessions:getSessions(ea),workout:''}};
-    setPlan(np); save(np);
+    const np={...plan,[a]:{...plan[a],sessions:getSessions(plan[b]),workout:""},[b]:{...plan[b],sessions:getSessions(plan[a]),workout:""}};
+    setPlan(np);save(np);
   };
-  const goToDay=(dk)=>{ setDayOff(daysUntil(dk)??0); setView("today"); };
-
-  const today=todayStr();
-
-  // Header: current phase, phase progress ring, days until next phase / season end.
-  const curPhase=phaseForDate(today);
-  const phaseIdx=curPhase?PHASES.findIndex(p=>p===curPhase):-1;
-  const nextPhase=curPhase?PHASES[phaseIdx+1]:null;
-  let phaseProg=0, daysToNext=null, nextLabel="";
-  const beforeSeason=today<SEASON_START;
-  const afterSeason=today>SEASON_END;
-  if (curPhase) {
-    const ps=new Date(curPhase.start+"T00:00:00").getTime();
-    const pe=new Date(curPhase.end+"T00:00:00").getTime();
-    const tn=new Date(today+"T00:00:00").getTime();
-    phaseProg=Math.max(0,Math.min(1,(tn-ps)/(pe-ps||1)));
-    if (nextPhase) { daysToNext=daysUntil(nextPhase.start); nextLabel=nextPhase.name; }
-    else { daysToNext=daysUntil(curPhase.end); nextLabel="season end"; }
-  } else if (beforeSeason) {
-    daysToNext=daysUntil(SEASON_START); nextLabel=PHASES[0].name;
-  }
-
-  // Overall season progress (all sessions).
-  const allE=Object.values(plan);
-  const totalPlanned=allE.filter(e=>getSessions(e).length>0).length;
-  const totalDone=allE.filter(e=>e.completed).length;
-  const pct=totalPlanned>0?Math.round(totalDone/totalPlanned*100):0;
-  const circ=2*Math.PI*30;
-  const ringOff=circ*(1-(afterSeason?1:beforeSeason?0:phaseProg));
-
-  if (loading) return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",
-      color:C.muted,fontFamily:"system-ui",background:C.bg}}>Loading…</div>
-  );
-  if (screen==="setup") return (
-    <SetupScreen initName={playerName} isEdit={!!playerName}
-      onBack={playerName?()=>setScreen("main"):null}
-      onSave={(n)=>{ setPlayerName(n); save(plan,n); setScreen("main"); }}/>
-  );
-  if (screen==="coach") return (
-    <CoachScreen viewKey={offsetDate(dayOff)} plan={plan} playerName={playerName} onBack={()=>setScreen("main")}/>
-  );
-  if (screen==="mk") return (
-    <MKSession mkStartDate={mkStartDate} mkPhase={mkPhase} mkLog={mkLog}
-      onMK={updMK} onBack={()=>setScreen("main")}/>
-  );
-
-  return (
-    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"system-ui,-apple-system,sans-serif",color:C.text,
-      paddingBottom:"env(safe-area-inset-bottom,0px)",WebkitFontSmoothing:"antialiased"}}>
-
-      {restoredToast&&(
-        <div role="status" style={{position:"fixed",left:0,right:0,zIndex:70,
-          top:"calc(env(safe-area-inset-top,0px) + 12px)",display:"flex",justifyContent:"center",pointerEvents:"none"}}>
-          <div style={{background:C.done,color:"#fff",fontSize:14,fontWeight:600,padding:"10px 18px",borderRadius:99,
-            display:"flex",alignItems:"center",gap:8,boxShadow:"0 4px 16px rgba(0,0,0,0.18)"}}>
-            <Chk size={15}/> Backup restored
-          </div>
-        </div>
-      )}
-
-      {celebration && (
-        <div onClick={()=>setCelebration(null)} style={{position:'fixed',inset:0,zIndex:1000,
-          background:'rgba(232,23,74,0.92)',display:'flex',flexDirection:'column',alignItems:'center',
-          justifyContent:'center',padding:40,textAlign:'center',animation:'celebFadeIn 0.3s ease'}}>
-          <div style={{fontSize:72,marginBottom:24}}>{celebration.emoji}</div>
-          <div style={{fontSize:26,fontWeight:800,color:'#fff',marginBottom:16,lineHeight:1.2}}>{celebration.title}</div>
-          <div style={{fontSize:17,color:'rgba(255,255,255,0.85)',lineHeight:1.6,maxWidth:280}}>{celebration.message}</div>
-          <div style={{marginTop:40,fontSize:13,color:'rgba(255,255,255,0.6)'}}>tap to continue</div>
-        </div>
-      )}
-
-      {/* Header */}
-      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,paddingTop:"env(safe-area-inset-top,0px)"}}>
-        <div style={{padding:"14px 20px 0"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
-            <div>
-              <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:C.muted,marginBottom:3}}>Soccer tracker</div>
-              <div style={{fontSize:22,fontWeight:700,color:C.text,lineHeight:1.15}}>{playerName||"Player"}</div>
-            </div>
-            <button onClick={()=>setScreen("setup")} aria-label="Settings" style={{background:"none",
-              border:`1px solid ${C.border}`,borderRadius:10,width:44,height:44,cursor:"pointer",display:"flex",
-              alignItems:"center",justifyContent:"center",color:C.muted,flexShrink:0,WebkitTapHighlightColor:"transparent"}}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3"/>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-              </svg>
-            </button>
-          </div>
-
-          <div style={{display:"flex",gap:16,alignItems:"center",paddingBottom:16}}>
-            <div style={{position:"relative",width:72,height:72,flexShrink:0}}>
-              <svg width="72" height="72" style={{transform:"rotate(-90deg)"}}>
-                <circle cx="36" cy="36" r="30" fill="none" stroke={C.border} strokeWidth="5.5"/>
-                <circle cx="36" cy="36" r="30" fill="none" stroke={C.done} strokeWidth="5.5"
-                  strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={ringOff}
-                  style={{transition:"stroke-dashoffset .8s ease"}}/>
-              </svg>
-              <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
-                alignItems:"center",justifyContent:"center"}}>
-                {afterSeason
-                  ? <span style={{fontSize:26,lineHeight:1}}>🏆</span>
-                  : <>
-                      <span style={{fontFamily:"monospace",fontSize:20,fontWeight:700,lineHeight:1,color:C.text}}>
-                        {daysToNext!=null?Math.max(0,daysToNext):"–"}
-                      </span>
-                      <span style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:".06em",marginTop:2}}>days</span>
-                    </>}
-              </div>
-            </div>
-            <div style={{flex:1}}>
-              {afterSeason
-                ? <>
-                    <div style={{fontSize:17,fontWeight:700,color:C.done,marginBottom:4}}>Season complete 🎉</div>
-                    <div style={{fontSize:13,color:C.muted}}>{totalDone} sessions logged · {pct}% of plan</div>
-                  </>
-                : <>
-                    <div style={{fontSize:18,fontWeight:700,color:C.text,lineHeight:1.15,marginBottom:4}}>
-                      {curPhase?curPhase.name:beforeSeason?"Pre-season":""}
-                    </div>
-                    <div style={{fontSize:12,color:C.muted,marginBottom:8}}>
-                      {daysToNext!=null
-                        ? <>{Math.max(0,daysToNext)} day{Math.max(0,daysToNext)===1?"":"s"} to {nextLabel}</>
-                        : ""}
-                    </div>
-                    {/* Phase progress — mirrors the ring; the actionable numbers live in
-                        the Weekly Targets card below, season totals in Journey. */}
-                    <div style={{height:5,background:C.border,borderRadius:99,overflow:"hidden"}}>
-                      <div style={{height:"100%",background:C.done,borderRadius:99,
-                        width:`${Math.round((afterSeason?1:beforeSeason?0:phaseProg)*100)}%`,transition:"width .6s ease"}}/>
-                    </div>
-                  </>}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div style={{paddingBottom:"calc(80px + env(safe-area-inset-bottom,0px))"}}>
-        {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff}
-          onOpenCoach={()=>setScreen("coach")} onOpenMK={()=>setScreen("mk")}
-          mkLoggedToday={mkLog.some(l=>l.date===today)}/>}
-        {view==="week"&&<WeekView today={today} plan={plan} wkOff={wkOff} setWkOff={setWkOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays}/>}
-        {view==="month"&&<MonthView today={today} plan={plan} moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay}/>}
-        {view==="journey"&&<JourneyView plan={plan} today={today} onGoToDay={goToDay}/>}
-        {view==="routine"&&<GuidedView/>}
-      </div>
-
-      {/* Bottom tab bar */}
-      <div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:40,background:C.surface,
-        borderTop:`1px solid ${C.border}`,display:"flex",paddingTop:6,paddingBottom:"env(safe-area-inset-bottom,0px)",
-        boxShadow:"0 -2px 14px rgba(0,0,0,0.05)"}}>
-        {[["today","Today"],["week","Week"],["month","Month"],["journey","Journey"],["routine","Routine"]].map(([v,label])=>{
-          const active=view===v;
-          return (
-            <button key={v} onClick={()=>{ setView(v); if(v==="today") setDayOff(0); }}
-              aria-label={label} aria-current={active?"page":undefined}
-              style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",
-                gap:3,minHeight:48,padding:"6px 0 2px",background:"none",border:"none",cursor:"pointer",
-                fontFamily:"inherit",color:active?C.done:C.muted,WebkitTapHighlightColor:"transparent"}}>
-              <TabIcon name={v}/>
-              <span style={{fontSize:11,fontWeight:active?700:500,letterSpacing:".01em"}}>{label}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
+  const goToDay=dk=>{setDayOff(daysUntil(dk)??0);setView("today");window.scrollTo(0,0);};
+  const today=todayStr(),phase=phaseForDate(today);
+  const tabs=[["today","Heute"],["week","Woche"],["month","Monat"],["journey","Journey"]];
+  const headings={today:"Heute zählt.",week:"Deine Woche.",month:"Der Überblick.",journey:"Dein Weg."};
+  let content;
+  if(loading)content=<main className="app-shell"><p className="loading-state">Dein Plan wird geladen …</p></main>;
+  else if(loadError)content=<main className="app-shell"><div className="view" style={{paddingTop:80}}><h1>Daten nicht lesbar.</h1>
+    <p className="helper-text">Deine gespeicherten Daten wurden nicht verändert. Bitte prüfe den Browser-Zugriff oder sichere die vorhandenen Daten, bevor du ein Backup wiederherstellst.</p>
+    <button className="secondary" onClick={()=>window.location.reload()}>Erneut versuchen</button></div></main>;
+  else if(screen==="setup")content=<SetupScreen initName={playerName} isEdit={!!playerName} onBack={playerName?()=>setScreen("main"):null}
+    onSave={n=>{setPlayerName(n);save(plan,n);setScreen("main");}}/>;
+  else if(screen==="coach")content=<CoachScreen viewKey={offsetDate(dayOff)} plan={plan} playerName={playerName} onBack={()=>setScreen("main")}/>;
+  else content=<main className="app-shell">
+    <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Soccer Tracker</span>
+      <button className="icon-btn" aria-label="Einstellungen" onClick={()=>setScreen("setup")}><Icon name="settings" size={21}/></button></div>
+      <h1>{headings[view]}</h1>
+      <p className="subtitle">{playerName} <span style={{color:C.borderSt}}> / </span> {phase?phaseLabel(phase.name):today<SEASON_START?"Deine Saison beginnt bald":"Saison abgeschlossen"}</p>
+    </header>
+    {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} onOpenCoach={()=>setScreen("coach")}/>}
+    {view==="week"&&<WeekView today={today} plan={plan} wkOff={wkOff} setWkOff={setWkOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays}/>}
+    {view==="month"&&<MonthView today={today} plan={plan} moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay}/>}
+    {view==="journey"&&<JourneyView today={today} plan={plan} onGoToDay={goToDay}/>}
+    <nav className="nav" aria-label="Hauptnavigation">{tabs.map(([key,label])=><button key={key} aria-label={label} aria-current={view===key?"page":undefined}
+      onClick={()=>{setView(key);if(key==="today")setDayOff(0);window.scrollTo(0,0);}}><TabIcon name={key}/><span>{label}</span></button>)}</nav>
+  </main>;
+  return <><style>{UI_CSS}</style>{content}
+    {restoredToast&&<div className="toast" role="status">✓ Backup wiederhergestellt</div>}
+    {storageError&&<div className="toast" role="alert"><p>{storageError}</p><button className="text-btn" onClick={()=>save()}>Erneut speichern</button></div>}
+    {celebration&&!storageError&&<div className="toast milestone-toast" role="status"><span>{celebration.emoji}</span><div><strong>{celebration.title}</strong><p>{celebration.message}</p></div>
+      <button className="icon-btn" aria-label="Hinweis schließen" onClick={()=>setCelebration(null)}><Icon name="close" size={18}/></button></div>}
+  </>;
 }
