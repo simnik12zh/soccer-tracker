@@ -12,7 +12,7 @@ npm install
 npm run dev      # Vite dev server at http://localhost:5173 — UI only
 npm run build    # production build → dist/
 npm run preview  # preview the production build
-TZ=Europe/Zurich node --test tests/redesign.test.mjs # storage/model/date regression checks
+TZ=Europe/Zurich node --test tests/*.test.mjs # storage/model/coach regression checks
 npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env)
 ```
 
@@ -65,10 +65,31 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 - **Retired features** — Hip/Legs check-ins, Mediale Kette and the Routine tab are removed.
   Existing check-ins and top-level rehab fields remain untouched in stored data and backups,
   but are no longer shown or sent to the coach. Exercise image source files are retained.
-- **`api/coach.js`** — Vercel Node serverless function. Streams Claude (`claude-sonnet-4-6`)
-  replies as `text/plain`. The soccer-specific system prompt plus a per-request context block
-  (current phase, today's session, last 14 days of logs, this week's sessions, tactical focus)
-  is built server-side. `ANTHROPIC_API_KEY` is read **server-side only** — never prefix it with
+- **`api/coach.js`** — Vercel Node serverless function. Streams Claude (`claude-sonnet-5-5`)
+  replies as `text/plain`. Uses `thinking: { type: "between_tools" }` (no up-front thinking;
+  text-only replies because this coach has no tools). Sonnet 5.5 rejects `disabled`.
+  The existing Anthropic API key remains unchanged. The soccer-specific system prompt plus a per-request context block
+  is built server-side. The frontend's pure `buildCoachContext` builds a fresh schema-v2
+  snapshot on each send: actual today (distinct from the selected calendar day), previous
+  14 calendar days including unlogged/rest-day notes, next seven days, next known match,
+  current weekly Gym/Reha goals, eight prior week summaries, all-time logged totals and
+  dated weight/body-fat readings with current/previous seven-day means and sample counts.
+  One logged day can contain two session types; days and session totals are separate.
+  Future-dated completions/measurements never count as actual history. `not_logged` does
+  not mean skipped; `no_entry` does not mean confirmed rest. Match participation is separate
+  from fixture presence. Invalid metrics are excluded; missing metrics stay null.
+  The Daily Briefing button sends an ordinary chat message, and the prompt also handles
+  typed equivalents such as Tagesbriefing. Briefings cover Rückblick / Heute / Ausblick /
+  Wochenziele / Tagesfokus. The current day is the reference even when browsing another day.
+  Other days' chats, migration backups and retired readiness fields are not sent. Long notes
+  are visibly truncated in the context only; original storage stays unchanged. The last 20
+  messages (up to 4,000 characters each) are sent; the full per-day conversation stays local.
+  Legacy payloads still work during frontend rollout. Prompt data is delimited and treated
+  as untrusted; context requests over 160,000 serialized characters are rejected.
+  `tests/coach.test.mjs` tests the real context helpers, the server handler using a fake
+  Anthropic client, and the installed SDK's request/streaming flow using a mock transport.
+  These tests do not spend credits or validate live model answer quality.
+  `ANTHROPIC_API_KEY` is read **server-side only** — never prefix it with
   `VITE_` or it leaks into the client bundle.
 - **Storage** — one JSON blob under `soccer-v3`: `{ playerName, plan, ...archivedFields }`, where `plan` maps
   `YYYY-MM-DD → { sessions, completed, notes, feeling, weight?, bodyFat? }`. Existing `soccer-v2`

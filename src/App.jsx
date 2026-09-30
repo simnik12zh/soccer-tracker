@@ -447,6 +447,72 @@ const MILESTONES = [
     message:"Achtmal an deiner Kraft gearbeitet. Mach weiter und bleib regelmässig dran." },
 ];
 
+// Fresh, bounded context on every send. Never include storage archives or retired check-ins.
+function coachText(value,max=1200) {
+  if(typeof value!=='string')return null;
+  const text=value.trim();
+  return text.length>max?text.slice(0,max)+' … [gekürzt]':text||null;
+}
+function validCoachDate(dk) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(dk)&&dateKey(new Date(dk+'T12:00:00'))===dk;
+}
+function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr()) {
+  const dates=Object.keys(plan).filter(dk=>validCoachDate(dk)&&plan[dk]&&typeof plan[dk]==='object').sort();
+  const types=dk=>[...new Set(getSessions(plan[dk]))];
+  const logged=dk=>dk<=referenceDate&&plan[dk]?.completed===true&&types(dk).length>0;
+  const day=dk=>{
+    const e=plan[dk]||{},sessions=types(dk),guidance=coachingFor(e);
+    return {date:dk,sessions:sessions.map(displayName),
+      status:logged(dk)?'logged':sessions.length?(dk<referenceDate?'not_logged':'planned'):plan[dk]?'rest':'no_entry',
+      feeling:logged(dk)?FEELINGS.find(f=>f.value===e.feeling)?.label||null:null,
+      notes:coachText(e.notes),
+      guidance:guidance?{title:coachText(guidance.title,150),text:coachText(guidance.text,900)}:null,
+      match:isMatchDay(e)?{opponent:coachText(e.match?.opponent,180),venue:e.match?matchVenue(e.match):null,
+        kickoff:coachText(e.match?.kickoff,5),timezone:'Europe/Zurich',
+        participation:logged(dk)&&sessions.includes('Match')?'logged':'not_recorded'}:null};
+  };
+  const stats=(from,to)=>{
+    const keys=dates.filter(dk=>dk>=from&&dk<=to),done=keys.filter(logged);
+    const byType={};
+    for(const dk of done)for(const type of types(dk)){const label=displayName(type);byType[label]=(byType[label]||0)+1;}
+    return {from,to,plannedDays:keys.filter(dk=>types(dk).length).length,loggedDays:done.length,
+      notLoggedPastDays:keys.filter(dk=>dk<referenceDate&&types(dk).length&&!logged(dk)).length,
+      loggedSessions:done.reduce((n,dk)=>n+types(dk).length,0),byType};
+  };
+  const weekDays=weekAround(referenceDate),phase=phaseForDate(referenceDate);
+  const next=phase?PHASES[PHASES.indexOf(phase)+1]:null;
+  const phaseEnd=next?.start||phase?.end;
+  const dayDistance=dk=>{
+    const utc=s=>{const [y,m,d]=s.split('-').map(Number);return Date.UTC(y,m-1,d);};
+    return (utc(dk)-utc(referenceDate))/86400000;
+  };
+  const goals=isHoliday(referenceDate)?{}:PHASE_TARGETS[phase?.name]||{};
+  const targets=Object.entries(goals).map(([type,goal])=>({type:displayName(type),goal,
+    done:weekDays.filter(dk=>logged(dk)&&types(dk).includes(type)).length,
+    planned:weekDays.filter(dk=>types(dk).includes(type)).length}));
+  const bodyMetric=field=>{
+    const readings=dates.filter(dk=>dk<=referenceDate).map(date=>({date,value:plan[date][field]}))
+      .filter(r=>typeof r.value==='number'&&Number.isFinite(r.value)&&r.value>0&&(field==='weight'?r.value<=500:r.value<100));
+    const average=(from,to)=>{const points=readings.filter(r=>r.date>=from&&r.date<=to);
+      return {from,to,count:points.length,value:points.length?Math.round(points.reduce((n,r)=>n+r.value,0)/points.length*100)/100:null};};
+    return {unit:field==='weight'?'kg':'%',latest:readings.at(-1)||null,
+      last7Days:average(daysBeforeStr(referenceDate,6),referenceDate),
+      previous7Days:average(daysBeforeStr(referenceDate,13),daysBeforeStr(referenceDate,7))};
+  };
+  const nextMatchDate=dates.find(dk=>dk>=referenceDate&&isMatchDay(plan[dk])&&!(logged(dk)&&types(dk).includes('Match')));
+  return {schemaVersion:2,referenceDate,timezone:'Europe/Zurich',playerName:coachText(playerName,100),
+    phase:phase?{name:phaseLabel(phase.name),description:phase.description}:null,
+    nextPhase:next?phaseLabel(next.name):null,daysToNextPhase:phaseEnd?dayDistance(phaseEnd):null,
+    today:day(referenceDate),selectedDay:viewKey!==referenceDate?day(viewKey):null,
+    recentDays:Array.from({length:14},(_,i)=>day(daysBeforeStr(referenceDate,14-i))),
+    upcoming:Array.from({length:7},(_,i)=>day(daysBeforeStr(referenceDate,-i-1))),
+    nextMatch:nextMatchDate?{...day(nextMatchDate),daysAway:dayDistance(nextMatchDate)}:null,
+    week:{...stats(weekDays[0],weekDays[6]),targets},
+    history:{allTime:stats(dates[0]&&dates[0]<referenceDate?dates[0]:referenceDate,referenceDate),
+      last8Weeks:Array.from({length:8},(_,i)=>{const from=daysBeforeStr(weekDays[0],(8-i)*7);return stats(from,daysBeforeStr(from,-6));})},
+    body:{weight:bodyMetric('weight'),bodyFat:bodyMetric('bodyFat')},tactical:tacticalFor(referenceDate)};
+}
+
 // Midnight & Ice. Legacy token aliases keep every existing view on one palette.
 const C = {
   bg:"#101A25", card:"#1C2937", surface:"#1C2937",
@@ -1144,42 +1210,14 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
   const persistCoach=(msgs)=>{ try { localStorage.setItem(coachKey,JSON.stringify(msgs)); } catch {} };
 
   const e=plan[viewKey]||{};
-  const d=new Date(viewKey+"T00:00:00");
-  const dayName=d.toLocaleDateString("de-CH",{weekday:"long"});
-  const dayFull=d.toLocaleDateString("de-CH",{month:"long",day:"numeric"});
-  const feelingLabel=(v)=>FEELINGS.find(f=>f.value===v)?.label||null;
-
-  const buildCoachContext=()=>{
-    const today=todayStr();
-    const cut=daysBeforeStr(today,14);
-    const completed=Object.keys(plan).filter(dk=>getSessions(plan[dk]).length>0&&plan[dk].completed).sort();
-    const recentSessions=completed.filter(dk=>dk>=cut&&dk<=today).map(dk=>({
-      date:dk, workout:coachSessionDescription(plan[dk]),
-      feeling:feelingLabel(plan[dk].feeling), notes:plan[dk].notes?.trim()||null,
-    }));
-    const wk=weekOf(0);
-    const week={ done:wk.filter(dk=>plan[dk]?.completed).length, planned:wk.filter(dk=>getSessions(plan[dk]).length>0).length };
-    const curPhase=phaseForDate(today);
-    const idx=PHASES.findIndex(p=>p===curPhase);
-    const next=curPhase?PHASES[idx+1]:null;
-    const daysToNextPhase=next?daysUntil(next.start):(curPhase?daysUntil(curPhase.end):null);
-    return {
-      playerName:playerName?.trim()||null,
-      phase:curPhase?{name:phaseLabel(curPhase.name),description:curPhase.description}:null,
-      nextPhase:next?phaseLabel(next.name):null, daysToNextPhase,
-      today:{date:viewKey,label:`${dayName}, ${dayFull}`,workout:coachSessionDescription(e),
-        completed:!!e.completed,feeling:feelingLabel(e.feeling)},
-      recentSessions, week, tactical:tacticalFor(viewKey),
-    };
-  };
-
   const sendToCoach=async(base)=>{
+    if(sending)return;
     setSending(true); setCoachError(false);
     const controller=new AbortController();requestRef.current=controller;
     setMessages([...base,{role:"assistant",content:""}]);
     try {
       const resp=await fetch("/api/coach",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({...buildCoachContext(),messages:base})});
+        body:JSON.stringify({...buildCoachContext(plan,playerName,viewKey),messages:base.slice(-20)})});
       if (!resp.ok||!resp.body) throw new Error("bad response");
       const reader=resp.body.getReader(), decoder=new TextDecoder();
       let acc="";
@@ -1191,8 +1229,10 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
     finally { setSending(false); }
   };
   // Context-aware opener — rest days get a recovery-oriented prompt, not "today's session".
-  const opener=getSessions(e).length>0 ? "Worauf sollte ich bei dieser Einheit achten?" : "Wie nutze ich diesen Ruhetag am besten?";
+  const viewedDateLabel=new Date(viewKey+'T12:00:00').toLocaleDateString('de-CH',{day:'numeric',month:'long',year:'numeric'});
+  const opener=getSessions(e).length>0 ? `Worauf sollte ich bei der Einheit am ${viewedDateLabel} achten?` : `Wie nutze ich den Ruhetag am ${viewedDateLabel} am besten?`;
   const startCoach=()=>sendToCoach([{role:"user",content:opener}]);
+  const dailyBriefing=()=>sendToCoach([...messages,{role:'user',content:'Daily Briefing für heute, bitte.'}]);
   const sendCoach=()=>{ const text=input.trim(); if (!text||sending) return; setInput(""); sendToCoach([...messages,{role:"user",content:text}]); };
   const retryCoach=()=>{ if (!sending&&messages.length) sendToCoach(messages); };
   const newCoachChat=()=>{ setMessages([]); setInput(""); setCoachError(false); try { localStorage.removeItem(coachKey); } catch {} };
@@ -1215,6 +1255,8 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
       </div>
 
       <div style={{flex:1,minHeight:0,overflowY:"auto",padding:16,display:"flex",flexDirection:"column",gap:10}}>
+        <button className="primary" onClick={dailyBriefing} disabled={sending}>Daily Briefing · {shortDate(todayStr())}</button>
+        <p style={{fontSize:11,color:C.muted,lineHeight:1.5,margin:0}}>Berücksichtigt Trainingslogs und Notizen, kommende Termine, Wochenziele und vorhandene Körperwerte. Chats anderer Tage sind nicht enthalten.{viewKey!==todayStr()?` Geöffneter Trainingstag: ${shortDate(viewKey)}. Das Daily Briefing bezieht sich auf heute.`:''}</p>
         {messages.length===0&&!input.trim()&&!coachError&&(
           <button onClick={startCoach} disabled={sending}
             style={{alignSelf:"stretch",padding:"14px",background:C.surface,color:C.sageDk,
@@ -1257,7 +1299,7 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
         padding:"10px 16px calc(2px + env(safe-area-inset-bottom,0px))",display:"flex",gap:8,alignItems:"center"}}>
         <input ref={inputRef} type="text" value={input} onChange={ev=>setInput(ev.target.value)}
           onKeyDown={ev=>{ if (ev.key==="Enter"){ ev.preventDefault(); sendCoach(); } }}
-          aria-label="Nachricht an deinen Trainer" placeholder="Frag deinen Trainer …" disabled={sending}
+          aria-label="Nachricht an deinen Trainer" placeholder="Daily Briefing oder deine Frage …" maxLength={4000} disabled={sending}
           style={{flex:1,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",fontFamily:"inherit",
             fontSize:15,color:C.text,background:C.bg,outline:"none",boxSizing:"border-box",WebkitAppearance:"none"}}/>
         <button onClick={sendCoach} disabled={sending||!input.trim()}
