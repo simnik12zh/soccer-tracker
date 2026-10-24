@@ -21,13 +21,33 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 
 ## Architecture
 
-- **`src/App.jsx`** — entire UI in one file by design. Four bottom-tab views (Heute / Woche /
-  Monat / Entwicklung), a full-screen Coach chat, and a setup/settings screen. Midnight & Ice
+- **`src/App.jsx`** — entire UI in one file by design. Four bottom-tab views (Heute / Plan /
+  Körper / Saison), a full-screen Coach chat (header button "Trainer"), and a settings screen
+  reached from Saison. Midnight & Ice
   dark palette in `C`; shared responsive styles in `UI_CSS`, inline SVG icons, reduced-motion
   support and a keyboard-accessible session sheet. No extra UI dependencies.
   The season plan is generated from hard-coded `PHASES` +
   per-phase weekly `TEMPLATES` (with Ibiza and Tuscany holiday overrides) by
   `buildDefaultPlan()`, spanning 2026-06-29 → 2027-08-05.
+- **Heute** — compact day strip (‹ › jump a week, swipe moves a day), three rings for the
+  selected day (Training, Protein vs. target, Wochenziele Kraft + Reha) with a sentence naming
+  what is still open (`dayChecklist`; past days say "nicht eingetragen", never "skipped"). The
+  session card keeps FERTIG next to the title so it stays above the tab bar on a phone; long
+  plan guidance is clamped to two lines. Below: the nutrition card and "Als Nächstes" (next two
+  planned days plus the next game within seven days, `upcomingDays`).
+- **Nutrition (level A)** — per day, optional `protein` (grams via +20/+30/+40 quick-add,
+  correctable, undo for the last add) and `nutrition` (`green` Im Plan / `amber` Gemischt /
+  `red` Daneben: viel Süsses, Essen aus Lust statt Hunger, Fast Food). Not logged is never zero
+  or red. Future days cannot be logged. Daily protein target defaults to 100 g
+  (`DEFAULT_PROTEIN_TARGET`); a changed target is stored top-level as `proteinTarget`.
+- **Plan** — Woche/Monat toggle. The week view shows the browsed week's goals and tactical focus.
+- **Körper** — body-fat 7-day mean as hero with delta vs. the previous 7 days and a 13–14 %
+  goal bar; weight, fat mass and lean mass tiles (mass needs weight and body fat in the same
+  window, `bodySnapshot`); trend chart (Körperfett/Gewicht, 4 Wochen / 3 Monate / Saison);
+  dated measurement editor (any date up to today, empty field removes a value); the last five
+  measurements; a seven-day nutrition overview (traffic lights, protein hits, average).
+- **Saison** — season progress, phase timeline and the settings entry (name, protein target,
+  backup export/restore).
 - **Fixtures** — `MATCH_SCHEDULE` contains the seven FC Julius Bär games from the user's
   27 September 2026 screenshot, including opponent, home/away, kickoff, match ID and
   `Europe/Zurich` timezone. Kickoffs are local clock strings so the October DST change
@@ -73,7 +93,9 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   snapshot on each send: actual today (distinct from the selected calendar day), previous
   14 calendar days including unlogged/rest-day notes, next seven days, next known match,
   current weekly Gym/Reha goals, eight prior week summaries, all-time logged totals and
-  dated weight/body-fat readings with current/previous seven-day means and sample counts.
+  dated weight/body-fat readings with current/previous seven-day means and sample counts,
+  and nutrition: per-day `{proteinGrams, rating}` up to today plus `nutrition.last7Days` /
+  `previous7Days` (target hits, average on logged days, rating counts) against the target.
   One logged day can contain two session types; days and session totals are separate.
   Future-dated completions/measurements never count as actual history. `not_logged` does
   not mean skipped; `no_entry` does not mean confirmed rest. Match participation is separate
@@ -91,8 +113,9 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   These tests do not spend credits or validate live model answer quality.
   `ANTHROPIC_API_KEY` is read **server-side only** — never prefix it with
   `VITE_` or it leaks into the client bundle.
-- **Storage** — one JSON blob under `soccer-v3`: `{ playerName, plan, ...archivedFields }`, where `plan` maps
-  `YYYY-MM-DD → { sessions, completed, notes, feeling, weight?, bodyFat? }`. Existing `soccer-v2`
+- **Storage** — one JSON blob under `soccer-v3`: `{ playerName, proteinTarget?, plan, ...archivedFields }`, where `plan` maps
+  `YYYY-MM-DD → { sessions, completed, notes, feeling, weight?, bodyFat?, protein?, nutrition? }`.
+  The nutrition fields and `proteinTarget` are optional additions; no key bump or migration. Existing `soccer-v2`
   data migrates when v3 is absent. The redesign does not change the storage key or reset data.
   A day holds one or two session
   types in `sessions` (e.g. `['Gym','Mobility']`); legacy entries with a single `workout`

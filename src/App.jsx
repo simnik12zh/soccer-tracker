@@ -336,21 +336,17 @@ function sessionSubtitle(entry) {
 }
 
 
-// The next scheduled non-rest session after the date being viewed.
-function nextUp(plan,from=todayStr()) {
-  const d=new Date(from+'T12:00:00');
-  for (let i=1;i<=120;i++) {
-    d.setDate(d.getDate()+1);
-    const dk=dateKey(d);
-    if (getSessions(plan[dk]).length>0||plan[dk]?.match) {
-      const day=new Date(dk+"T00:00:00");
-      const when=i===1?'morgen'
-        :i<=6?day.toLocaleDateString('de-CH',{weekday:'long'})
-        :day.toLocaleDateString('de-CH',{month:'short',day:'numeric'});
-      return { label:plan[dk].match?"Spiel gegen "+plan[dk].match.opponent:sessionsLabel(plan[dk]), when:plan[dk].match?when+" · "+matchVenue(plan[dk].match)+" · "+plan[dk].match.kickoff+" Uhr":when };
-    }
-  }
-  return null;
+// "morgen", a weekday within the next six days, otherwise a short date.
+function whenLabel(dk,offset) {
+  const day=new Date(dk+'T12:00:00');
+  return offset===1?'morgen'
+    :offset<=6?day.toLocaleDateString('de-CH',{weekday:'long'})
+    :day.toLocaleDateString('de-CH',{month:'short',day:'numeric'});
+}
+function upcomingLabel(entry) { return entry?.match?'Spiel gegen '+entry.match.opponent:sessionsLabel(entry); }
+function upcomingWhen(item) {
+  const m=item.entry?.match,when=whenLabel(item.date,item.offset);
+  return m?when+' · '+matchVenue(m)+' · '+m.kickoff+' Uhr':when;
 }
 
 // Goals are independent of the existing calendar: two gym sessions in every
@@ -364,6 +360,67 @@ const PHASE_TARGETS = {
   'Summer Break':  {},
 };
 
+// Week ring: completed sessions per priority type, each capped at its goal.
+// A day counts once per type even if the same type appears twice.
+function weekTargetProgress(plan,days,phaseName) {
+  const goals=PHASE_TARGETS[phaseName]||{},counts={};
+  days.forEach(dk=>{if(plan[dk]?.completed)new Set(getSessions(plan[dk])).forEach(s=>{counts[s]=(counts[s]||0)+1;});});
+  const rows=Object.entries(goals).map(([type,goal])=>({type,goal,done:Math.min(counts[type]||0,goal)}));
+  return {rows,done:rows.reduce((n,r)=>n+r.done,0),goal:rows.reduce((n,r)=>n+r.goal,0)};
+}
+
+// The next planned days after `from` (within a week), always including the next game.
+function upcomingDays(plan,from=todayStr(),limit=2) {
+  const out=[],d=new Date(from+'T12:00:00');let game=null;
+  for(let i=1;i<=7;i++){
+    d.setDate(d.getDate()+1);
+    const dk=dateKey(d),e=plan[dk];
+    if(!getSessions(e).length&&!e?.match)continue;
+    if(out.length<limit)out.push({date:dk,offset:i,entry:e});
+    else if(!game&&isMatchDay(e))game={date:dk,offset:i,entry:e};
+  }
+  if(game)out.push(game);
+  return out;
+}
+
+// ─── Nutrition (optional, per day) ───────────────────────────────────────────────
+// `protein` = grams logged that day via quick-add. `nutrition` = self-rating of the
+// whole day's eating. Both optional: missing means "not logged" — never zero, never red.
+const DEFAULT_PROTEIN_TARGET = 100;
+const PROTEIN_STEPS = [20,30,40];
+const NUTRITION_LEVELS = [
+  {key:'green', label:'Im Plan',  mark:'✓', hint:'Bewusst gegessen, kaum Süsses.'},
+  {key:'amber', label:'Gemischt', mark:'~', hint:'Teils im Plan, ein paar Ausrutscher.'},
+  {key:'red',   label:'Daneben',  mark:'✕', hint:'Viel Süsses, Essen aus Lust statt Hunger, Fast Food.'},
+];
+function validProtein(v) { return typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<=500; }
+function validProteinTarget(v) { return typeof v==='number'&&Number.isInteger(v)&&v>=30&&v<=400; }
+function nutritionLevel(key) { return NUTRITION_LEVELS.find(l=>l.key===key)||null; }
+// Summary over an explicit list of date keys (e.g. the last seven days).
+function nutritionSummary(plan,days,target=DEFAULT_PROTEIN_TARGET) {
+  const rows=days.map(date=>{
+    const e=plan[date]||{},protein=validProtein(e.protein)?e.protein:null;
+    return {date,protein,nutrition:nutritionLevel(e.nutrition)?e.nutrition:null,hit:protein!=null&&protein>=target};
+  });
+  const logged=rows.filter(r=>r.protein!=null),counts={green:0,amber:0,red:0};
+  rows.forEach(r=>{if(r.nutrition)counts[r.nutrition]++;});
+  return {target,days:rows,proteinDays:logged.length,hits:rows.filter(r=>r.hit).length,
+    avgProtein:logged.length?Math.round(logged.reduce((n,r)=>n+r.protein,0)/logged.length):null,
+    ratedDays:counts.green+counts.amber+counts.red,counts};
+}
+
+// What is still open on a day: training, protein, eating rating. Future days have nothing open.
+// For past days this means "not logged", not "skipped".
+function dayChecklist(entry,dk,today=todayStr(),target=DEFAULT_PROTEIN_TARGET) {
+  const e=entry||{},open=[];
+  if(dk>today)return {future:true,open};
+  if(getSessions(e).length&&!e.completed)open.push('Training');
+  const protein=validProtein(e.protein)?e.protein:null;
+  if(protein==null)open.push('Protein');
+  else if(protein<target)open.push(`${target-protein} g Protein`);
+  if(!nutritionLevel(e.nutrition))open.push('Ernährung bewerten');
+  return {future:false,open};
+}
 
 // Bottom-sheet options. Every change is a draft until Save, including Ruhetag.
 const ALTS = [
@@ -456,13 +513,23 @@ function coachText(value,max=1200) {
 function validCoachDate(dk) {
   return /^\d{4}-\d{2}-\d{2}$/.test(dk)&&dateKey(new Date(dk+'T12:00:00'))===dk;
 }
-function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr()) {
+function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),proteinTarget=DEFAULT_PROTEIN_TARGET) {
   const dates=Object.keys(plan).filter(dk=>validCoachDate(dk)&&plan[dk]&&typeof plan[dk]==='object').sort();
   const types=dk=>[...new Set(getSessions(plan[dk]))];
   const logged=dk=>dk<=referenceDate&&plan[dk]?.completed===true&&types(dk).length>0;
+  const target=validProteinTarget(proteinTarget)?proteinTarget:DEFAULT_PROTEIN_TARGET;
+  // Self-reported eating; never sent for future dates. Missing stays null, not zero.
+  const eating=dk=>{
+    const e=plan[dk]||{},protein=validProtein(e.protein)?e.protein:null,rating=nutritionLevel(e.nutrition)?e.nutrition:null;
+    return dk<=referenceDate&&(protein!=null||rating)?{proteinGrams:protein,rating}:null;
+  };
+  const eatingStats=(from,to)=>{
+    const keys=Array.from({length:7},(_,i)=>daysBeforeStr(to,6-i)),s=nutritionSummary(plan,keys,target);
+    return {from,to,proteinLoggedDays:s.proteinDays,proteinTargetHitDays:s.hits,avgProteinGrams:s.avgProtein,ratedDays:s.ratedDays,ratings:s.counts};
+  };
   const day=dk=>{
     const e=plan[dk]||{},sessions=types(dk),guidance=coachingFor(e);
-    return {date:dk,sessions:sessions.map(displayName),
+    return {date:dk,sessions:sessions.map(displayName),nutrition:eating(dk),
       status:logged(dk)?'logged':sessions.length?(dk<referenceDate?'not_logged':'planned'):plan[dk]?'rest':'no_entry',
       feeling:logged(dk)?FEELINGS.find(f=>f.value===e.feeling)?.label||null:null,
       notes:coachText(e.notes),
@@ -510,7 +577,10 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr()) {
     week:{...stats(weekDays[0],weekDays[6]),targets},
     history:{allTime:stats(dates[0]&&dates[0]<referenceDate?dates[0]:referenceDate,referenceDate),
       last8Weeks:Array.from({length:8},(_,i)=>{const from=daysBeforeStr(weekDays[0],(8-i)*7);return stats(from,daysBeforeStr(from,-6));})},
-    body:{weight:bodyMetric('weight'),bodyFat:bodyMetric('bodyFat')},tactical:tacticalFor(referenceDate)};
+    body:{weight:bodyMetric('weight'),bodyFat:bodyMetric('bodyFat')},
+    nutrition:{proteinTargetGrams:target,last7Days:eatingStats(daysBeforeStr(referenceDate,6),referenceDate),
+      previous7Days:eatingStats(daysBeforeStr(referenceDate,13),daysBeforeStr(referenceDate,7))},
+    tactical:tacticalFor(referenceDate)};
 }
 
 // Midnight & Ice. Legacy token aliases keep every existing view on one palette.
@@ -548,8 +618,10 @@ function Icon({name,size=22,...props}) {
     rest:<path d="M20 14A9 9 0 0 1 10 3a9 9 0 1 0 10 11Z"/>,
     settings:<><circle cx="12" cy="12" r="3"/><path d="m9 2-1 3-3 1-3 3 2 3-2 3 3 3 3 1 1 3h6l1-3 3-1 3-3-2-3 2-3-3-3-3-1-1-3z"/></>,
     focus:<><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m12 12 9-9"/></>,
+    body:<><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M7.5 10a6 6 0 0 1 9 0M12 10l1.8-2.2"/></>,
+    plus:<path d="M12 5v14M5 12h14"/>,
   };
-  const resolved=name==="Match"||name==="Futsal"?"ball":name==="Walking"||name==="Easy run"||name==="Pilates"?"Mobility":name==="Sick/Injured"?"rest":name;
+  const resolved=name==="Match"||name==="Futsal"?"ball":name==="Walking"||name==="Easy run"||name==="Pilates"?"Mobility":name==="Sick/Injured"?"rest":name==="plan"?"month":name==="season"?"journey":name;
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>{paths[resolved]||paths.Mobility}</svg>;
 }
 function SessionMarks({entry,size=16}) {
@@ -570,27 +642,27 @@ input,textarea{min-width:0;font-size:16px!important}input::placeholder,textarea:
 button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid #B3DCE2!important;outline-offset:4px}
 button,a,input,summary{touch-action:manipulation}h1,h2,h3,p{margin:0}h1,h2,h3{font-weight:600;letter-spacing:-.035em}
 .app-shell{max-width:560px;margin:auto;min-height:100dvh;background:radial-gradient(ellipse 100% 500px at 80% 0%,#223B50 0%,#101A25 85%);padding-bottom:calc(96px + env(safe-area-inset-bottom))}
-.app-header{position:relative;isolation:isolate;overflow:hidden;padding:calc(22px + env(safe-area-inset-top)) 22px 18px}
+.app-header{position:relative;isolation:isolate;overflow:hidden;padding:calc(12px + env(safe-area-inset-top)) 22px 12px}
 .pitch-texture{position:absolute;inset:0;width:100%;height:100%;color:#9CCBD3;opacity:.14;z-index:-1;pointer-events:none}
-.brand-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}
+.brand-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:8px}
 .brand{font-size:10px;letter-spacing:.26em;color:#B3DCE2;font-weight:600}
 .icon-btn{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;border:0;border-radius:12px;background:transparent;color:#A5B8C8}
-.app-header h1{font-size:clamp(34px,9vw,46px);line-height:1.1;margin-bottom:10px;letter-spacing:-.055em}
-.subtitle{color:#A5B8C8;font-size:15px;line-height:1.5}
+.app-header h1{font-size:clamp(28px,7.6vw,38px);line-height:1.1;margin-bottom:4px;letter-spacing:-.05em}
+.subtitle{color:#A5B8C8;font-size:13px;line-height:1.5}
 .phase-link{display:inline-flex;gap:8px;align-items:center;color:#A5B8C8;background:none;border:0;padding:4px 0;min-height:44px;font-size:12px}
 .view{padding:0 20px 24px}.eyebrow{font-size:10px;letter-spacing:.17em;text-transform:uppercase;color:#B3DCE2;font-weight:600}
 .section-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:26px 0 14px}.section-heading h2{font-size:20px}.section-heading small{font-size:11px;color:#A5B8C8}
 .panel{background:linear-gradient(135deg,#1C2C3A,#192632);border:1px solid #2A3C4B;border-radius:22px}
-.day-strip{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;margin:8px 0 20px}
-.day-chip{border:1px solid transparent;background:transparent;border-radius:16px;padding:12px 0 9px;min-width:0;display:flex;flex-direction:column;align-items:center;gap:8px}
+.day-strip{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;flex:1;min-width:0}
+.day-chip{border:1px solid transparent;background:transparent;border-radius:14px;padding:8px 0 6px;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px}
 .day-chip .day-label{font-size:10px;text-transform:uppercase;color:#A5B8C8;letter-spacing:.06em}
-.day-chip strong{font-size:20px;font-weight:500}.day-chip[aria-pressed=true]{background:#9CCBD3;color:#101A25}
+.day-chip strong{font-size:18px;font-weight:500}.day-chip[aria-pressed=true]{background:#9CCBD3;color:#101A25}
 .day-chip[aria-pressed=true] .day-label{color:#233B47}.day-marker{height:5px;width:5px;border-radius:50%;background:#577184}.day-chip[aria-pressed=true] .day-marker{background:#274854}
-.session-card{padding:23px 20px;position:relative;overflow:hidden}.session-card h2{font-size:clamp(26px,7.2vw,36px);line-height:1.12;margin:20px 0 12px;max-width:95%;overflow-wrap:anywhere}
+.session-card{padding:20px;position:relative;overflow:hidden;scroll-margin-top:16px}.session-card h2{font-size:clamp(25px,7vw,34px);line-height:1.12;overflow-wrap:anywhere}
 .session-sub{font-size:14px;color:#A5B8C8;line-height:1.6}.session-card-top{display:flex;justify-content:space-between;align-items:center;gap:12px}
-.session-art{color:#9CCBD3;opacity:.65;display:flex;gap:5px}.session-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:22px}
+.session-art{color:#9CCBD3;opacity:.65;display:flex;gap:5px}.session-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px}
 .action-links{display:flex;gap:8px;flex-wrap:wrap}.text-btn{display:inline-flex;gap:8px;align-items:center;min-height:44px;padding:6px 0;border:0;background:transparent;color:#A5B8C8;font-size:12px}
-.log-circle{width:78px;height:78px;flex-shrink:0;border-radius:50%;border:2px solid #9CCBD3;background:transparent;color:#B3DCE2;font-size:13px;letter-spacing:.1em;font-weight:700;display:flex;align-items:center;justify-content:center}
+.log-circle{width:74px;height:74px;flex-shrink:0;border-radius:50%;border:2px solid #9CCBD3;background:transparent;color:#B3DCE2;font-size:13px;letter-spacing:.1em;font-weight:700;display:flex;align-items:center;justify-content:center}
 .log-circle.logged{background:#9CCBD3;color:#101A25;animation:checkPop .3s ease-out}
 .session-details{border-top:1px solid #344858;margin-top:20px;padding-top:4px}.session-details summary{font-size:12px;color:#A5B8C8;cursor:pointer;min-height:44px;display:flex;align-items:center;justify-content:space-between}
 .session-details summary:after{content:"+";font-size:18px}.session-details[open] summary:after{content:"−"}
@@ -598,10 +670,8 @@ button,a,input,summary{touch-action:manipulation}h1,h2,h3,p{margin:0}h1,h2,h3{fo
 .target-panel{padding:0 18px}.target-row{display:flex;align-items:center;gap:14px;padding:18px 0}.target-row+.target-row{border-top:1px solid #344858}
 .target-content{flex:1;min-width:0}.target-label{display:flex;justify-content:space-between;gap:12px;font-size:14px;margin-bottom:11px}.target-label span:last-child{font-variant-numeric:tabular-nums;color:#B3DCE2}
 .target-track{display:flex;gap:5px}.target-segment{height:9px;border:1px solid #486171;border-radius:20px;flex:1;background:#263C4D}.target-segment.filled{background:#9CCBD3;border-color:#9CCBD3}
-.next-line{display:flex;align-items:center;gap:12px;font-size:12px;color:#A5B8C8;padding:21px 4px}
 .focus-card{padding:21px;margin:0 0 18px;position:relative}.focus-card:before{content:"";position:absolute;top:23px;bottom:23px;left:0;background:#9CCBD3;width:3px;border-radius:5px}
 .focus-card h3{font-size:19px;line-height:1.3;margin:10px 0}.focus-card p{color:#A5B8C8;font-size:13px;line-height:1.65}
-.coach-entry{display:flex;align-items:center;justify-content:space-between;width:100%;border:1px solid #789BAF;border-radius:16px;background:transparent;color:#B3DCE2;padding:12px 16px;min-height:48px;font-size:14px}
 .nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:560px;z-index:40;display:flex;gap:4px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:rgba(16,26,37,.95);backdrop-filter:blur(18px);border-top:1px solid #344858}
 .nav button{flex:1;min-width:0;min-height:56px;background:none;border:0;color:#A5B8C8;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:10px}
 .nav button[aria-current=page]{color:#B3DCE2;background:rgba(156,203,211,.08)}.nav button[aria-current=page] svg{stroke-width:2}
@@ -640,11 +710,10 @@ button,a,input,summary{touch-action:manipulation}h1,h2,h3,p{margin:0}h1,h2,h3{fo
 .feeling-row{border-top:1px solid #344858;margin-top:20px;padding-top:16px;font-size:12px;color:#A5B8C8}
 .feeling-row>div{display:flex;gap:6px;margin-top:10px}.feeling-row button{min-width:44px;height:44px;background:transparent;border:1px solid #344858;border-radius:12px;font-size:22px}
 .feeling-row button[aria-pressed=true]{border-color:#9CCBD3;background:#29424E}
-.next-line{flex-wrap:wrap;gap:5px 10px;line-height:1.6}.next-line strong{font-weight:500;color:#EDF2F5}.next-line>span:last-child{margin-left:auto}
 .week-controls{display:flex;flex-direction:column}.week-controls .icon-btn{min-height:36px}.date-tile.current{color:#B3DCE2}
 .swap-banner{border:1px solid #648694;background:#203944;border-radius:14px;padding:12px;display:flex;align-items:center;gap:8px;font-size:12px}
-.helper-text{font-size:13px;color:#A5B8C8;line-height:1.7;margin:12px 0}.body-entry{margin-top:12px;font-size:12px}
-.body-editor{margin-top:16px;padding:18px}.body-fields{display:flex;gap:12px;margin-top:12px}.body-fields label{min-width:0;flex:1;font-size:11px;color:#A5B8C8}
+.helper-text{font-size:13px;color:#A5B8C8;line-height:1.7;margin:12px 0}
+.body-editor{margin-top:14px;padding:18px}.field-label{display:block;font-size:11px;color:#A5B8C8;margin-top:12px}.body-fields{display:flex;gap:12px;margin-top:12px}.body-fields label{min-width:0;flex:1;font-size:11px;color:#A5B8C8}
 .journey-summary>div:nth-child(2){display:flex;align-items:center;gap:20px}.journey-summary span{font-size:13px;color:#A5B8C8;line-height:1.6}
 .journey-summary p{font-size:12px;color:#A5B8C8;margin-top:14px}
 progress{width:100%;height:5px;display:block;margin-top:18px;border:0;border-radius:99px;overflow:hidden;background:#344858}
@@ -680,12 +749,78 @@ progress::-webkit-progress-bar{background:#344858}progress::-webkit-progress-val
 .calendar button.match-day.done{background:#403B2D}.calendar button.match-day.today{outline:2px solid #B3DCE2}
 .calendar-ball{font-size:16px;line-height:1.2}.calendar-kickoff{font-size:9px;font-weight:600;white-space:nowrap;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
 .match-legend{color:#F0CF95}.fixture-list-item{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:16px 12px;margin-top:10px;border:1px solid #806E50;border-left:3px solid #E4C18D;border-radius:16px;background:#282D2E}
-.plan-guidance{border-left:2px solid #9CCBD3;padding:2px 0 2px 12px;margin:16px 0 20px}.plan-guidance strong{display:block;font-size:13px;line-height:1.5;color:#B3DCE2}.plan-guidance p{font-size:12px;line-height:1.6;color:#A5B8C8;margin:6px 0 0}.week-plan-focus{display:block;font-size:11px;line-height:1.5;color:#B3DCE2;margin-top:5px}
+.plan-guidance{border-left:2px solid #9CCBD3;padding:2px 0 2px 12px;margin:12px 0 4px}.plan-guidance strong{display:block;font-size:13px;line-height:1.5;color:#B3DCE2}.plan-guidance p{font-size:12px;line-height:1.6;color:#A5B8C8;margin:6px 0 0}.week-plan-focus{display:block;font-size:11px;line-height:1.5;color:#B3DCE2;margin-top:5px}
 .fixture-list-date{flex-shrink:0;width:32px;text-align:center;font-size:10px;color:#F0CF95}.fixture-list-date strong{display:block;font-size:22px;font-weight:500;margin-top:3px}
 .fixture-list-item>span:nth-child(2){flex:1;min-width:0}.fixture-list-item>span:nth-child(2)>strong{font-size:14px;font-weight:500;overflow-wrap:anywhere;display:block;line-height:1.4}
 .fixture-list-item small{display:block;font-size:12px;color:#C7BDAB;margin-top:5px}.fixture-list-item>svg{flex-shrink:0;color:#F0CF95}
 @media(max-width:360px){.calendar-kickoff{font-size:8px}.week-row.match-row{padding-left:4px;padding-right:2px}.match-row .week-open{gap:8px}.fixture-detail h3{font-size:20px}}
 
+/* Today: compact day navigation, rings, nutrition and up next. */
+.coach-pill{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid #648694;border-radius:99px;background:rgba(156,203,211,.08);color:#B3DCE2;font-size:13px;font-weight:500}
+.day-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px;font-size:12px;color:#A5B8C8}
+.day-head .text-btn{min-height:32px;padding:0;color:#B3DCE2}
+.day-nav{display:flex;align-items:center;gap:2px;margin:0 0 12px}
+.week-step{flex-shrink:0;width:26px;min-height:44px;border:0;background:transparent;color:#839BAD;font-size:22px;padding:0;border-radius:10px}
+.rings{padding:14px 8px 12px;margin-bottom:12px}
+.ring-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+.ring{position:relative;display:flex;flex-direction:column;align-items:center;gap:1px;border:0;background:transparent;padding:4px 0;border-radius:16px;min-width:0}
+.ring>svg{width:64px;height:64px;display:block}
+.ring-track{fill:none;stroke:#2A3C4B;stroke-width:6}.ring-value{fill:none;stroke-width:6;transition:stroke-dasharray .4s ease-out}
+.ring-center{position:absolute;top:4px;left:50%;transform:translateX(-50%);width:64px;height:64px;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.03em}
+.ring-center small{font-size:10px;font-weight:500;color:#A5B8C8;margin-left:1px}
+.ring-label{font-size:12px;margin-top:6px;color:#EDF2F5}.ring>small{font-size:10px;color:#A5B8C8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.ring-badge{position:absolute;top:2px;right:calc(50% - 38px);width:19px;height:19px;border-radius:50%;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;color:#101A25;border:2px solid #1B2935}
+.day-summary{font-size:12px;line-height:1.5;color:#A5B8C8;text-align:center;margin-top:10px;padding:0 8px}.day-summary strong{color:#EDF2F5;font-weight:500}
+.session-main{display:flex;align-items:center;gap:14px;margin:14px 0 8px}.session-main h2{flex:1;min-width:0}
+.plan-guidance:not(.open) p{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.more-btn{min-height:32px;padding:0;font-size:11px;color:#B3DCE2!important}
+.nutrition-card{padding:20px;margin-top:12px;scroll-margin-top:16px}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:24px}
+.protein-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-top:10px}
+.protein-head strong{font-size:28px;font-weight:500;letter-spacing:-.04em;font-variant-numeric:tabular-nums}.protein-head strong span{font-size:13px;color:#A5B8C8;letter-spacing:0;font-weight:400}
+.protein-head>span{font-size:12px;color:#A5B8C8}.protein-head>span.reached{color:#A9D8B8}
+.protein-bar{height:8px;border-radius:99px;background:#263C4D;margin:10px 0 14px;overflow:hidden}.protein-bar span{display:block;height:100%;border-radius:99px;background:#A9D8B8;transition:width .3s ease-out}
+.protein-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) 48px;gap:8px}
+.chip{min-height:44px;border:1px solid #486171;border-radius:12px;background:#15222F;color:#EDF2F5;font-size:14px;font-variant-numeric:tabular-nums}
+.chip.ghost{color:#A5B8C8;display:flex;align-items:center;justify-content:center}
+.protein-edit{display:flex;gap:8px;align-items:center}.protein-edit .modal-input{margin:0;flex:1}.protein-edit button{flex-shrink:0;padding-left:14px;padding-right:14px}
+.protein-hint{font-size:11px;color:#839BAD;line-height:1.5;margin-top:8px}.undo-btn{min-height:36px;padding:0;margin-top:4px;color:#B3DCE2!important}
+.rating{border-top:1px solid #344858;margin-top:16px;padding-top:14px}.rating-q{font-size:12px;color:#A5B8C8}
+.ampel{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
+.ampel-btn{min-height:48px;border:1px solid #344858;border-radius:12px;background:transparent;color:#A5B8C8;font-size:12px;display:flex;align-items:center;justify-content:center;gap:7px;padding:6px}
+.ampel-dot{width:19px;height:19px;border-radius:50%;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#101A25}
+.ampel-dot.green,.ring-badge.green{background:#8FD19E}.ampel-dot.amber,.ring-badge.amber{background:#E9C46A}.ampel-dot.red,.ring-badge.red{background:#E58A7E}.ampel-dot.none{background:transparent;border:1px dashed #486171}
+.ampel-btn[aria-pressed=true]{color:#EDF2F5}.ampel-btn.green[aria-pressed=true]{border-color:#8FD19E;background:rgba(143,209,158,.12)}.ampel-btn.amber[aria-pressed=true]{border-color:#E9C46A;background:rgba(233,196,106,.12)}.ampel-btn.red[aria-pressed=true]{border-color:#E58A7E;background:rgba(229,138,126,.12)}
+.rating-hint{font-size:11px;color:#839BAD;line-height:1.5;margin-top:8px}.ampel-tag{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#A5B8C8}
+.upnext{padding:16px 18px 6px;margin-top:12px}.upnext-row{display:flex;align-items:center;gap:14px;width:100%;text-align:left;border:0;border-top:1px solid #2D4151;background:transparent;padding:10px 0;min-height:58px}
+.upnext .eyebrow+.upnext-row{border-top:0}
+.upnext-date{width:34px;flex-shrink:0;text-align:center;color:#A5B8C8}.upnext-date small{display:block;font-size:10px}.upnext-date strong{font-size:20px;font-weight:400}
+.upnext-info{flex:1;min-width:0}.upnext-info strong{display:block;font-size:14px;font-weight:500;line-height:1.4;overflow-wrap:anywhere}.upnext-info small{display:block;font-size:11px;color:#A5B8C8;margin-top:3px}
+.upnext-row.match .upnext-date,.upnext-row.match small,.upnext-row.match .session-marks{color:#F0CF95}
+
+/* Plan, Körper, Saison */
+.plan-switch{padding:0 20px 14px}.segmented{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border:1px solid #344858;border-radius:14px;background:#15222F}
+.segmented button{min-height:40px;border:0;border-radius:10px;background:transparent;color:#A5B8C8;font-size:13px}.segmented button[aria-pressed=true]{background:#29424E;color:#EDF2F5}
+.body-hero{padding:22px}.hero-value{font-size:56px;font-weight:500;letter-spacing:-.06em;line-height:1;margin-top:14px;font-variant-numeric:tabular-nums}.hero-value span{font-size:20px;color:#A5B8C8;letter-spacing:0}
+.hero-delta{font-size:13px;color:#B3DCE2;margin-top:8px}.hero-meta{font-size:11px;color:#839BAD;margin-top:10px;line-height:1.5}
+.goal-bar{position:relative;height:10px;border-radius:99px;background:#263C4D;margin:22px 0 8px}
+.goal-band{position:absolute;top:0;bottom:0;background:rgba(169,216,184,.35);border-left:1px solid #A9D8B8;border-right:1px solid #A9D8B8}
+.goal-marker{position:absolute;top:-5px;width:4px;height:20px;border-radius:4px;background:#EDF2F5;transform:translateX(-50%);box-shadow:0 0 0 3px #1B2935}
+.goal-legend{display:flex;justify-content:space-between;gap:12px;font-size:11px;color:#A5B8C8}
+.body-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
+.body-tile{padding:14px 12px;border-radius:16px;min-width:0}.body-tile small{display:block;font-size:10px;color:#A5B8C8;letter-spacing:.04em}.body-tile strong{display:block;font-size:20px;font-weight:500;margin-top:6px;letter-spacing:-.03em;font-variant-numeric:tabular-nums}.body-tile strong span{font-size:11px;color:#A5B8C8;letter-spacing:0}.body-tile em{display:block;font-style:normal;font-size:10px;color:#839BAD;margin-top:4px}
+.add-measure{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:18px}
+.trend-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}.trend-head .metric-switch{margin:0}
+.range-switch{display:flex;gap:6px}.range-switch button{min-height:36px;padding:0 12px;border:1px solid #344858;border-radius:99px;background:transparent;color:#A5B8C8;font-size:11px}.range-switch button[aria-pressed=true]{border-color:#9CCBD3;color:#EDF2F5;background:#29424E}
+.measure-list{padding:0 16px}.measure-row{display:grid;grid-template-columns:1fr auto auto 18px;gap:14px;align-items:center;width:100%;border:0;border-top:1px solid #2D4151;background:transparent;text-align:left;min-height:52px;font-size:13px;font-variant-numeric:tabular-nums;color:#EDF2F5}.measure-row:first-child{border-top:0}.measure-row>span:first-child{color:#A5B8C8}.measure-row svg{color:#839BAD}
+.nutri-week{padding:18px 14px}.nutri-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;text-align:center}
+.nutri-day{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:#A5B8C8}.nutri-day b{font-weight:500;font-variant-numeric:tabular-nums;color:#839BAD}.nutri-day b.hit{color:#A9D8B8}
+.nutri-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;border-top:1px solid #344858;margin-top:16px;padding-top:14px}
+.nutri-stats strong{display:block;font-size:18px;font-weight:500;font-variant-numeric:tabular-nums}.nutri-stats>div>span{display:block;font-size:10px;color:#A5B8C8;line-height:1.4;margin-top:3px}
+.ampel-counts{display:flex!important;gap:6px;align-items:center;font-size:14px;font-weight:500}
+.settings-link{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:18px;margin-top:24px;color:#EDF2F5}.settings-link>span{flex:1;min-width:0}.settings-link small{display:block;font-size:11px;color:#A5B8C8;margin-top:3px}
+@media(min-width:600px){.plan-switch{padding-left:26px;padding-right:26px}}
+@media(max-width:360px){.ring>svg{width:56px;height:56px}.ring-center{width:56px;height:56px;font-size:15px}.ring-badge{right:calc(50% - 34px)}.ampel-btn{font-size:11px;gap:4px}.plan-switch{padding-left:14px;padding-right:14px}.body-tile strong{font-size:17px}.protein-actions{gap:6px}}
 `;
 
 // ─── Small chrome ────────────────────────────────────────────────────────────────
@@ -729,9 +864,13 @@ function TacticalCard({dk}) {
 }
 
 // ─── Setup / settings ────────────────────────────────────────────────────────────
-function SetupScreen({initName,isEdit,onBack,onSave}) {
+function SetupScreen({initName,initProteinTarget=DEFAULT_PROTEIN_TARGET,isEdit,onBack,onSave}) {
   const [n,setN]=useState(initName||"");
-  const ok=n.trim();
+  const [target,setTarget]=useState(String(initProteinTarget));
+  const targetValue=Number(target.trim());
+  const targetOk=target.trim()!==""&&validProteinTarget(targetValue);
+  const ok=n.trim()&&targetOk;
+  const submit=()=>{if(ok)onSave(n.trim(),targetValue);};
 
   // Backup: export / import all local data.
   const fileRef=useRef(null);
@@ -786,8 +925,12 @@ function SetupScreen({initName,isEdit,onBack,onSave}) {
       <p className="header-subtitle">{isEdit?"Deine Daten bleiben bei dir.":"Trainiere bewusst. Bleib im Spiel."}</p></header>
     <div className="view"><section className="panel settings-card"><label htmlFor="player-name" className="eyebrow">Wie heißt du?</label>
       <input id="player-name" className="modal-input" autoComplete="given-name" value={n} placeholder="Dein Name" maxLength={80}
-        onChange={e=>setN(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&ok)onSave(n.trim());}}/>
-      <button className="primary" style={{width:"100%",marginTop:20}} disabled={!ok} onClick={()=>onSave(n.trim())}>{isEdit?"Speichern":"Los geht’s →"}</button>
+        onChange={e=>setN(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")submit();}}/>
+      <label htmlFor="protein-target" className="eyebrow" style={{display:"block",marginTop:12}}>Proteinziel pro Tag (g)</label>
+      <input id="protein-target" className="modal-input" inputMode="numeric" value={target} maxLength={3}
+        onChange={e=>setTarget(e.target.value.replace(/[^0-9]/g,""))} onKeyDown={e=>{if(e.key==="Enter")submit();}}/>
+      {!targetOk&&<p role="alert" className="helper-text">Bitte einen Wert zwischen 30 und 400 g eingeben.</p>}
+      <button className="primary" style={{width:"100%",marginTop:20}} disabled={!ok} onClick={submit}>{isEdit?"Speichern":"Los geht’s →"}</button>
     </section>
     <section className="settings-backup"><div className="section-heading"><h2>Deine Daten</h2></div>
       <p className="helper-text">Alles wird nur auf diesem Gerät gespeichert. Speichere eine Sicherung zum Beispiel in iCloud Drive.</p>
@@ -892,75 +1035,160 @@ function WeeklyTargets({plan,date=todayStr()}) {
   </section>;
 }
 
-// ─── Body-comp entry line (Today) ───────────────────────────────────────────────
-// Quiet, optional line — not a card, no target, no nagging. Collapsed it shows
-// either "＋ Log weight" or the day's logged values; tapping opens two small
-// inputs. Weight and body fat are independent (either alone is valid). Saving
-// only writes weight/bodyFat — it never touches sessions or completion.
-function BodyCompLine({entry,dateKey:dk,updDay}) {
-  const [open,setOpen]=useState(false),[w,setW]=useState(""),[bf,setBf]=useState("");
-  const parse=value=>value.trim()===""?null:Number(value.replace(",","."));
-  const weight=parse(w),fat=parse(bf);
-  const valid=(weight===null||Number.isFinite(weight)&&weight>0&&weight<=500)&&(fat===null||Number.isFinite(fat)&&fat>0&&fat<100);
-  const start=()=>{setW(entry.weight==null?"":String(entry.weight));setBf(entry.bodyFat==null?"":String(entry.bodyFat));setOpen(true);};
-  const save=()=>{if(!valid)return;updDay(dk,{weight:weight==null?null:Math.round(weight*10)/10,bodyFat:fat==null?null:Math.round(fat*10)/10});setOpen(false);};
-  if(!open)return <button className="text-btn body-entry" onClick={start}><Icon name="journey" size={17}/>
-    {entry.weight!=null||entry.bodyFat!=null?[entry.weight!=null?entry.weight+" kg":null,entry.bodyFat!=null?entry.bodyFat+" %":null].filter(Boolean).join(" · "):"Körperwerte eintragen"}
+// ─── Today: rings ────────────────────────────────────────────────────────────────
+// Three glanceable rings for the selected day: training, protein and the week's
+// priority sessions. Each ring has a text label and value, never colour alone.
+const reduceMotion=()=>{try{return window.matchMedia("(prefers-reduced-motion: reduce)").matches;}catch{return false;}};
+const scrollToId=id=>document.getElementById(id)?.scrollIntoView({behavior:reduceMotion()?"auto":"smooth",block:"start"});
+function Ring({value,max,color,label,sub,badge,ariaLabel,onClick,children}) {
+  const r=27,c=2*Math.PI*r,frac=max>0?Math.max(0,Math.min(1,value/max)):0;
+  return <button className="ring" onClick={onClick} aria-label={ariaLabel}>
+    <svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r={r} className="ring-track"/>
+      {frac>0&&<circle cx="32" cy="32" r={r} className="ring-value" stroke={color} strokeLinecap="round"
+        strokeDasharray={`${(c*frac).toFixed(1)} ${c.toFixed(1)}`} transform="rotate(-90 32 32)"/>}</svg>
+    <span className="ring-center" aria-hidden="true">{children}</span>
+    {badge&&<span className={"ring-badge "+badge.key} aria-hidden="true">{badge.mark}</span>}
+    <span className="ring-label">{label}</span><small>{sub}</small>
   </button>;
-  return <section className="panel body-editor"><div className="eyebrow">Körperwerte · optional</div><div className="body-fields">
-    <label>Gewicht (kg)<input className="modal-input" inputMode="decimal" value={w} onChange={e=>setW(e.target.value)} placeholder="78,4"/></label>
-    <label>Körperfett (%)<input className="modal-input" inputMode="decimal" value={bf} onChange={e=>setBf(e.target.value)} placeholder="15,8"/></label>
-    </div>{!valid&&<p role="alert" className="helper-text">Bitte gültige Werte eingeben.</p>}
-    <div className="sheet-footer"><button className="primary" disabled={!valid} onClick={save}>Speichern</button><button className="secondary" onClick={()=>setOpen(false)}>Abbrechen</button></div>
+}
+function DayRings({plan,viewKey,target,onOpenPlan}) {
+  const today=todayStr(),e=plan[viewKey]||{},sessions=getSessions(e);
+  const protein=validProtein(e.protein)?e.protein:null,level=nutritionLevel(e.nutrition);
+  const phase=phaseForDate(viewKey),week=isHoliday(viewKey)?{done:0,goal:0}:weekTargetProgress(plan,weekAround(viewKey),phase?.name);
+  const status=!sessions.length?"Ruhetag":e.completed?"erledigt":viewKey>today?"geplant":viewKey<today?"nicht eingetragen":"offen";
+  const check=dayChecklist(e,viewKey,today,target);
+  const summary=check.future?"Vorschau. Ernährung trägst du am Tag selbst ein."
+    :check.open.length?<>{viewKey===today?"Noch offen: ":"Nicht eingetragen: "}<strong>{check.open.join(" · ")}</strong></>
+    :viewKey===today?"Alles erledigt für heute. Stark.":"Alles eingetragen.";
+  return <section className="panel rings" aria-label="Tagesübersicht">
+    <div className="ring-row">
+      <Ring value={e.completed&&sessions.length?1:0} max={1} color="#9CCBD3" label="Training" sub={status}
+        ariaLabel={"Training: "+status} onClick={()=>scrollToId("today-session")}>
+        {e.completed&&sessions.length?<Chk size={20} color="#B3DCE2"/>:<Icon name={sessions.length?(isMatchDay(e)?"Match":sessions[0]):"rest"} size={22}/>}
+      </Ring>
+      <Ring value={protein||0} max={target} color="#A9D8B8" label="Protein" sub={"von "+target+" g"} badge={level}
+        ariaLabel={"Protein: "+(protein==null?"nicht erfasst":protein+" von "+target+" Gramm")+(level?" · Ernährung "+level.label:"")}
+        onClick={()=>scrollToId("today-nutrition")}>
+        {protein==null?"–":<>{protein}<small>g</small></>}
+      </Ring>
+      <Ring value={week.done} max={week.goal} color="#B9B4E6" label="Woche" sub={week.goal?"Kraft · Reha":"Pause"}
+        ariaLabel={week.goal?`Wochenziele: ${week.done} von ${week.goal}. Plan öffnen`:"Keine Wochenziele. Plan öffnen"} onClick={onOpenPlan}>
+        {week.goal?<>{week.done}<small>/{week.goal}</small></>:"–"}
+      </Ring>
+    </div>
+    <p className="day-summary">{summary}</p>
+  </section>;
+}
+
+// ─── Nutrition card (Today) ──────────────────────────────────────────────────────
+// Quick-add protein (+20/+30/+40 g, correctable) and a traffic-light rating of the
+// whole day's eating. Only writes `protein` / `nutrition`; never touches sessions.
+function NutritionCard({entry,dateKey:dk,updDay,target}) {
+  const today=todayStr(),future=dk>today;
+  const protein=validProtein(entry.protein)?entry.protein:null,level=nutritionLevel(entry.nutrition);
+  const [editing,setEditing]=useState(false),[draft,setDraft]=useState(""),[lastAdd,setLastAdd]=useState(null);
+  const add=g=>{updDay(dk,{protein:Math.min(500,(protein||0)+g)});setLastAdd({g,prev:protein});};
+  const undo=()=>{if(!lastAdd)return;updDay(dk,{protein:lastAdd.prev});setLastAdd(null);};
+  const parsed=draft.trim()===""?null:Number(draft.replace(",","."));
+  const draftOk=parsed===null||validProtein(parsed);
+  const startEdit=()=>{setDraft(protein==null?"":String(protein));setEditing(true);setLastAdd(null);};
+  const saveDraft=()=>{if(!draftOk)return;updDay(dk,{protein:parsed==null?null:Math.round(parsed)});setEditing(false);};
+  return <section id="today-nutrition" className="panel nutrition-card" aria-label="Ernährung">
+    <div className="card-head"><span className="eyebrow">Ernährung</span>
+      {level&&<span className="ampel-tag"><span className={"ampel-dot "+level.key} aria-hidden="true">{level.mark}</span>{level.label}</span>}</div>
+    {future?<p className="helper-text">Protein und Bewertung trägst du am Tag selbst ein.</p>:<>
+      <div className="protein-head"><strong>{protein??0}<span> / {target} g Protein</span></strong>
+        <span className={protein!=null&&protein>=target?"reached":""}>{protein==null?"noch nicht erfasst":protein>=target?"Ziel erreicht ✓":`noch ${target-protein} g`}</span></div>
+      <div className="protein-bar" role="progressbar" aria-label="Protein" aria-valuemin={0} aria-valuemax={target} aria-valuenow={protein||0}>
+        <span style={{width:Math.min(100,(protein||0)/target*100)+"%"}}/></div>
+      {editing?<div className="protein-edit">
+        <input className="modal-input" aria-label="Protein in Gramm" inputMode="numeric" autoFocus value={draft} placeholder="z. B. 85"
+          onChange={ev=>setDraft(ev.target.value)} onKeyDown={ev=>{if(ev.key==="Enter")saveDraft();if(ev.key==="Escape")setEditing(false);}}/>
+        <button className="primary" disabled={!draftOk} onClick={saveDraft}>OK</button>
+        <button className="secondary" onClick={()=>setEditing(false)}>Abbrechen</button></div>
+      :<div className="protein-actions">
+        {PROTEIN_STEPS.map(g=><button key={g} className="chip" aria-label={g+" Gramm Protein hinzufügen"} onClick={()=>add(g)}>+{g} g</button>)}
+        <button className="chip ghost" aria-label="Protein korrigieren" onClick={startEdit}><Icon name="edit" size={16}/></button></div>}
+      {editing&&!draftOk&&<p role="alert" className="protein-hint">Bitte 0 bis 500 g eingeben.</p>}
+      {lastAdd&&!editing&&<button className="text-btn undo-btn" onClick={undo}>Rückgängig (+{lastAdd.g} g)</button>}
+      {protein==null&&!editing&&<p className="protein-hint">Richtwerte: Joghurt/Skyr ≈ 20 g · Portion Fleisch/Fisch ≈ 30 g · grosse Portion ≈ 40 g</p>}
+      <div className="rating"><span className="rating-q">Wie hast du {dk===today?"heute":"an diesem Tag"} gegessen?</span>
+        <div className="ampel" role="group" aria-label="Ernährung bewerten">{NUTRITION_LEVELS.map(l=>
+          <button key={l.key} className={"ampel-btn "+l.key} aria-pressed={entry.nutrition===l.key}
+            onClick={()=>updDay(dk,{nutrition:entry.nutrition===l.key?null:l.key})}>
+            <span className={"ampel-dot "+l.key} aria-hidden="true">{l.mark}</span>{l.label}</button>)}</div>
+        <p className="rating-hint">{level?level.hint:"Rot heisst: viel Süsses, Essen aus Lust statt Hunger, Fast Food."}</p>
+      </div></>}
+  </section>;
+}
+
+// ─── Up next (Today) ─────────────────────────────────────────────────────────────
+function UpNextCard({plan,from,onSelect}) {
+  const items=upcomingDays(plan,from,2);
+  return <section className="panel upnext" aria-label="Als Nächstes"><div className="eyebrow">Als Nächstes</div>
+    {items.length?items.map(item=>{const e=item.entry,day=new Date(item.date+"T12:00:00");
+      return <button key={item.date} className={"upnext-row"+(isMatchDay(e)?" match":"")} onClick={()=>onSelect(item.date)}
+        aria-label={upcomingLabel(e)+" · "+upcomingWhen(item)}>
+        <span className="upnext-date"><small>{DN[dow0(day)]}</small><strong>{day.getDate()}</strong></span>
+        <span className="upnext-info"><strong>{upcomingLabel(e)}</strong><small>{upcomingWhen(item)}</small></span>
+        <SessionMarks entry={e}/>
+      </button>;})
+    :<p className="helper-text">In den nächsten sieben Tagen ist nichts geplant.</p>}
   </section>;
 }
 
 // ─── Today view ──────────────────────────────────────────────────────────────────
-function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
+function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan}) {
   const viewKey=offsetDate(dayOff), e=plan[viewKey]||{};
   const [sheetOpen,setSheetOpen]=useState(false);
   const [notesOpen,setNotesOpen]=useState(false);
   const [confirmUnlog,setConfirmUnlog]=useState(false);
+  const [guideOpen,setGuideOpen]=useState(false);
   const [direction,setDirection]=useState(1);
-  useEffect(()=>{setNotesOpen(false);setConfirmUnlog(false);setSheetOpen(false);},[viewKey]);
-  const navDay=delta=>{setDirection(delta);setDayOff(o=>o+delta);};
+  useEffect(()=>{setNotesOpen(false);setConfirmUnlog(false);setSheetOpen(false);setGuideOpen(false);},[viewKey]);
+  const navDay=delta=>{setDirection(Math.sign(delta));setDayOff(o=>o+delta);};
   const swipe=useSwipe(()=>navDay(1),()=>navDay(-1));
-  const sessions=getSessions(e), next=nextUp(plan,viewKey), match=e.match, guidance=coachingFor(e);
+  const sessions=getSessions(e), match=e.match, guidance=coachingFor(e);
   const go=dk=>{setDirection(dk>viewKey?1:-1);setDayOff(daysUntil(dk));};
+  const dayLabel=new Date(viewKey+"T12:00:00").toLocaleDateString("de-CH",{weekday:"long",day:"numeric",month:"long"});
   return <div className="view" {...swipe}>
-    <div className="range-nav">
-      <NavArrow dir="left" onClick={()=>navDay(-1)}/>
-      <div><span>{dayOff===0?"Heute · ":""}{shortDate(viewKey)}</span>
-        {dayOff!==0&&<button className="text-btn" onClick={()=>setDayOff(0)}>Zu heute</button>}</div>
-      <NavArrow dir="right" onClick={()=>navDay(1)}/>
+    <div className="day-head"><span>{dayLabel}</span>
+      {dayOff!==0&&<button className="text-btn" onClick={()=>{setDirection(dayOff>0?-1:1);setDayOff(0);}}>Zu heute</button>}</div>
+    <div className="day-nav">
+      <button className="week-step" aria-label="Vorherige Woche" onClick={()=>navDay(-7)}>‹</button>
+      <div className="day-strip" aria-label="Tag auswählen">
+        {weekAround(viewKey).map((dk,i)=><button key={dk} className={"day-chip"+(isMatchDay(plan[dk])?" match-day":"")} aria-pressed={dk===viewKey}
+          aria-label={shortDate(dk)+(plan[dk]?.match?" · "+entryDescription(plan[dk]):"")+(calendarDone(plan[dk])?" · erledigt":"")} onClick={()=>go(dk)}>
+          <small>{DN[i]}</small><strong>{Number(dk.slice(-2))}</strong>
+          <span className="day-marker">{calendarDone(plan[dk])?"✓":isMatchDay(plan[dk])?"⚽":getSessions(plan[dk]).length?"·":" "}</span>
+        </button>)}
+      </div>
+      <button className="week-step" aria-label="Nächste Woche" onClick={()=>navDay(7)}>›</button>
     </div>
-    <div className="day-strip" aria-label="Tag auswählen">
-      {weekAround(viewKey).map((dk,i)=><button key={dk} className={"day-chip"+(isMatchDay(plan[dk])?" match-day":"")} aria-pressed={dk===viewKey}
-        aria-label={shortDate(dk)+(plan[dk]?.match?" · "+entryDescription(plan[dk]):"")+(calendarDone(plan[dk])?" · erledigt":"")} onClick={()=>go(dk)}>
-        <small>{DN[i]}</small><strong>{Number(dk.slice(-2))}</strong>
-        <span className="day-marker">{calendarDone(plan[dk])?"✓":isMatchDay(plan[dk])?"⚽":getSessions(plan[dk]).length?"·":" "}</span>
-      </button>)}
-    </div>
-    <section key={"session-"+viewKey} className={"panel session-card"+(isMatchDay(e)?" match-card":"")} aria-label="Training"
+    <DayRings plan={plan} viewKey={viewKey} target={proteinTarget} onOpenPlan={onOpenPlan}/>
+    <section key={"session-"+viewKey} id="today-session" className={"panel session-card"+(isMatchDay(e)?" match-card":"")} aria-label="Training"
       style={{animation:direction>0?"slideLeft .22s ease-out":"slideRight .22s ease-out"}}>
       <div className="session-top"><span className="eyebrow">{e.completed?"Training erledigt":sessions.length?"Dein Training":"Zeit zum Auftanken"}</span>
-        <div className="session-art">{sessions.length?sessions.map(s=><Icon key={s} name={s} size={28}/>):<Icon name="rest" size={28}/>}</div></div>
+        <div className="session-art">{sessions.length?sessions.map(s=><Icon key={s} name={s} size={24}/>):<Icon name="rest" size={24}/>}</div></div>
       {match&&<div className="fixture-detail" aria-label="Spieltermin">
         <div className="fixture-meta"><span className="match-badge">{match.home?'Heimspiel':'Auswärtsspiel'}</span><strong>{match.kickoff} Uhr</strong></div>
         <h3>Gegen {match.opponent}</h3><p>FC Julius Bär · {shortDate(match.date)} · Zeit in der Schweiz</p>
         {e.completed&&!sessions.includes('Match')&&<p>Spieltermin laut Spielplan. Dein bereits abgeschlossenes Training bleibt unverändert.</p>}
       </div>}
-      <h2>{sessions.length?sessions.map((s,i)=><span key={s}>{i>0&&<><br/><span style={{fontWeight:300,color:C.muted}}>+ </span></>}{displayName(s)}</span>):"Ruhetag"}</h2>
-      <p className="session-subtitle">{sessionSubtitle(e)}</p>
-      {guidance&&<aside className="plan-guidance" aria-label="Planhinweis"><strong>{guidance.title}</strong><p>{guidance.text}</p></aside>}
-      <div className="session-actions">
-        <div><button className="text-btn" onClick={()=>setSheetOpen(true)}><Icon name="edit" size={16}/> Ändern</button>
-          <button className="text-btn" onClick={()=>setNotesOpen(o=>!o)} aria-expanded={notesOpen}><Icon name="note" size={16}/> {e.notes?"Notiz":"Notiz hinzufügen"}</button></div>
+      <div className="session-main">
+        <h2>{sessions.length?sessions.map((s,i)=><span key={s}>{i>0&&<><br/><span style={{fontWeight:300,color:C.muted}}>+ </span></>}{displayName(s)}</span>):"Ruhetag"}</h2>
         {sessions.length>0&&<button className={"log-circle"+(e.completed?" logged":"")}
           aria-label={e.completed?"Eintrag rückgängig machen":"Training als erledigt eintragen"}
           onClick={()=>e.completed?setConfirmUnlog(true):updDay(viewKey,{completed:true})}>
           {e.completed?<Chk size={26} color={C.ink}/>:<span>FERTIG</span>}
         </button>}
+      </div>
+      <p className="session-subtitle">{sessionSubtitle(e)}</p>
+      {guidance&&<aside className={"plan-guidance"+(guideOpen?" open":"")} aria-label="Planhinweis"><strong>{guidance.title}</strong><p>{guidance.text}</p>
+        {guidance.text.length>110&&<button className="text-btn more-btn" aria-expanded={guideOpen} onClick={()=>setGuideOpen(o=>!o)}>{guideOpen?"Weniger":"Mehr lesen"}</button>}</aside>}
+      <div className="session-actions">
+        <div><button className="text-btn" onClick={()=>setSheetOpen(true)}><Icon name="edit" size={16}/> Ändern</button>
+          <button className="text-btn" onClick={()=>setNotesOpen(o=>!o)} aria-expanded={notesOpen}><Icon name="note" size={16}/> {e.notes?"Notiz":"Notiz hinzufügen"}</button></div>
       </div>
       {confirmUnlog&&<div className="inline-confirm"><p>Diesen Trainingseintrag entfernen?</p>
         <button className="text-btn" onClick={()=>{updDay(viewKey,{completed:false,feeling:null});setConfirmUnlog(false);}}>Entfernen</button>
@@ -976,11 +1204,8 @@ function TodayView({plan,updDay,dayOff,setDayOff,onOpenCoach}) {
       {sessions.length>0&&<details className="session-details"><summary>Hinweise zur Einheit</summary>
         {sessions.map(s=><TipCard key={s} workout={s}/>)}</details>}
     </section>
-    <WeeklyTargets plan={plan} date={viewKey}/>
-    {next&&<div className="next-line"><span>Als Nächstes</span><strong>{next.label}</strong><span>{next.when}</span></div>}
-    <TacticalCard dk={viewKey}/>
-    <button className="coach-entry" onClick={onOpenCoach}><Icon name="coach" size={20}/><span>Frag deinen Trainer</span><Icon name="arrow" size={18}/></button>
-    <BodyCompLine key={"body-"+viewKey} entry={e} dateKey={viewKey} updDay={updDay}/>
+    <NutritionCard key={"nutrition-"+viewKey} entry={e} dateKey={viewKey} updDay={updDay} target={proteinTarget}/>
+    <UpNextCard plan={plan} from={viewKey} onSelect={go}/>
     {sheetOpen&&<WorkoutSheet dateKey={viewKey} entry={e} updDay={updDay} onClose={()=>setSheetOpen(false)}/>}
   </div>;
 }
@@ -1030,8 +1255,20 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
       </div>;})}
     </div>
     <p className="helper-text">Tag öffnen, um Training einzutragen. Über ⇅ kannst du zwei Trainingstage tauschen. Eingetragene Spieltermine bleiben fix.</p>
+    <WeeklyTargets plan={plan} date={days[0]}/>
+    <div style={{marginTop:14}}><TacticalCard dk={days[0]}/></div>
     {sheetDk&&<WorkoutSheet dateKey={sheetDk} entry={plan[sheetDk]||{}} updDay={updDay} onClose={()=>setSheetDk(null)}/>}
   </div>;
+}
+
+// ─── Plan view: week / month toggle ──────────────────────────────────────────────
+function PlanView({mode,setMode,...props}) {
+  return <>
+    <div className="plan-switch"><div className="segmented" role="group" aria-label="Ansicht">
+      {[["week","Woche"],["month","Monat"]].map(([key,label])=><button key={key} aria-pressed={mode===key} onClick={()=>setMode(key)}>{label}</button>)}
+    </div></div>
+    {mode==="week"?<WeekView {...props}/>:<MonthView {...props}/>}
+  </>;
 }
 
 // ─── Month view ──────────────────────────────────────────────────────────────────
@@ -1099,6 +1336,29 @@ function rollingSeries(readings, fromDk, toDk) {
   return out;
 }
 
+const BF_GOAL_LOW = 13;  // lower end of the target band
+// 7-day mean ending at `to` (inclusive), or null when that window holds no readings.
+function bodyMean(readings,to) {
+  const from=daysBeforeStr(to,6),points=readings.filter(r=>r.date>=from&&r.date<=to);
+  return points.length?{value:points.reduce((n,r)=>n+r.value,0)/points.length,count:points.length}:null;
+}
+// Headline numbers for the Körper tab. Each metric is anchored at its own latest
+// reading and reports how old it is; the delta compares with the seven days before.
+// Fat and lean mass need weight and body fat within the same window.
+function bodySnapshot(plan,today=todayStr()) {
+  const utc=s=>{const [y,m,d]=s.split('-').map(Number);return Date.UTC(y,m-1,d);};
+  const weight=bodyCompReadings(plan,'weight').filter(r=>r.date<=today&&r.value<=500);
+  const bodyFat=bodyCompReadings(plan,'bodyFat').filter(r=>r.date<=today&&r.value<100);
+  const metric=readings=>{const last=readings.at(-1);if(!last)return null;
+    return {anchor:last.date,ageDays:Math.round((utc(today)-utc(last.date))/86400000),
+      current:bodyMean(readings,last.date),previous:bodyMean(readings,daysBeforeStr(last.date,7))};};
+  const anchor=[weight.at(-1)?.date,bodyFat.at(-1)?.date].filter(Boolean).sort().at(-1);
+  const mass=to=>{const w=bodyMean(weight,to),f=bodyMean(bodyFat,to);
+    return w&&f?{fat:w.value*f.value/100,lean:w.value*(1-f.value/100)}:null;};
+  return {weight:metric(weight),bodyFat:metric(bodyFat),
+    mass:anchor?{anchor,current:mass(anchor),previous:mass(daysBeforeStr(anchor,7))}:null};
+}
+
 // Minimal responsive SVG line chart: rolling-average line (gap-aware), raw
 // readings as de-emphasized dots, optional dashed horizontal target.
 function TrendChart({readings, series, target}) {
@@ -1147,27 +1407,125 @@ function TrendChart({readings, series, target}) {
   );
 }
 
-// Journey section: metric toggle, rolling-average summary line, trend chart.
-function BodyCompTrend({plan}) {
-  const [metric,setMetric]=useState("bodyFat");
-  const readings=bodyCompReadings(plan,metric), today=todayStr();
-  const from=readings.length&&readings[0].date<daysBeforeStr(today,13)?readings[0].date:daysBeforeStr(today,13);
-  const series=readings.length?rollingSeries(readings,from,today):[];
-  const points=series.filter(p=>p.value!=null),latest=points.at(-1);
-  return <section className="panel trend-panel">
-    <div className="eyebrow">Körperentwicklung</div>
-    <div className="metric-switch">{[["bodyFat","Körperfett"],["weight","Gewicht"]].map(([key,label])=>
-      <button key={key} aria-pressed={metric===key} onClick={()=>setMetric(key)}>{label}</button>)}</div>
-    {latest?<><div className="trend-value">{latest.value.toFixed(1)}<span>{metric==="bodyFat"?" %":" kg"}</span></div>
-      <p className="helper-text">7-Tage-Mittel · Stand {shortDate(latest.date)}{metric==="bodyFat"?" · Ziel 14 %":""}</p>
-      <TrendChart readings={readings} series={series} target={metric==="bodyFat"?BF_GOAL:null}/>
-      <p className="chart-caption">Linie: 7-Tage-Mittel · Punkte: einzelne Messungen</p></>
-      :<p className="helper-text">Trage unter Heute deine Körperwerte ein. Hier siehst du die Entwicklung — ohne tägliches Rauschen.</p>}
+// ─── Körper view ─────────────────────────────────────────────────────────────────
+// Body fat (7-day mean) is the hero; weight, fat and lean mass support it. Smart-scale
+// readings are estimates, so single readings never drive the headline.
+const BODY_RANGES=[["4w","4 Wochen",27],["3m","3 Monate",89],["season","Saison",null]];
+const fmt1=v=>v.toFixed(1);
+const validBody=v=>typeof v==="number"&&Number.isFinite(v)&&v>0;
+function deltaText(cur,prev,unit) {
+  if(!cur||!prev)return "Noch kein Vergleich zur Vorwoche";
+  const d=cur.value-prev.value;
+  return Math.abs(d)<0.05?"Unverändert ggü. Vorwoche":(d<0?"↓ ":"↑ ")+fmt1(Math.abs(d))+" "+unit+" ggü. Vorwoche";
+}
+function GoalBar({value}) {
+  const lo=10,hi=Math.max(22,Math.ceil(value)+1),pos=v=>Math.max(0,Math.min(100,(v-lo)/(hi-lo)*100));
+  const status=value>BF_GOAL?"noch "+fmt1(value-BF_GOAL)+" %-Punkte":value>=BF_GOAL_LOW?"Im Zielbereich ✓":"Unter dem Zielbereich";
+  return <><div className="goal-bar" aria-hidden="true">
+    <span className="goal-band" style={{left:pos(BF_GOAL_LOW)+"%",width:(pos(BF_GOAL)-pos(BF_GOAL_LOW))+"%"}}/>
+    <span className="goal-marker" style={{left:pos(value)+"%"}}/></div>
+    <div className="goal-legend"><span>Ziel {BF_GOAL_LOW}–{BF_GOAL} %</span><span>{status}</span></div></>;
+}
+function BodyTile({label,value,cur,prev}) {
+  const d=cur&&prev?cur-prev:null;
+  return <div className="panel body-tile"><small>{label}</small>
+    <strong>{value!=null?<>{fmt1(value)}<span> kg</span></>:"–"}</strong>
+    <em>{d==null?"7-Tage-Mittel":Math.abs(d)<0.05?"wie Vorwoche":(d<0?"−":"+")+fmt1(Math.abs(d))+" ggü. Vorwoche"}</em></div>;
+}
+// Inline editor for one dated measurement. Empty fields remove that value.
+function MeasurementEditor({plan,initialDate,updDay,onClose}) {
+  const today=todayStr();
+  const fill=dk=>{const e=plan[dk]||{};return [validBody(e.weight)?String(e.weight):"",validBody(e.bodyFat)?String(e.bodyFat):""];};
+  const [date,setDate]=useState(initialDate);
+  const [w,setW]=useState(()=>fill(initialDate)[0]),[bf,setBf]=useState(()=>fill(initialDate)[1]);
+  const dateOk=validCoachDate(date)&&date<=today;
+  const pickDate=dk=>{setDate(dk);if(validCoachDate(dk)&&dk<=today){const [a,b]=fill(dk);setW(a);setBf(b);}};
+  const parse=v=>v.trim()===""?null:Number(v.replace(",","."));
+  const weight=parse(w),fat=parse(bf);
+  const valid=dateOk&&(weight===null||Number.isFinite(weight)&&weight>0&&weight<=500)&&(fat===null||Number.isFinite(fat)&&fat>0&&fat<100);
+  const save=()=>{if(!valid)return;updDay(date,{weight:weight==null?null:Math.round(weight*10)/10,bodyFat:fat==null?null:Math.round(fat*10)/10});onClose();};
+  return <section className="panel body-editor" aria-label="Messung eintragen">
+    <div className="eyebrow">Messung eintragen</div>
+    <label className="field-label">Datum<input type="date" className="modal-input" max={today} value={date} onChange={e=>pickDate(e.target.value)}/></label>
+    <div className="body-fields">
+      <label>Gewicht (kg)<input className="modal-input" inputMode="decimal" autoFocus value={w} onChange={e=>setW(e.target.value)} placeholder="78,4"/></label>
+      <label>Körperfett (%)<input className="modal-input" inputMode="decimal" value={bf} onChange={e=>setBf(e.target.value)} placeholder="15,8"/></label>
+    </div>
+    {!valid&&<p role="alert" className="helper-text">{dateOk?"Bitte gültige Werte eingeben.":"Bitte ein Datum bis heute wählen."}</p>}
+    <p className="helper-text">Am besten morgens nach dem Aufstehen messen, immer unter gleichen Bedingungen. Leere Felder entfernen den Wert.</p>
+    <div className="sheet-footer"><button className="primary" disabled={!valid} onClick={save}>Speichern</button><button className="secondary" onClick={onClose}>Abbrechen</button></div>
   </section>;
 }
+function BodyView({plan,updDay,proteinTarget}) {
+  const today=todayStr(),snap=bodySnapshot(plan,today);
+  const [editor,setEditor]=useState(null),[metric,setMetric]=useState("bodyFat"),[range,setRange]=useState("3m");
+  const editorRef=useRef(null);
+  useEffect(()=>{if(editor)editorRef.current?.scrollIntoView({behavior:reduceMotion()?"auto":"smooth",block:"center"});},[editor]);
+  const readings=bodyCompReadings(plan,metric).filter(r=>metric==="weight"?r.value<=500:r.value<100);
+  const span=BODY_RANGES.find(r=>r[0]===range)[2];
+  const from=span!=null?daysBeforeStr(today,span):readings[0]&&readings[0].date<SEASON_START?readings[0].date:SEASON_START;
+  const series=from<=today?rollingSeries(readings,from,today):[];
+  const hasLine=series.some(p=>p.value!=null);
+  const recent=Object.keys(plan).filter(dk=>dk<=today&&(validBody(plan[dk]?.weight)||validBody(plan[dk]?.bodyFat))).sort().reverse().slice(0,5);
+  const nut=nutritionSummary(plan,Array.from({length:7},(_,i)=>daysBeforeStr(today,6-i)),proteinTarget);
+  const bf=snap.bodyFat,w=snap.weight,m=snap.mass;
+  return <div className="view">
+    <section className="panel body-hero" aria-label="Körperfett">
+      <div className="eyebrow">Körperfett · 7-Tage-Mittel</div>
+      {bf?<>
+        <div className="hero-value">{fmt1(bf.current.value)}<span> %</span></div>
+        <p className="hero-delta">{deltaText(bf.current,bf.previous,"%-Punkte")}</p>
+        <GoalBar value={bf.current.value}/>
+        <p className="hero-meta">{bf.current.count} {bf.current.count===1?"Messung":"Messungen"} · Stand {shortDate(bf.anchor)}{bf.ageDays>7?` · seit ${bf.ageDays} Tagen keine neue Messung`:""}</p>
+      </>:<p className="helper-text">Noch keine Körperfett-Messung. Trag deine Waage-Werte ein: Es zählt die Entwicklung, nicht der einzelne Tag.</p>}
+      {!editor&&<button className="primary add-measure" onClick={()=>setEditor(today)}><Icon name="plus" size={18}/> Messung eintragen</button>}
+    </section>
+    {editor&&<div ref={editorRef} style={{scrollMarginTop:16}}><MeasurementEditor key={editor} plan={plan} initialDate={editor} updDay={updDay} onClose={()=>setEditor(null)}/></div>}
+    {(w||bf)&&<><div className="body-tiles">
+      <BodyTile label="Gewicht" value={w?.current?.value} cur={w?.current?.value} prev={w?.previous?.value}/>
+      <BodyTile label="Fettmasse" value={m?.current?.fat} cur={m?.current?.fat} prev={m?.previous?.fat}/>
+      <BodyTile label="Magermasse" value={m?.current?.lean} cur={m?.current?.lean} prev={m?.previous?.lean}/>
+    </div>
+    <p className="chart-caption" style={{marginTop:0}}>Fett- und Magermasse = Gewicht × Körperfett der Waage. Schätzwerte, die Richtung zählt.</p>
+    <section className="panel trend-panel" aria-label="Verlauf" style={{marginTop:14}}>
+      <div className="trend-head"><div className="metric-switch">{[["bodyFat","Körperfett"],["weight","Gewicht"]].map(([key,label])=>
+        <button key={key} aria-pressed={metric===key} onClick={()=>setMetric(key)}>{label}</button>)}</div></div>
+      <div className="range-switch" role="group" aria-label="Zeitraum" style={{marginBottom:14}}>{BODY_RANGES.map(([key,label])=>
+        <button key={key} aria-pressed={range===key} onClick={()=>setRange(key)}>{label}</button>)}</div>
+      {hasLine?<><TrendChart readings={readings} series={series} target={metric==="bodyFat"?BF_GOAL:null}/>
+        <p className="chart-caption">Linie: 7-Tage-Mittel · Punkte: einzelne Messungen</p></>
+        :<p className="helper-text">Keine Messungen in diesem Zeitraum.</p>}
+    </section></>}
+    <section aria-label="Ernährung der letzten sieben Tage">
+      <div className="section-heading"><h2>Ernährung</h2><span>letzte 7 Tage</span></div>
+      <div className="panel nutri-week">
+        <div className="nutri-days">{nut.days.map(d=>{const l=nutritionLevel(d.nutrition),day=new Date(d.date+"T12:00:00");
+          return <div key={d.date} className="nutri-day" role="img"
+            aria-label={shortDate(d.date)+": "+(d.protein!=null?d.protein+" g Protein":"Protein nicht erfasst")+", "+(l?l.label:"nicht bewertet")}>
+            <small>{DN[dow0(day)]}</small><span className={"ampel-dot "+(l?l.key:"none")}>{l?l.mark:""}</span>
+            <b className={d.hit?"hit":""}>{d.protein??"–"}</b></div>;})}</div>
+        <div className="nutri-stats">
+          <div><strong>{nut.hits}/7</strong><span>Tage mit ≥ {nut.target} g Protein</span></div>
+          <div><strong>{nut.avgProtein!=null?nut.avgProtein+" g":"–"}</strong><span>Ø an {nut.proteinDays} erfassten Tagen</span></div>
+          <div><strong className="ampel-counts" aria-label={`${nut.counts.green} grün, ${nut.counts.amber} gelb, ${nut.counts.red} rot`}>
+            {["green","amber","red"].map(k=><span key={k} style={{display:"inline-flex",alignItems:"center",gap:3}}>
+              <span className={"ampel-dot "+k} style={{width:10,height:10}} aria-hidden="true"/>{nut.counts[k]}</span>)}</strong>
+            <span>Bewertete Tage nach Ampel</span></div>
+        </div>
+      </div>
+    </section>
+    {recent.length>0&&<section aria-label="Letzte Messungen">
+      <div className="section-heading"><h2>Messungen</h2><span>Antippen zum Bearbeiten</span></div>
+      <div className="panel measure-list">{recent.map(dk=>{const e=plan[dk];
+        return <button key={dk} className="measure-row" onClick={()=>setEditor(dk)} aria-label={"Messung vom "+shortDate(dk)+" bearbeiten"}>
+          <span>{shortDate(dk)}</span><span>{validBody(e.weight)?fmt1(e.weight)+" kg":"–"}</span>
+          <span>{validBody(e.bodyFat)?fmt1(e.bodyFat)+" %":"–"}</span><Icon name="edit" size={15}/></button>;})}</div>
+    </section>}
+  </div>;
+}
 
-// ─── Journey view ────────────────────────────────────────────────────────────────
-function JourneyView({plan,today,onGoToDay}) {
+// ─── Saison view ─────────────────────────────────────────────────────────────────
+function JourneyView({plan,today,onGoToDay,onOpenSettings}) {
   const entries=Object.values(plan), planned=entries.filter(e=>getSessions(e).length).length;
   const done=entries.filter(e=>e.completed&&getSessions(e).length).length;
   const current=phaseForDate(today), idx=PHASES.indexOf(current), next=PHASES[idx+1];
@@ -1177,7 +1535,6 @@ function JourneyView({plan,today,onGoToDay}) {
       <progress aria-label="Saisonfortschritt" max={Math.max(planned,1)} value={done}/>
       <p>{current?(next?daysUntil(next.start)+" Tage bis "+phaseLabel(next.name):daysUntil(current.end)+" Tage bis Saisonende"):today<SEASON_START?"Deine Saison startet am "+shortDate(SEASON_START):"Saison abgeschlossen."}</p>
     </section>
-    <BodyCompTrend plan={plan}/>
     <div className="section-heading"><h2>Deine Saisonphasen</h2><span>Der lange Blick</span></div>
     <div className="phase-timeline">{PHASES.map((p,i)=>{
       const days=Object.entries(plan).filter(([dk])=>dk>=p.start&&dk<=p.end);
@@ -1188,11 +1545,13 @@ function JourneyView({plan,today,onGoToDay}) {
         <p>{p.description}</p><div className="phase-count"><span>{count} / {total} Trainingstage</span><Icon name="arrow" size={18}/></div>
       </button>;
     })}</div>
+    <button className="panel settings-link" onClick={onOpenSettings}><Icon name="settings" size={22}/>
+      <span>Einstellungen<small>Name, Proteinziel, Datensicherung</small></span><Icon name="arrow" size={18}/></button>
   </div>;
 }
 
 // ─── Coach screen (full-screen chat) ─────────────────────────────────────────────
-function CoachScreen({viewKey,plan,playerName,onBack}) {
+function CoachScreen({viewKey,plan,playerName,proteinTarget,onBack}) {
   const [messages,setMessages]=useState([]);
   const [input,setInput]=useState("");
   const [sending,setSending]=useState(false);
@@ -1217,7 +1576,7 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
     setMessages([...base,{role:"assistant",content:""}]);
     try {
       const resp=await fetch("/api/coach",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({...buildCoachContext(plan,playerName,viewKey),messages:base.slice(-20)})});
+        body:JSON.stringify({...buildCoachContext(plan,playerName,viewKey,todayStr(),proteinTarget),messages:base.slice(-20)})});
       if (!resp.ok||!resp.body) throw new Error("bad response");
       const reader=resp.body.getReader(), decoder=new TextDecoder();
       let acc="";
@@ -1256,7 +1615,7 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
 
       <div style={{flex:1,minHeight:0,overflowY:"auto",padding:16,display:"flex",flexDirection:"column",gap:10}}>
         <button className="primary" onClick={dailyBriefing} disabled={sending}>Daily Briefing · {shortDate(todayStr())}</button>
-        <p style={{fontSize:11,color:C.muted,lineHeight:1.5,margin:0}}>Berücksichtigt Trainingslogs und Notizen, kommende Termine, Wochenziele und vorhandene Körperwerte. Chats anderer Tage sind nicht enthalten.{viewKey!==todayStr()?` Geöffneter Trainingstag: ${shortDate(viewKey)}. Das Daily Briefing bezieht sich auf heute.`:''}</p>
+        <p style={{fontSize:11,color:C.muted,lineHeight:1.5,margin:0}}>Berücksichtigt Trainingslogs und Notizen, kommende Termine, Wochenziele, Ernährung und vorhandene Körperwerte. Chats anderer Tage sind nicht enthalten.{viewKey!==todayStr()?` Geöffneter Trainingstag: ${shortDate(viewKey)}. Das Daily Briefing bezieht sich auf heute.`:''}</p>
         {messages.length===0&&!input.trim()&&!coachError&&(
           <button onClick={startCoach} disabled={sending}
             style={{alignSelf:"stretch",padding:"14px",background:C.surface,color:C.sageDk,
@@ -1315,7 +1674,10 @@ function CoachScreen({viewKey,plan,playerName,onBack}) {
 
 export default function App() {
   const [loading,setLoading]=useState(true),[playerName,setPlayerName]=useState(""),[plan,setPlan]=useState({});
-  const [view,setView]=useState("today"),[screen,setScreen]=useState("main");
+  const [view,setView]=useState("today"),[screen,setScreen]=useState("main"),[planMode,setPlanMode]=useState("week");
+  // null = default target; only an explicitly chosen value is stored (top-level, optional).
+  const [proteinSetting,setProteinSetting]=useState(null);
+  const proteinTarget=proteinSetting??DEFAULT_PROTEIN_TARGET;
   const [wkOff,setWkOff]=useState(0),[moOff,setMoOff]=useState(0),[dayOff,setDayOff]=useState(0);
   const [restoredToast,setRestoredToast]=useState(false),[celebration,setCelebration]=useState(null),[storageError,setStorageError]=useState("");
   const [loadError,setLoadError]=useState(false);
@@ -1329,10 +1691,11 @@ export default function App() {
           const d=JSON.parse(stored);
           if(!d||typeof d!=="object"||!d.plan||Array.isArray(d.plan)||typeof d.plan!=="object")throw Error("invalid");
           const updated=migrateCoachedPlan(migrateMatchSchedule(d));
-          const {playerName:name,plan:savedPlan,...extras}=updated;
+          const {playerName:name,plan:savedPlan,proteinTarget:storedTarget,...extras}=updated;
           storedExtras.current=extras;
-          setPlayerName(typeof name==="string"?name:"");setPlan(savedPlan);setScreen(name?"main":"setup");
-          if(previous||updated!==d)localStorage.setItem(SK,JSON.stringify({...extras,playerName:name||"",plan:savedPlan}));
+          const target=validProteinTarget(storedTarget)?storedTarget:null;
+          setPlayerName(typeof name==="string"?name:"");setPlan(savedPlan);setProteinSetting(target);setScreen(name?"main":"setup");
+          if(previous||updated!==d)localStorage.setItem(SK,JSON.stringify({...extras,playerName:name||"",...(target!=null?{proteinTarget:target}:{}),plan:savedPlan}));
         }else{storedExtras.current={matchScheduleVersion:MATCH_SCHEDULE_VERSION,coachedPlanVersion:COACHED_PLAN_VERSION};setPlan(buildDefaultPlan());setScreen("setup");}
       }catch{setLoadError(true);}
       setLoading(false);
@@ -1341,8 +1704,9 @@ export default function App() {
   },[]);
   useEffect(()=>{if(!restoredToast)return;const t=setTimeout(()=>setRestoredToast(false),3200);return ()=>clearTimeout(t);},[restoredToast]);
   useEffect(()=>{if(!celebration)return;const t=setTimeout(()=>setCelebration(null),5000);return ()=>clearTimeout(t);},[celebration]);
-  const save=(np,nn)=>{
-    try{localStorage.setItem(SK,JSON.stringify({...storedExtras.current,playerName:nn??playerName,plan:np??plan}));setStorageError("");}
+  const save=(np,nn,pt)=>{
+    const target=pt===undefined?proteinSetting:pt;
+    try{localStorage.setItem(SK,JSON.stringify({...storedExtras.current,playerName:nn??playerName,...(target!=null?{proteinTarget:target}:{}),plan:np??plan}));setStorageError("");}
     catch{setStorageError("Änderungen sind noch nicht gespeichert. Bitte Speicherplatz und Browser-Zugriff prüfen.");}
   };
   const checkMilestones=(dk,planState)=>{
@@ -1366,28 +1730,30 @@ export default function App() {
   };
   const goToDay=dk=>{setDayOff(daysUntil(dk)??0);setView("today");window.scrollTo(0,0);};
   const today=todayStr(),phase=phaseForDate(today);
-  const tabs=[["today","Heute"],["week","Woche"],["month","Monat"],["journey","Entwicklung"]];
-  const headings={today:"Heute zählt.",week:"Deine Woche.",month:"Der Überblick.",journey:"Dein Weg."};
+  const tabs=[["today","Heute","today"],["plan","Plan","plan"],["body","Körper","body"],["season","Saison","season"]];
+  const headings={today:dayOff===0?"Heute zählt.":dayOff<0?"Rückblick.":"Vorschau.",plan:"Dein Plan.",body:"Dein Körper.",season:"Dein Weg."};
   let content;
   if(loading)content=<main className="app-shell"><p className="loading-state">Dein Plan wird geladen …</p></main>;
   else if(loadError)content=<main className="app-shell"><div className="view" style={{paddingTop:80}}><h1>Daten nicht lesbar.</h1>
     <p className="helper-text">Deine gespeicherten Daten wurden nicht verändert. Bitte prüfe den Browser-Zugriff oder sichere die vorhandenen Daten, bevor du eine Sicherung wiederherstellst.</p>
     <button className="secondary" onClick={()=>window.location.reload()}>Erneut versuchen</button></div></main>;
-  else if(screen==="setup")content=<SetupScreen initName={playerName} isEdit={!!playerName} onBack={playerName?()=>setScreen("main"):null}
-    onSave={n=>{setPlayerName(n);save(plan,n);setScreen("main");}}/>;
-  else if(screen==="coach")content=<CoachScreen viewKey={offsetDate(dayOff)} plan={plan} playerName={playerName} onBack={()=>setScreen("main")}/>;
+  else if(screen==="setup")content=<SetupScreen initName={playerName} initProteinTarget={proteinTarget} isEdit={!!playerName} onBack={playerName?()=>setScreen("main"):null}
+    onSave={(n,target)=>{const pt=target===DEFAULT_PROTEIN_TARGET&&proteinSetting==null?null:target;setPlayerName(n);setProteinSetting(pt);save(plan,n,pt);setScreen("main");}}/>;
+  else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")}/>;
   else content=<main className="app-shell">
     <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Soccer Tracker</span>
-      <button className="icon-btn" aria-label="Einstellungen" onClick={()=>setScreen("setup")}><Icon name="settings" size={21}/></button></div>
+      <button className="coach-pill" aria-label="KI-Trainer öffnen" onClick={()=>setScreen("coach")}><Icon name="coach" size={17}/><span>Trainer</span></button></div>
       <h1>{headings[view]}</h1>
       <p className="subtitle">{playerName} <span style={{color:C.borderSt}}> / </span> {phase?phaseLabel(phase.name):today<SEASON_START?"Deine Saison beginnt bald":"Saison abgeschlossen"}</p>
     </header>
-    {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} onOpenCoach={()=>setScreen("coach")}/>}
-    {view==="week"&&<WeekView today={today} plan={plan} wkOff={wkOff} setWkOff={setWkOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays}/>}
-    {view==="month"&&<MonthView today={today} plan={plan} moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay}/>}
-    {view==="journey"&&<JourneyView today={today} plan={plan} onGoToDay={goToDay}/>}
-    <nav className="nav" aria-label="Hauptnavigation">{tabs.map(([key,label])=><button key={key} aria-label={label} aria-current={view===key?"page":undefined}
-      onClick={()=>{setView(key);if(key==="today")setDayOff(0);window.scrollTo(0,0);}}><TabIcon name={key}/><span>{label}</span></button>)}</nav>
+    {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} proteinTarget={proteinTarget}
+      onOpenPlan={()=>{setWkOff(Math.floor((dow0(new Date())+dayOff)/7));setPlanMode("week");setView("plan");window.scrollTo(0,0);}}/>}
+    {view==="plan"&&<PlanView mode={planMode} setMode={setPlanMode} today={today} plan={plan} wkOff={wkOff} setWkOff={setWkOff}
+      moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays}/>}
+    {view==="body"&&<BodyView plan={plan} updDay={updDay} proteinTarget={proteinTarget}/>}
+    {view==="season"&&<JourneyView today={today} plan={plan} onGoToDay={goToDay} onOpenSettings={()=>setScreen("setup")}/>}
+    <nav className="nav" aria-label="Hauptnavigation">{tabs.map(([key,label,icon])=><button key={key} aria-label={label} aria-current={view===key?"page":undefined}
+      onClick={()=>{setView(key);if(key==="today")setDayOff(0);window.scrollTo(0,0);}}><TabIcon name={icon}/><span>{label}</span></button>)}</nav>
   </main>;
   return <><style>{UI_CSS}</style>{content}
     {restoredToast&&<div className="toast" role="status">✓ Sicherung wiederhergestellt</div>}

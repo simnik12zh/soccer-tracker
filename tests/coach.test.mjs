@@ -194,3 +194,28 @@ test('installed Anthropic SDK serializes Sonnet 5.5 settings and forwards stream
   assert.deepEqual(chunks,['Guten Morgen. ','Heute locker bleiben.']);
   assert.equal(res.ended,true);
 });
+
+test('nutrition reaches the coach as dated, optional self-reports with a 7-day summary',()=>{
+  const plan={
+    '2026-09-24':{protein:90,nutrition:'red'},
+    '2026-09-27':{protein:120,nutrition:'green'},
+    '2026-09-28':{sessions:['Gym'],completed:true,protein:80,nutrition:'amber'},
+    '2026-09-29':{protein:'lots',nutrition:'blue'},
+    '2026-09-30':{protein:40},
+    '2026-10-01':{protein:150,nutrition:'green'},
+  };
+  const ctx=app.buildCoachContext(plan,'Test','2026-09-30','2026-09-30',120);
+  assert.deepEqual(plain(ctx.today.nutrition),{proteinGrams:40,rating:null});
+  assert.equal(ctx.recentDays.find(d=>d.date==='2026-09-29').nutrition,null,'invalid values are dropped, not zeroed');
+  assert.deepEqual(plain(ctx.recentDays.find(d=>d.date==='2026-09-28').nutrition),{proteinGrams:80,rating:'amber'});
+  assert.equal(ctx.upcoming[0].nutrition,null,'future self-reports are never sent');
+  assert.equal(ctx.nutrition.proteinTargetGrams,120);
+  assert.deepEqual(plain(ctx.nutrition.last7Days),{from:'2026-09-24',to:'2026-09-30',proteinLoggedDays:4,proteinTargetHitDays:1,
+    avgProteinGrams:83,ratedDays:3,ratings:{green:1,amber:1,red:1}});
+  assert.equal(ctx.nutrition.previous7Days.proteinLoggedDays,0);
+  assert.equal(app.buildCoachContext(plan,'Test','2026-09-30','2026-09-30',5).nutrition.proteinTargetGrams,100,'invalid target falls back to default');
+  const api=server(),prompt=api.buildContextBlock(ctx);
+  assert.match(prompt,/"proteinTargetGrams":120/);
+  assert.match(api.SYSTEM_PROMPT,/Missing values mean not logged, never zero protein or a red day/);
+  assert.match(api.SYSTEM_PROMPT,/sweets, eating for pleasure rather than hunger, fast food/);
+});

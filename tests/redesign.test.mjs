@@ -10,7 +10,7 @@ const bodyHelpers=source.slice(source.indexOf('function bodyCompReadings'),sourc
 const FixedDate=class extends Date {
   constructor(...args){super(...(args.length?args:['2026-10-24T12:00:00+02:00']));}
 };
-const api=vm.runInNewContext(helpers+'\n'+bodyHelpers+'\n({SK,buildDefaultPlan,getSessions,displayName,daysUntil,weekIndexFor,tacticalFor,bodyCompReadings,rollingSeries,PHASE_TARGETS,sessionSubtitle,TIPS,ALTS,TACTICAL_PROMPTS,FEELINGS,MILESTONES,MATCH_SCHEDULE,MATCH_SCHEDULE_VERSION,migrateMatchSchedule,applyMatchSchedule,matchSummary,isMatchDay})',{Date:FixedDate});
+const api=vm.runInNewContext(helpers+'\n'+bodyHelpers+'\n({SK,buildDefaultPlan,getSessions,displayName,daysUntil,weekIndexFor,tacticalFor,bodyCompReadings,rollingSeries,bodySnapshot,PHASE_TARGETS,weekTargetProgress,upcomingDays,upcomingLabel,upcomingWhen,DEFAULT_PROTEIN_TARGET,NUTRITION_LEVELS,validProtein,validProteinTarget,nutritionSummary,dayChecklist,sessionSubtitle,TIPS,ALTS,TACTICAL_PROMPTS,FEELINGS,MILESTONES,MATCH_SCHEDULE,MATCH_SCHEDULE_VERSION,migrateMatchSchedule,applyMatchSchedule,matchSummary,isMatchDay})',{Date:FixedDate});
 const plain=value=>JSON.parse(JSON.stringify(value));
 const coaching=vm.runInNewContext(helpers+'\n({COACHED_START,COACHED_END,COACHED_WEEKS,COACHED_DAYS,COACHED_PLAN_VERSION,applyCoachedPlan,migrateCoachedPlan,coachingFor,coachSessionDescription})',{Date:FixedDate});
 
@@ -30,7 +30,7 @@ test('date-reset siblings in TodayView have distinct keys on every day',()=>{
   // This guards the exact collision that left previous days' cards in the DOM.
   const today=source.slice(source.indexOf('function TodayView'),source.indexOf('function WeekView'));
   const cardKey=today.match(/<section key=\{([^}]+)\}/)?.[1];
-  const bodyKey=today.match(/<BodyCompLine key=\{([^}]+)\}/)?.[1];
+  const bodyKey=today.match(/<NutritionCard key=\{([^}]+)\}/)?.[1];
   assert.ok(cardKey&&bodyKey);
   const seen=new Set();
   for(const viewKey of ['2026-09-23','2026-09-24','2026-09-25','2026-09-26']){
@@ -254,13 +254,81 @@ test('new coaching guidance reaches the coach without replacing personal notes',
   assert.match(source,/coaching:null/,'manual session edits and swaps invalidate dated instructions');
 });
 
-test('browsing the plan uses the selected date for next session and weekly targets',()=>{
-  const {nextUp}=vm.runInNewContext(helpers+'\n({nextUp})',{Date:FixedDate});
-  const next=nextUp(api.buildDefaultPlan(),'2026-10-30');
-  assert.equal(next.label,'Spiel gegen FC Ränte');
-  assert.equal(next.when,'morgen · Auswärts · 10:00 Uhr');
-  assert.match(source,/<WeeklyTargets plan=\{plan\} date=\{viewKey\}/);
-  const targetCode=source.slice(source.indexOf('function WeeklyTargets'),source.indexOf('// ─── Body-comp entry line'));
+test('browsing the plan uses the selected date for up next and weekly targets',()=>{
+  const plan=api.buildDefaultPlan(),next=api.upcomingDays(plan,'2026-10-30');
+  assert.equal(next[0].date,'2026-10-31');
+  assert.equal(api.upcomingLabel(next[0].entry),'Spiel gegen FC Ränte');
+  assert.equal(api.upcomingWhen(next[0]),'morgen · Auswärts · 10:00 Uhr');
+  assert.match(source,/<UpNextCard plan=\{plan\} from=\{viewKey\}/);
+  assert.match(source,/<DayRings plan=\{plan\} viewKey=\{viewKey\}/);
+  assert.match(source,/<WeeklyTargets plan=\{plan\} date=\{days\[0\]\}/,'week view shows the goals of the week being browsed');
+  const targetCode=source.slice(source.indexOf('function WeeklyTargets'),source.indexOf('// ─── Today: rings'));
   assert.match(targetCode,/weekAround\(date\)/);
   assert.doesNotMatch(targetCode,/weekOf\(0\)/);
+});
+
+test('up next lists the next two planned days and always the next game within a week',()=>{
+  const plan={'2026-10-25':{sessions:['Gym']},'2026-10-26':{sessions:[]},'2026-10-27':{sessions:['Walking']},
+    '2026-10-28':{sessions:['Mobility']},'2026-10-30':{sessions:['Match'],match:{opponent:'FC Test',home:true,kickoff:'20:30'}},
+    '2026-11-02':{sessions:['Match'],match:{opponent:'Too far',home:false,kickoff:'19:00'}}};
+  const items=api.upcomingDays(plan,'2026-10-24');
+  assert.deepEqual(plain(items.map(i=>i.date)),['2026-10-25','2026-10-27','2026-10-30']);
+  assert.equal(api.upcomingWhen(items[0]),'morgen');
+  assert.equal(api.upcomingWhen(items[2]),'Freitag · Zuhause · 20:30 Uhr');
+  assert.deepEqual(plain(api.upcomingDays({},'2026-10-24')),[]);
+});
+
+test('week ring counts logged priority sessions once per day and caps each goal',()=>{
+  const plan={'2026-10-19':{sessions:['Gym','Mobility'],completed:true},'2026-10-20':{sessions:['Gym','Gym'],completed:true},
+    '2026-10-21':{sessions:['Gym'],completed:true},'2026-10-22':{sessions:['Mobility'],completed:false},'2026-10-23':{sessions:['Futsal'],completed:true}};
+  const days=['2026-10-19','2026-10-20','2026-10-21','2026-10-22','2026-10-23','2026-10-24','2026-10-25'];
+  const week=api.weekTargetProgress(plan,days,'Autumn Season');
+  assert.equal(week.goal,4);
+  assert.equal(week.done,3,'Gym capped at 2, Mobility 1, futsal and unlogged days ignored');
+  assert.deepEqual(plain(api.weekTargetProgress(plan,days,'Summer Break')),{rows:[],done:0,goal:0});
+});
+
+test('nutrition is optional: missing is not zero, invalid values are ignored',()=>{
+  assert.equal(api.DEFAULT_PROTEIN_TARGET,100);
+  assert.deepEqual(plain(api.NUTRITION_LEVELS.map(l=>l.key)),['green','amber','red']);
+  assert.match(api.NUTRITION_LEVELS.find(l=>l.key==='red').hint,/Süsses.*Lust statt Hunger/);
+  for(const bad of [-1,501,NaN,'80',null,undefined])assert.equal(api.validProtein(bad),false,String(bad));
+  assert.equal(api.validProtein(0),true);
+  assert.equal(api.validProteinTarget(100),true);assert.equal(api.validProteinTarget(10),false);assert.equal(api.validProteinTarget(120.5),false);
+  const plan={'2026-10-18':{protein:120,nutrition:'green'},'2026-10-19':{protein:80,nutrition:'red'},'2026-10-20':{protein:'90',nutrition:'purple'},
+    '2026-10-21':{nutrition:'amber'},'2026-10-22':{protein:100}};
+  const s=api.nutritionSummary(plan,['2026-10-18','2026-10-19','2026-10-20','2026-10-21','2026-10-22','2026-10-23','2026-10-24']);
+  assert.equal(s.proteinDays,3);assert.equal(s.hits,2);assert.equal(s.avgProtein,100);
+  assert.deepEqual(plain(s.counts),{green:1,amber:1,red:1});assert.equal(s.ratedDays,3);
+  assert.equal(s.days[2].protein,null);assert.equal(s.days[2].nutrition,null);
+  assert.equal(api.nutritionSummary(plan,['2026-10-19'],80).hits,1,'custom target');
+});
+
+test('day checklist names what is open without treating the future as missed',()=>{
+  assert.deepEqual(plain(api.dayChecklist({sessions:['Gym']},'2026-10-24','2026-10-24')),{future:false,open:['Training','Protein','Ernährung bewerten']});
+  assert.deepEqual(plain(api.dayChecklist({sessions:['Gym'],completed:true,protein:64,nutrition:'amber'},'2026-10-24','2026-10-24')).open,['36 g Protein']);
+  assert.deepEqual(plain(api.dayChecklist({sessions:[],protein:110,nutrition:'green'},'2026-10-23','2026-10-24')).open,[]);
+  assert.deepEqual(plain(api.dayChecklist({sessions:['Gym']},'2026-10-25','2026-10-24')),{future:true,open:[]});
+});
+
+test('body snapshot anchors each metric at its latest reading and needs both for mass',()=>{
+  const plan={'2026-10-08':{weight:82,bodyFat:17},'2026-10-12':{weight:80,bodyFat:16},'2026-10-20':{weight:79},'2026-10-22':{weight:78},
+    '2026-10-23':{bodyFat:120},'2026-10-25':{weight:70,bodyFat:10}};
+  const snap=api.bodySnapshot(plan,'2026-10-24');
+  assert.equal(snap.weight.anchor,'2026-10-22');assert.equal(snap.weight.current.value,78.5);assert.equal(snap.weight.current.count,2);
+  assert.equal(snap.weight.previous.value,80,'previous window 9–15 Oct');
+  assert.equal(snap.bodyFat.anchor,'2026-10-12');assert.equal(snap.bodyFat.ageDays,12);
+  assert.equal(snap.bodyFat.current.value,16.5);assert.equal(snap.bodyFat.previous,null);
+  assert.equal(snap.mass.anchor,'2026-10-22');assert.equal(snap.mass.current,null,'stale body fat is not combined with fresh weight');
+  const both=api.bodySnapshot({'2026-10-20':{weight:80,bodyFat:15},'2026-10-13':{weight:81,bodyFat:16}},'2026-10-24');
+  assert.ok(Math.abs(both.mass.current.fat-12)<1e-9);assert.ok(Math.abs(both.mass.current.lean-68)<1e-9);
+  assert.ok(Math.abs(both.mass.previous.fat-12.96)<1e-9);
+  assert.equal(api.bodySnapshot({},'2026-10-24').mass,null);
+});
+
+test('nutrition and protein target stay optional fields under the same storage key',()=>{
+  assert.match(source,/proteinTarget:storedTarget/);
+  assert.match(source,/target!=null\?\{proteinTarget:target\}:\{\}/,'the default target is not written to storage');
+  const card=source.slice(source.indexOf('function NutritionCard'),source.indexOf('// ─── Up next'));
+  assert.doesNotMatch(card,/sessions|completed/,'nutrition logging never touches training data');
 });
