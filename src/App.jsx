@@ -611,18 +611,24 @@ function Icon({name,size=22,...props}) {
     arrow:<path d="m7 17 10-10M7 7h10v10"/>,
     close:<path d="m6 6 12 12M6 18 18 6"/>,
     swap:<path d="M7 20V4m-4 4 4-4 4 4M17 4v16m-4-4 4 4 4-4"/>,
-    Gym:<><path d="m6 9 12 6M3 7l-2 5 4 2 3-7-4-2-1 2M21 17l2-5-4-2-3 7 4 2 1-2"/></>,
-    Mobility:<><circle cx="14" cy="4" r="2"/><path d="m9 8 5 1 4-2M14 9l-3 6 6 6M11 15l-5 5M10 8 6 12"/></>,
-    ball:<><circle cx="12" cy="12" r="9"/><path d="m12 7 5 4-2 5H9l-2-5zM12 3v4M3 10l4 1M6 19l3-3M18 19l-3-3M21 10l-4 1"/></>,
-    "Team Training":<><circle cx="9" cy="7" r="3"/><path d="M3 21v-4a6 6 0 0 1 12 0v4M17 4a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 4v3"/></>,
+    // One distinct icon per session type; Futsal and team training share the ball.
+    Match:<><rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M12 5v14"/><circle cx="12" cy="12" r="2.6"/><path d="M2.5 9.5H5v5H2.5M21.5 9.5H19v5h2.5"/></>,
+    ball:<><circle cx="12" cy="12" r="9"/><path d="m12 8.2 3.6 2.6-1.4 4.2H9.8l-1.4-4.2z"/><path d="M12 3v5.2M15.6 10.8l4.9-1.6M14.2 15l3 4.2M9.8 15l-3 4.2M8.4 10.8 3.5 9.2"/></>,
+    Gym:<><path d="M7 12h10M2 10v4M22 10v4"/><rect x="4" y="7" width="3" height="10" rx="1"/><rect x="17" y="7" width="3" height="10" rx="1"/></>,
+    Pilates:<><circle cx="6.5" cy="8" r="2"/><path d="M2 20h20M8 11.5l3.5 7.5 6.5-9M9 13.5l6.5-3.5"/></>,
+    Mobility:<><path d="M12 3 5 6v5.5c0 4.4 3 7.9 7 9.5 4-1.6 7-5.1 7-9.5V6z"/><path d="M12 9v6M9 12h6"/></>,
+    Walking:<><ellipse cx="7.5" cy="7.5" rx="2.7" ry="4.3"/><path d="M5.6 14.2h3.8v1.6a1.9 1.9 0 0 1-3.8 0z"/><ellipse cx="16.5" cy="10.5" rx="2.7" ry="4.3"/><path d="M14.6 17.2h3.8v1.6a1.9 1.9 0 0 1-3.8 0z"/></>,
+    "Easy run":<><circle cx="15" cy="4.5" r="1.8"/><path d="M13.6 7.5 11 13l3 3 1.5 4.5M11 13l-2.5 3.5L5 17.5M13 8.5l3 2 2.5-1.5M13 8.5l-3 1.5-2-1.5"/></>,
+    "Sick/Injured":<g transform="rotate(-45 12 12)"><rect x="2.5" y="8.5" width="19" height="7" rx="3.5"/><path d="M9.5 8.5v7M14.5 8.5v7"/></g>,
     rest:<path d="M20 14A9 9 0 0 1 10 3a9 9 0 1 0 10 11Z"/>,
+    custom:<path d="M3 12h4l2.5-6 5 12 2.5-6H21"/>,
     settings:<><circle cx="12" cy="12" r="3"/><path d="m9 2-1 3-3 1-3 3 2 3-2 3 3 3 3 1 1 3h6l1-3 3-1 3-3-2-3 2-3-3-3-3-1-1-3z"/></>,
     focus:<><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m12 12 9-9"/></>,
     body:<><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M7.5 10a6 6 0 0 1 9 0M12 10l1.8-2.2"/></>,
     plus:<path d="M12 5v14M5 12h14"/>,
   };
-  const resolved=name==="Match"||name==="Futsal"?"ball":name==="Walking"||name==="Easy run"||name==="Pilates"?"Mobility":name==="Sick/Injured"?"rest":name==="plan"?"month":name==="season"?"journey":name;
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>{paths[resolved]||paths.Mobility}</svg>;
+  const resolved=name==="Futsal"||name==="Team Training"?"ball":name==="plan"?"month":name==="season"?"journey":name;
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>{paths[resolved]||paths.custom}</svg>;
 }
 function SessionMarks({entry,size=16}) {
   return <span className="session-marks">{getSessions(entry).map(s=><Icon key={s} name={s} size={size}/>)}</span>;
