@@ -85,6 +85,21 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 - **Retired features** — Hip/Legs check-ins, Mediale Kette and the Routine tab are removed.
   Existing check-ins and top-level rehab fields remain untouched in stored data and backups,
   but are no longer shown or sent to the coach. Exercise image source files are retained.
+- **Daily reminders (Web Push)** — opt-in under Saison → Einstellungen → Erinnerungen. Works on
+  iPhone only in the home-screen app (iOS 16.4+). `public/sw.js` is a push-only service worker
+  (no fetch handler, no offline caching). Vercel Cron (`vercel.json`) calls `/api/remind` at
+  10, 11, 19 and 20 UTC; `api/_lib/push.js` sends only when it is 12 or 21 Uhr in
+  Europe/Zurich, so both summer and winter time work, and at most once per slot and day
+  (Redis `SET NX`; cron can deliver twice). On the Hobby plan a run lands anywhere within the
+  hour. The push carries only the slot; the worker builds the text from a two-week snapshot of
+  open items (`reminderStatus`, written to Cache Storage `soccer-status` on every change), so
+  no training data reaches the server. Midday leaves out the eating rating.
+  Storage: Upstash Redis via the Vercel Marketplace (`KV_REST_API_URL`/`KV_REST_API_TOKEN` or
+  `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`). VAPID keys are generated on first use
+  and kept in Redis, so no key setup is needed. Up to five devices; only real push-service
+  endpoints are accepted; expired devices (404/410) are removed. Optional env vars:
+  `CRON_SECRET` (cron requests must then carry it) and `VAPID_SUBJECT` (defaults to the site URL).
+  Without Redis the app shows that reminders are not set up and cron runs are skipped.
 - **`api/coach.js`** — Vercel Node serverless function. Streams Claude (`claude-sonnet-5-5`)
   replies as `text/plain`. Uses `thinking: { type: "between_tools" }` (no up-front thinking;
   text-only replies because this coach has no tools). Sonnet 5.5 rejects `disabled`.

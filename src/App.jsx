@@ -422,6 +422,14 @@ function dayChecklist(entry,dk,today=todayStr(),target=DEFAULT_PROTEIN_TARGET) {
   return {future:false,open};
 }
 
+// Snapshot for reminder notifications: what is open on each day from yesterday to
+// two weeks ahead, so a push is accurate even when the app was not opened that day.
+function reminderStatus(plan,today=todayStr(),target=DEFAULT_PROTEIN_TARGET) {
+  const days={};
+  for(let i=-1;i<=14;i++){const dk=daysBeforeStr(today,-i);days[dk]={open:dayChecklist(plan[dk],dk,dk,target).open};}
+  return {version:1,written:today,days};
+}
+
 // Bottom-sheet options. Every change is a draft until Save, including Ruhetag.
 const ALTS = [
   { emoji:'⚽', label:'Match' },
@@ -869,6 +877,85 @@ function TacticalCard({dk}) {
     <h3>{t.focus}</h3><p>{t.detail}</p></section>;
 }
 
+// ─── Reminders (Web Push) ────────────────────────────────────────────────────────
+// The service worker (public/sw.js) reads this cache entry; keep the names in sync.
+const REMINDER_CACHE="soccer-status", REMINDER_URL="/__reminder-status";
+function writeReminderStatus(status) {
+  try {
+    if(!("caches" in window))return;
+    caches.open(REMINDER_CACHE).then(c=>c.put(REMINDER_URL,new Response(JSON.stringify(status),{headers:{"Content-Type":"application/json"}}))).catch(()=>{});
+  } catch {}
+}
+function base64UrlToBytes(value) {
+  const b64=(value+"=".repeat((4-value.length%4)%4)).replace(/-/g,"+").replace(/_/g,"/");
+  return Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
+}
+const pushCapable=()=>"serviceWorker" in navigator&&"PushManager" in window&&"Notification" in window;
+const postPush=body=>fetch("/api/push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+const REMINDER_COPY={
+  loading:"Wird geprüft …",
+  install:"Auf dem iPhone funktionieren Erinnerungen nur in der App vom Homescreen. Öffne sie dort und aktiviere sie hier.",
+  unsupported:"Dieser Browser kann keine Push-Mitteilungen empfangen.",
+  denied:"Mitteilungen sind blockiert. Erlaube sie in den iPhone-Einstellungen unter Mitteilungen → Soccer.",
+  unconfigured:"Auf dem Server fehlt noch der Speicher für Erinnerungen (Upstash in Vercel).",
+  off:"Täglich zwischen 12 und 13 Uhr und zwischen 21 und 22 Uhr. Die Mitteilung zeigt, was an dem Tag noch offen ist.",
+  on:"Aktiv: täglich zwischen 12 und 13 Uhr und zwischen 21 und 22 Uhr.",
+};
+function ReminderSettings() {
+  const [state,setState]=useState("loading"),[busy,setBusy]=useState(false),[note,setNote]=useState("");
+  const keyRef=useRef(null);
+  useEffect(()=>{
+    let live=true;
+    (async()=>{
+      if(!pushCapable()){setState(/iPad|iPhone|iPod/.test(navigator.userAgent)&&!navigator.standalone?"install":"unsupported");return;}
+      if(Notification.permission==="denied"){setState("denied");return;}
+      const cfg=await fetch("/api/push").then(r=>r.ok?r.json():null).catch(()=>null);
+      if(cfg?.configured)keyRef.current=cfg.publicKey;
+      const sub=await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription();
+      if(live)setState(sub?"on":cfg&&!cfg.configured?"unconfigured":"off");
+    })().catch(()=>{if(live)setState("off");});
+    return ()=>{live=false;};
+  },[]);
+  const run=async task=>{setBusy(true);setNote("");try{await task();}catch{setNote("Das hat nicht geklappt. Prüfe die Verbindung und versuche es erneut.");}finally{setBusy(false);}};
+  // Permission first, while the tap still counts as a user gesture (required on iOS).
+  const enable=()=>run(async()=>{
+    const permission=await Notification.requestPermission();
+    if(permission!=="granted"){setState(permission==="denied"?"denied":"off");return;}
+    if(!keyRef.current){
+      const cfg=await fetch("/api/push").then(r=>r.json());
+      if(!cfg.configured){setState("unconfigured");return;}
+      keyRef.current=cfg.publicKey;
+    }
+    await navigator.serviceWorker.register("/sw.js");
+    const reg=await navigator.serviceWorker.ready;
+    await (await reg.pushManager.getSubscription())?.unsubscribe();
+    const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:base64UrlToBytes(keyRef.current)});
+    const res=await postPush({action:"subscribe",subscription:sub.toJSON()});
+    if(!res.ok){await sub.unsubscribe();throw new Error("subscribe failed");}
+    setState("on");setNote("Erinnerungen sind aktiv. Mit „Test senden“ kannst du es ausprobieren.");
+  });
+  const currentSub=async()=>(await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription();
+  const disable=()=>run(async()=>{
+    const sub=await currentSub();
+    if(sub){await postPush({action:"unsubscribe",endpoint:sub.endpoint}).catch(()=>{});await sub.unsubscribe();}
+    setState("off");setNote("Erinnerungen sind aus.");
+  });
+  const test=()=>run(async()=>{
+    const sub=await currentSub();
+    if(!sub){setState("off");return;}
+    const res=await postPush({action:"test",endpoint:sub.endpoint});
+    setNote(res.ok?"Test gesendet. Die Mitteilung sollte gleich erscheinen.":res.status===429?"Kurz warten, dann erneut testen."
+      :res.status===404?"Dieses Gerät ist nicht registriert. Deaktiviere die Erinnerungen und aktiviere sie neu.":"Senden hat nicht geklappt.");
+  });
+  return <section className="settings-backup" aria-label="Erinnerungen"><div className="section-heading"><h2>Erinnerungen</h2></div>
+    <p className="helper-text">{REMINDER_COPY[state]}</p>
+    {(state==="off"||state==="unconfigured")&&<button className="secondary" disabled={busy} onClick={enable}>Erinnerungen aktivieren</button>}
+    {state==="on"&&<><button className="secondary" disabled={busy} onClick={test}>Test senden</button>
+      <button className="secondary" disabled={busy} onClick={disable}>Deaktivieren</button></>}
+    {note&&<p role="status" className="helper-text">{note}</p>}
+  </section>;
+}
+
 // ─── Setup / settings ────────────────────────────────────────────────────────────
 function SetupScreen({initName,initProteinTarget=DEFAULT_PROTEIN_TARGET,isEdit,onBack,onSave}) {
   const [n,setN]=useState(initName||"");
@@ -938,6 +1025,7 @@ function SetupScreen({initName,initProteinTarget=DEFAULT_PROTEIN_TARGET,isEdit,o
       {!targetOk&&<p role="alert" className="helper-text">Bitte einen Wert zwischen 30 und 400 g eingeben.</p>}
       <button className="primary" style={{width:"100%",marginTop:20}} disabled={!ok} onClick={submit}>{isEdit?"Speichern":"Los geht’s →"}</button>
     </section>
+    {isEdit&&<ReminderSettings/>}
     <section className="settings-backup"><div className="section-heading"><h2>Deine Daten</h2></div>
       <p className="helper-text">Alles wird nur auf diesem Gerät gespeichert. Speichere eine Sicherung zum Beispiel in iCloud Drive.</p>
       {isEdit&&<button className="secondary" onClick={exportData}>Daten exportieren</button>}
@@ -1708,6 +1796,7 @@ export default function App() {
     })();
     try{if(sessionStorage.getItem("justRestored")){sessionStorage.removeItem("justRestored");setRestoredToast(true);}}catch{}
   },[]);
+  useEffect(()=>{if(!loading&&!loadError)writeReminderStatus(reminderStatus(plan,todayStr(),proteinTarget));},[plan,proteinTarget,loading,loadError]);
   useEffect(()=>{if(!restoredToast)return;const t=setTimeout(()=>setRestoredToast(false),3200);return ()=>clearTimeout(t);},[restoredToast]);
   useEffect(()=>{if(!celebration)return;const t=setTimeout(()=>setCelebration(null),5000);return ()=>clearTimeout(t);},[celebration]);
   const save=(np,nn,pt)=>{
