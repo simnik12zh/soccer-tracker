@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { Fragment, useState, useEffect, useRef } from "react";
 
 const SK = "soccer-v3";
 const SK_PREV = "soccer-v2";   // migrated from on first load of this version
@@ -314,6 +314,8 @@ const TYPE_LABELS = {
   'Walking':'Spazieren', 'Easy run':'Lockerer Lauf', 'Sick/Injured':'Krank/verletzt',
 };
 function displayName(type) { return TYPE_LABELS[type] || type; }
+// Large titles: break compound words at the word joint (soft hyphen), not mid-syllable.
+function titleBreaks(label) { return String(label).replace(/(Mannschafts|Kraft)(training)/,'$1\u00AD$2'); }
 function sessionsLabel(e) { return getSessions(e).map(displayName).join(' + '); }
 function sessionsEmojiStr(e) { return getSessions(e).map(sessionEmoji).join(''); }
 
@@ -442,12 +444,21 @@ function garminSessionType(typeKey) {
   return null;
 }
 function garminLabel(item) { const type=garminSessionType(item?.type); return type?GARMIN_LABELS[type]:item?.name||'Aktivität'; }
+// Football detail line: distance, top speed, Garmin training load, minutes in HR zones 4–5.
+const GARMIN_METRICS=['distanceKm','maxSpeedKmh','load','highHrMin'];
+function garminStats(item) {
+  if(!item)return '';
+  return [item.distanceKm!=null&&item.distanceKm.toFixed(1)+' km',item.maxSpeedKmh!=null&&'max. '+item.maxSpeedKmh.toFixed(1)+' km/h',
+    item.load!=null&&'Belastung '+item.load,item.highHrMin!=null&&item.highHrMin+' min intensiv'].filter(Boolean).join(' · ');
+}
 // Applies a sync without undoing anything the player did: each activity is applied
 // once (by ID), can only mark a day done (never undone), fills an empty day, and is
 // otherwise just listed as "nicht im Plan". Returns the new plan and completed days.
 function applyGarminImport(plan,data,today=todayStr()) {
   const next={...plan},completed=[];
   const num=v=>Number.isFinite(v)?Math.round(v):null;
+  const dec=v=>Number.isFinite(v)?Math.round(v*10)/10:null;
+  const metrics=a=>({distanceKm:dec(a.distanceKm),maxSpeedKmh:dec(a.maxSpeedKmh),load:num(a.load),highHrMin:num(a.highHrMin)});
   for(const day of Array.isArray(data?.steps)?data.steps:[]){
     if(!day||!validCoachDate(day.date)||day.date>today||!Number.isInteger(day.steps)||day.steps<0)continue;
     if(next[day.date]?.steps!==day.steps)next[day.date]={...next[day.date],steps:day.steps};
@@ -455,12 +466,19 @@ function applyGarminImport(plan,data,today=todayStr()) {
   for(const a of Array.isArray(data?.activities)?data.activities:[]){
     if(!a||typeof a.id!=='string'||!validCoachDate(a.date)||a.date>today)continue;
     const e=next[a.date]||{},seen=Array.isArray(e.garmin)?e.garmin:[];
-    if(seen.some(g=>g.id===a.id))continue;
+    const known=seen.findIndex(g=>g.id===a.id);
+    if(known>=0){
+      // Already applied: only refresh the numbers (e.g. metrics added later), never the day's status.
+      const m=metrics(a),old=seen[known];
+      if(GARMIN_METRICS.some(k=>m[k]!=null&&old[k]!==m[k]))
+        next[a.date]={...e,garmin:seen.map((g,i)=>i===known?{...g,...Object.fromEntries(Object.entries(m).filter(([,v])=>v!=null))}:g)};
+      continue;
+    }
     const type=garminSessionType(a.type),sessions=getSessions(e);
     const planned=type==='soccer'?sessions.find(s=>['Match','Team Training','Futsal'].includes(s))||null:type&&sessions.includes(type)?type:null;
     const fill=!planned&&!!type&&!sessions.length;
     const item={id:a.id,type:String(a.type||'other').slice(0,40),name:typeof a.name==='string'?a.name.slice(0,80):'',
-      start:typeof a.start==='string'?a.start.slice(0,5):null,minutes:num(a.minutes),avgHr:num(a.avgHr),matched:!!planned||fill};
+      start:typeof a.start==='string'?a.start.slice(0,5):null,minutes:num(a.minutes),avgHr:num(a.avgHr),...metrics(a),matched:!!planned||fill};
     const patch={garmin:[...seen,item]};
     if(fill){patch.sessions=[type==='soccer'?'Futsal':type];patch.workout='';}
     if((planned||fill)&&!e.completed){patch.completed=true;completed.push(a.date);}
@@ -579,7 +597,8 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
     const past=dk<=referenceDate;
     return {date:dk,sessions:sessions.map(displayName),nutrition:eating(dk),
       steps:past&&Number.isInteger(e.steps)?e.steps:null,
-      watchActivities:past&&Array.isArray(e.garmin)&&e.garmin.length?e.garmin.slice(0,4).map(g=>({type:coachText(g.type,40),minutes:g.minutes??null,avgHr:g.avgHr??null,matchedPlan:!!g.matched})):null,
+      watchActivities:past&&Array.isArray(e.garmin)&&e.garmin.length?e.garmin.slice(0,4).map(g=>({type:coachText(g.type,40),minutes:g.minutes??null,avgHr:g.avgHr??null,
+        distanceKm:g.distanceKm??null,maxSpeedKmh:g.maxSpeedKmh??null,trainingLoad:g.load??null,highHrMinutes:g.highHrMin??null,matchedPlan:!!g.matched})):null,
       status:logged(dk)?'logged':sessions.length?(dk<referenceDate?'not_logged':'planned'):plan[dk]?'rest':'no_entry',
       feeling:logged(dk)?FEELINGS.find(f=>f.value===e.feeling)?.label||null:null,
       notes:coachText(e.notes),
@@ -715,7 +734,7 @@ button,a,input,summary{touch-action:manipulation}h1,h2,h3,p{margin:0}h1,h2,h3{fo
 .day-chip .day-label{font-size:10px;text-transform:uppercase;color:#A5B8C8;letter-spacing:.06em}
 .day-chip strong{font-size:18px;font-weight:500}.day-chip[aria-pressed=true]{background:#9CCBD3;color:#101A25}
 .day-chip[aria-pressed=true] .day-label{color:#233B47}.day-marker{height:5px;width:5px;border-radius:50%;background:#577184}.day-chip[aria-pressed=true] .day-marker{background:#274854}
-.session-card{padding:20px;position:relative;overflow:hidden;scroll-margin-top:16px}.session-card h2{font-size:clamp(25px,7vw,34px);line-height:1.12;overflow-wrap:anywhere}
+.session-card{padding:20px;position:relative;overflow:hidden;scroll-margin-top:16px}.session-card h2{font-size:clamp(25px,7vw,34px);line-height:1.12;overflow-wrap:anywhere;-webkit-hyphens:manual;hyphens:manual}
 .session-sub{font-size:14px;color:#A5B8C8;line-height:1.6}.session-card-top{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .session-art{color:#9CCBD3;opacity:.65;display:flex;gap:5px}.session-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px}
 .action-links{display:flex;gap:8px;flex-wrap:wrap}.text-btn{display:inline-flex;gap:8px;align-items:center;min-height:44px;padding:6px 0;border:0;background:transparent;color:#A5B8C8;font-size:12px}
@@ -877,7 +896,7 @@ progress::-webkit-progress-bar{background:#344858}progress::-webkit-progress-val
 .ampel-counts{display:flex!important;gap:6px;align-items:center;font-size:14px;font-weight:500}
 .settings-link{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:18px;margin-top:24px;color:#EDF2F5}.settings-link>span{flex:1;min-width:0}.settings-link small{display:block;font-size:11px;color:#A5B8C8;margin-top:3px}
 .watch-list{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
-.watch-list li{display:flex;align-items:center;gap:8px;font-size:12px;color:#B3DCE2}.watch-list li svg{flex-shrink:0}.watch-list li span{flex:1;min-width:0}.watch-list li small{flex-shrink:0;white-space:nowrap;font-size:11px;color:#E9C46A}
+.watch-list li{display:flex;align-items:center;gap:8px;font-size:12px;color:#B3DCE2}.watch-list li svg{flex-shrink:0}.watch-list li span{flex:1;min-width:0}.watch-stats{display:block;font-style:normal;font-size:11px;color:#EDF2F5;margin-top:3px;font-variant-numeric:tabular-nums}.watch-stats i{font-style:normal;white-space:nowrap}.watch-list li small{flex-shrink:0;white-space:nowrap;font-size:11px;color:#E9C46A}
 .steps-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;padding:16px 12px 12px}
 .steps-day{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:#A5B8C8}.steps-day b{font-weight:500;color:#EDF2F5;font-variant-numeric:tabular-nums}
 .steps-bar{height:64px;width:14px;border-radius:7px;background:#263C4D;display:flex;align-items:flex-end;overflow:hidden}.steps-bar span{display:block;width:100%;border-radius:7px;background:#9CCBD3}
@@ -1352,7 +1371,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan}) {
         {e.completed&&!sessions.includes('Match')&&<p>Spieltermin laut Spielplan. Dein bereits abgeschlossenes Training bleibt unverändert.</p>}
       </div>}
       <div className="session-main">
-        <h2>{sessions.length?sessions.map((s,i)=><span key={s}>{i>0&&<><br/><span style={{fontWeight:300,color:C.muted}}>+ </span></>}{displayName(s)}</span>):"Ruhetag"}</h2>
+        <h2>{sessions.length?sessions.map((s,i)=><span key={s}>{i>0&&<><br/><span style={{fontWeight:300,color:C.muted}}>+ </span></>}{titleBreaks(displayName(s))}</span>):"Ruhetag"}</h2>
         {sessions.length>0&&<button className={"log-circle"+(e.completed?" logged":"")}
           aria-label={e.completed?"Eintrag rückgängig machen":"Training als erledigt eintragen"}
           onClick={()=>e.completed?setConfirmUnlog(true):updDay(viewKey,{completed:true})}>
@@ -1361,7 +1380,8 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan}) {
       </div>
       <p className="session-subtitle">{sessionSubtitle(e)}</p>
       {Array.isArray(e.garmin)&&e.garmin.length>0&&<ul className="watch-list" aria-label="Von Garmin">{e.garmin.map(g=><li key={g.id}>
-        <Icon name="watch" size={16}/><span>{garminLabel(g)}{g.minutes!=null?` · ${g.minutes} min`:""}{g.avgHr?` · Ø ${g.avgHr} bpm`:""}</span>
+        <Icon name="watch" size={16}/><span>{garminLabel(g)}{g.minutes!=null?` · ${g.minutes} min`:""}{g.avgHr?` · Ø ${g.avgHr} bpm`:""}
+          {garminSessionType(g.type)==="soccer"&&garminStats(g)&&<em className="watch-stats">{garminStats(g).split(" · ").map((part,i)=><Fragment key={i}>{i?" · ":""}<i>{part}</i></Fragment>)}</em>}</span>
         {!g.matched&&<small>nicht im Plan</small>}</li>)}</ul>}
       {guidance&&<aside className={"plan-guidance"+(guideOpen?" open":"")} aria-label="Planhinweis"><strong>{guidance.title}</strong><p>{guidance.text}</p>
         {guidance.text.length>110&&<button className="text-btn more-btn" aria-expanded={guideOpen} onClick={()=>setGuideOpen(o=>!o)}>{guideOpen?"Weniger":"Mehr lesen"}</button>}</aside>}
@@ -1924,9 +1944,11 @@ export default function App() {
   const syncGarmin=async(force=false)=>{
     if(!readAccessCode()){setGarmin({state:"off"});return;}
     const last=storedExtras.current.garminSync;
-    if(!force&&last?.at&&Date.now()-last.at<10*60*1000)return;
+    if(!force&&last?.at&&last.v===2&&Date.now()-last.at<10*60*1000)return;
     const today=todayStr(),oldest=daysBeforeStr(today,27);
     let from=last?.through?daysBeforeStr(last.through,2):daysBeforeStr(today,13);
+    // Version 2 added football metrics: refresh once from the earliest imported day.
+    if(last&&last.v!==2){const first=Object.keys(planRef.current).filter(dk=>planRef.current[dk]?.garmin?.length).sort()[0];if(first&&first<from)from=first;}
     if(from<oldest)from=oldest;
     setGarmin(g=>({...g,state:"syncing"}));
     try{
@@ -1934,7 +1956,7 @@ export default function App() {
       const body=await res.json().catch(()=>({}));
       if(!res.ok||!Array.isArray(body.activities)||!Array.isArray(body.steps)){setGarmin({state:"error",message:GARMIN_ERRORS[body.error]||GARMIN_ERRORS.garmin_unavailable});return;}
       const {plan:next,completed}=applyGarminImport(planRef.current,body,today);
-      storedExtras.current={...storedExtras.current,garminSync:{at:Date.now(),through:today}};
+      storedExtras.current={...storedExtras.current,garminSync:{at:Date.now(),through:today,v:2}};
       setPlan(next);save(next);
       setGarmin({state:"ok",at:Date.now()});
       if(completed.length)setSyncToast(completed.length>2?`${completed.length} Trainings von Garmin eingetragen`

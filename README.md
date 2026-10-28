@@ -88,7 +88,11 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 - **Garmin import** — the server pulls the Garmin Connect Personal API (read-only, own
   account) via `GET /api/garmin?from&to` (max 28 days): activity summaries
   (`/activitylist-service/activities/search/activities`) and daily steps
-  (`/usersummary-service/stats/steps/daily/{from}/{to}`). The personal key
+  (`/usersummary-service/stats/steps/daily/{from}/{to}`). For football the summary also yields
+  distance, top speed (GPS; values above 40 km/h are dropped as glitches), Garmin training load
+  and minutes in heart-rate zones 4–5 — shown under the football entry on the session card and
+  sent to the coach. Garmin's API has no sprint count. Already imported activities get updated
+  numbers on later syncs without changing the day's status. The personal key
   (`GARMIN_PERSONAL_API_KEY`, from Garmin Connect, expires after the period chosen there) is
   exchanged for a bearer JWT that is cached in Redis; parallel calls share one exchange and a
   rejected token is renewed once. Only id, local date/time, type key, name, minutes, calories

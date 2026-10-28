@@ -10,7 +10,7 @@ const source=readFileSync(new URL('../src/App.jsx',import.meta.url),'utf8');
 const helpers=source.slice(source.indexOf('const SK ='),source.indexOf('// Midnight & Ice.'))
   +source.slice(source.indexOf('const PHASE_LABELS'),source.indexOf('function Icon'));
 const FixedDate=class extends Date{constructor(...args){super(...(args.length?args:['2026-10-28T12:00:00+01:00']));}};
-const app=vm.runInNewContext(helpers+'\n({applyGarminImport,garminSessionType,garminLabel,buildCoachContext})',{Date:FixedDate});
+const app=vm.runInNewContext(helpers+'\n({applyGarminImport,garminSessionType,garminLabel,garminStats,buildCoachContext})',{Date:FixedDate});
 
 const jwt=exp=>'h.'+Buffer.from(JSON.stringify({exp})).toString('base64url')+'.s';
 const NOW=Date.parse('2026-10-28T12:00:00Z');
@@ -57,16 +57,23 @@ test('access code is required for Garmin data and compared exactly',async()=>{
 
 test('Garmin key is exchanged once, cached in Redis and only the needed fields are returned',async()=>{
   const backend=fakeBackend({
-    activities:[garminActivity(11,'strength_training','2026-10-26 18:05:00'),garminActivity(12,'soccer','2026-10-26 20:30:00',{averageHR:undefined}),{activityId:13}],
+    activities:[garminActivity(11,'strength_training','2026-10-26 18:05:00'),
+      garminActivity(12,'soccer','2026-10-26 20:30:00',{averageHR:undefined,distance:8412,maxSpeed:7.75,activityTrainingLoad:186.4,hrTimeInZone_4:900,hrTimeInZone_5:480}),
+      garminActivity(14,'soccer','2026-10-27 20:30:00',{maxSpeed:12,hrTimeInZone_5:61}),{activityId:13}],
     steps:[{calendarDate:'2026-10-26',totalSteps:8432,totalDistance:6100,stepGoal:7000},{calendarDate:'2026-10-27',totalSteps:null}],
   });
   const deps={env:ENV,fetchImpl:backend.fetchImpl,now:()=>NOW};
   const res=await call(garminHandler(deps));
   assert.equal(res.code,200);
   assert.equal(res.headers['Cache-Control'],'no-store');
-  assert.deepEqual(res.body.activities[0],{id:'11',date:'2026-10-26',start:'18:05',type:'strength_training',name:'Session 11',minutes:52,calories:411,avgHr:131});
-  assert.equal(res.body.activities[1].avgHr,null);
-  assert.equal(res.body.activities.length,2,'malformed activity dropped');
+  assert.deepEqual(res.body.activities[0],{id:'11',date:'2026-10-26',start:'18:05',type:'strength_training',name:'Session 11',minutes:52,calories:411,avgHr:131,
+    distanceKm:null,maxSpeedKmh:null,load:null,highHrMin:null});
+  const game=res.body.activities[1];
+  assert.equal(game.avgHr,null);
+  assert.deepEqual([game.distanceKm,game.maxSpeedKmh,game.load,game.highHrMin],[8.4,27.9,186,23]);
+  assert.equal(res.body.activities[2].maxSpeedKmh,null,'43 km/h GPS spike discarded');
+  assert.equal(res.body.activities[2].highHrMin,1,'zone 5 alone counts');
+  assert.equal(res.body.activities.length,3,'malformed activity dropped');
   assert.deepEqual(res.body.steps,[{date:'2026-10-26',steps:8432}]);
   const token=backend.calls.find(c=>c.url.endsWith('/token'));
   assert.equal(token.auth,'ApiKey garmin-key');
@@ -132,6 +139,16 @@ test('import marks planned days done, fills empty days and never undoes the play
   assert.equal(next['2026-10-29'],undefined,'future activity ignored');
   assert.equal(next['2026-10-26'],undefined,'non-string id ignored');
   assert.equal(next['2026-10-21'].steps,9000);assert.equal(next['2026-10-22'].steps,undefined);
+  // Numbers arriving later (or corrected) refresh the stored entry without touching the day.
+  const withStats={activities:[{id:'2',date:'2026-10-21',type:'soccer',minutes:90,distanceKm:8.4,maxSpeedKmh:27.9,load:186,highHrMin:23}]};
+  const unticked={...next,'2026-10-21':{...next['2026-10-21'],completed:false}};
+  const refreshed=app.applyGarminImport(unticked,withStats,'2026-10-28');
+  assert.deepEqual(plain(refreshed.completed),[]);
+  assert.equal(refreshed.plan['2026-10-21'].completed,false,'refresh never re-ticks');
+  assert.equal(refreshed.plan['2026-10-21'].garmin.length,1);
+  assert.equal(refreshed.plan['2026-10-21'].garmin[0].load,186);
+  assert.equal(app.garminStats(refreshed.plan['2026-10-21'].garmin[0]),'8.4 km · max. 27.9 km/h · Belastung 186 · 23 min intensiv');
+  assert.equal(app.applyGarminImport(refreshed.plan,withStats,'2026-10-28').plan['2026-10-21'],refreshed.plan['2026-10-21'],'unchanged numbers: same object');
   // Player removes the auto-log; the next sync with the same activity must not bring it back.
   const edited={...next,'2026-10-20':{...next['2026-10-20'],completed:false}};
   const again=app.applyGarminImport(edited,data,'2026-10-28');
@@ -141,15 +158,16 @@ test('import marks planned days done, fills empty days and never undoes the play
 });
 
 test('coach sees steps and watch activities for past days only',()=>{
-  const plan={'2026-10-27':{sessions:['Gym'],completed:true,steps:7000,garmin:[{id:'1',type:'strength_training',minutes:50,avgHr:118,matched:true}]},
+  const plan={'2026-10-27':{sessions:['Gym'],completed:true,steps:7000,garmin:[{id:'1',type:'soccer',minutes:50,avgHr:118,distanceKm:6.2,maxSpeedKmh:26.1,load:150,highHrMin:12,matched:true}]},
     '2026-10-29':{sessions:['Gym'],steps:12,garmin:[{id:'2',type:'running',minutes:5,matched:false}]}};
   const ctx=app.buildCoachContext(plan,'Test','2026-10-28','2026-10-28');
   const day=ctx.recentDays.find(d=>d.date==='2026-10-27');
   assert.equal(day.steps,7000);
-  assert.deepEqual(plain(day.watchActivities),[{type:'strength_training',minutes:50,avgHr:118,matchedPlan:true}]);
+  assert.deepEqual(plain(day.watchActivities),[{type:'soccer',minutes:50,avgHr:118,distanceKm:6.2,maxSpeedKmh:26.1,trainingLoad:150,highHrMinutes:12,matchedPlan:true}]);
   const future=ctx.upcoming.find(d=>d.date==='2026-10-29');
   assert.equal(future.steps,null);assert.equal(future.watchActivities,null);
   const prompt=readFileSync(new URL('../api/coach.js',import.meta.url),'utf8');
   assert.match(prompt,/watchActivities lists recorded activities/);
+  assert.match(prompt,/maxSpeedKmh is GPS-based/);
   assert.match(prompt,/accessDenied\(req, process\.env\)/);
 });

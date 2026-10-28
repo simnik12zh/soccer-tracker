@@ -31,6 +31,14 @@ export function jwtExpiry(token) {
 }
 
 // Only the fields the app needs; everything else stays at Garmin.
+// GPS top speeds above 40 km/h are treated as glitches (faster than any footballer).
+const MAX_PLAUSIBLE_KMH = 40;
+const round1 = (v) => Math.round(v * 10) / 10;
+function highHrMinutes(a) {
+  const z4 = a.hrTimeInZone_4, z5 = a.hrTimeInZone_5;
+  if (!Number.isFinite(z4) && !Number.isFinite(z5)) return null;
+  return Math.round(((Number.isFinite(z4) ? z4 : 0) + (Number.isFinite(z5) ? z5 : 0)) / 60);
+}
 export function normalizeActivities(list) {
   if (!Array.isArray(list)) return [];
   return list.filter((a) => a && a.activityId != null && typeof a.startTimeLocal === "string" && validDate(a.startTimeLocal.slice(0, 10)))
@@ -43,6 +51,10 @@ export function normalizeActivities(list) {
       minutes: Number.isFinite(a.duration) ? Math.round(a.duration / 60) : null,
       calories: Number.isFinite(a.calories) ? Math.round(a.calories) : null,
       avgHr: Number.isFinite(a.averageHR) ? Math.round(a.averageHR) : null,
+      distanceKm: Number.isFinite(a.distance) && a.distance > 0 ? round1(a.distance / 1000) : null,
+      maxSpeedKmh: Number.isFinite(a.maxSpeed) && a.maxSpeed > 0 && a.maxSpeed * 3.6 <= MAX_PLAUSIBLE_KMH ? round1(a.maxSpeed * 3.6) : null,
+      load: Number.isFinite(a.activityTrainingLoad) ? Math.round(a.activityTrainingLoad) : null,
+      highHrMin: highHrMinutes(a),
     }));
 }
 export function normalizeSteps(list) {
