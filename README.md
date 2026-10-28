@@ -220,7 +220,9 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   standard rules are preselected and can be saved as new standard. Rules can change only before
   kick-off; planning after kick-off is refused; one match per day. A Testspiel is a free evening
   declared beforehand that never counts: at most one per week (Mon–Sun), during holidays one
-  every three days (`friendlyAllowed`). After kick-off Heute shows the rules ("Match läuft",
+  every three days (`friendlyAllowed`). A match shows on its own day in Heute (planned on
+  Wednesday for Friday → Friday's view; a toast confirms where it landed); the planning sheet keeps
+  its header and save button fixed while the middle scrolls. After kick-off Heute shows the rules ("Match läuft",
   "Zu Hause? Jetzt auswerten"); from the next day the evaluation: ✓/✗ per rule → Sieg 3,
   Unentschieden 1, Niederlage 0 (`evaluateSocialMatch`), or "Fand nicht statt". Körper shows the
   table: Ø points vs. goal 2.0, record, form of the last five, most broken rule, recent matches,

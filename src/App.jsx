@@ -1409,11 +1409,16 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .outcome-chip.win{background:var(--good)}.outcome-chip.draw{background:var(--warn)}.outcome-chip.loss{background:var(--bad)}
 .social-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}.social-actions .primary,.social-actions .secondary{flex:1;min-width:120px}.social-actions .text-btn{color:var(--muted);padding:0 4px}
 .social-link{color:var(--social)!important;font-size:13px;margin-top:6px}
+.social-sheet{display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
+.social-sheet .sheet-scroll{flex:1;min-height:0;overflow-y:auto;margin:0 -20px;padding:0 20px 12px;overscroll-behavior:contain}
+.social-sheet .sheet-actions{flex-shrink:0;padding:12px 0 calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line-soft)}
+.social-sheet .sheet-actions .helper-text{margin:0 0 10px}.rule-hint{margin-top:4px}
+@media(max-width:360px){.social-sheet .sheet-scroll{margin:0 -14px;padding-left:14px;padding-right:14px}}
 .social-sheet .field-label{margin-top:14px}.social-mode{margin:8px 0 4px}.social-days,.social-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .social-days .chip,.social-chips .chip{padding:0 12px;font-size:13px;border-radius:var(--r-pill)}.social-chips.rules .chip{display:inline-flex;align-items:center;gap:8px;text-align:left;border-radius:var(--r-s);padding:8px 12px;line-height:1.35}
 .social-chips.rules .chip b{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--social);color:var(--bg);font-size:11px;flex-shrink:0}
 .social-row{display:flex;gap:12px;align-items:flex-start}.social-row>label{flex:0 0 110px}.social-row .modal-input{margin:8px 0 0}.social-occasions{flex:1;min-width:0}
-.rule-count{float:right;color:var(--social)}.social-custom{margin-top:10px}.check-row{display:flex;align-items:center;gap:10px;min-height:44px;font-size:13px;color:var(--muted)}
+.rule-count{float:right;color:var(--social)}.social-custom{margin-top:10px}.social-custom .social-add{flex:0 0 52px;padding:0;display:flex;align-items:center;justify-content:center}.check-row{display:flex;align-items:center;gap:10px;min-height:44px;font-size:13px;color:var(--muted)}
 .check-row input{width:20px;height:20px;accent-color:var(--accent)}.warn-text{color:var(--warn)!important}
 .social-table{padding:18px}.social-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
 .social-head strong{display:block;font-size:40px;font-weight:500;letter-spacing:-.05em;line-height:1;font-variant-numeric:tabular-nums}.social-head strong.good{color:var(--good-soft)}.social-head strong.short{color:var(--warn)}
@@ -1904,6 +1909,7 @@ function SocialSheet({social,match,initialDate,initialFriendly,onSave,onCancel,o
       <div className="sheet-handle"/>
       <div className="sheet-heading"><div><div className="eyebrow">Social Match</div><h2 id="social-title">{match?"Match ändern":"Vor dem Anpfiff"}</h2></div>
         <button className="icon-btn" onClick={onClose} aria-label="Schliessen"><Icon name="close"/></button></div>
+      <div className="sheet-scroll">
       <div className="segmented social-mode" role="group" aria-label="Art">
         <button aria-pressed={!friendly} onClick={()=>{setFriendly(false);setError("");}}>Match · zählt</button>
         <button aria-pressed={friendly} onClick={()=>{setFriendly(true);setError("");}}>Testspiel · frei</button></div>
@@ -1918,25 +1924,32 @@ function SocialSheet({social,match,initialDate,initialFriendly,onSave,onCancel,o
       {friendly?<p className={"helper-text"+(fa.ok?"":" warn-text")}>{fa.ok?"Ein geplanter freier Abend. Zählt nicht für die Tabelle, muss aber vorher feststehen. Höchstens eins pro Woche, in den Ferien eins alle drei Tage.":fa.reason}</p>
       :<>
         <div className="field-label">Deine drei Regeln <span className="rule-count">{rules.length} von 3</span></div>
+        {rules.length===3&&<p className="protein-hint rule-hint">Tauschen: erst eine gewählte Regel antippen, dann eine neue.</p>}
         <div className="social-chips rules">{options.map(r=><button key={r} className="chip" aria-pressed={rules.includes(r)}
           disabled={!rules.includes(r)&&rules.length>=3} onClick={()=>toggle(r)}>{rules.includes(r)&&<b>{rules.indexOf(r)+1}</b>}{r}</button>)}</div>
         {rules.length<3&&<div className="protein-edit social-custom"><input className="modal-input" maxLength={60} placeholder="Eigene Regel, z. B. Kein Bier nach dem Essen" value={custom}
-          onChange={e=>setCustom(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addCustom();}}/><button className="secondary" disabled={!socialText(custom)} onClick={addCustom}>Hinzufügen</button></div>}
+          onChange={e=>setCustom(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addCustom();}}/><button className="secondary social-add" aria-label="Regel hinzufügen" disabled={!socialText(custom)} onClick={addCustom}><Icon name="plus" size={20}/></button></div>}
         <label className="check-row"><input type="checkbox" checked={asDefault} onChange={e=>setAsDefault(e.target.checked)}/> Als meine Standard-Regeln merken</label>
       </>}
-      {error&&<p role="alert" className="helper-text warn-text">{error}</p>}
-      <button className="primary" style={{width:"100%",marginTop:8}} disabled={!ready} onClick={save}>
-        {match?"Speichern":friendly?"Testspiel festlegen":"Match planen"}</button>
-      {match&&<button className="text-btn" style={{width:"100%",justifyContent:"center"}} onClick={()=>onCancel(match.id)}>Absagen</button>}
+      </div>
+      <div className="sheet-actions">
+        {error&&<p role="alert" className="helper-text warn-text">{error}</p>}
+        <button className="primary" style={{width:"100%"}} disabled={!ready} onClick={save}>
+          {match?"Speichern":friendly?"Testspiel festlegen":"Match planen"}{!friendly&&rules.length<3?` (${rules.length}/3 Regeln)`:""}</button>
+        {match&&<button className="text-btn" style={{width:"100%",justifyContent:"center"}} onClick={()=>onCancel(match.id)}>Absagen</button>}
+      </div>
     </section>
   </>;
 }
-// Today: pending results first, then the next match (today or the next two days), the
-// result of a match scored today, and during holidays a nudge to plan the evening.
-function SocialCard({social,onPlan,onEdit,onEvaluate,onCancel}) {
-  const today=todayStr(),now=new Date(),all=socialMatches(social.matches);
-  const pending=socialPending(all,now),soon=all.filter(m=>!m.result&&!socialStarted(m,now)&&m.date<=daysBeforeStr(today,-2));
-  const scored=all.filter(m=>m.result&&m.result.at===today).at(-1),holiday=holidayFor(social.holidays,today);
+// Each day shows its own match. Today also lists unscored matches from earlier days, a
+// result scored today and, during holidays, a nudge to plan the evening.
+function SocialCard({social,viewKey,onPlan,onEdit,onEvaluate,onCancel}) {
+  const today=todayStr(),now=new Date(),all=socialMatches(social.matches),isToday=viewKey===today;
+  const pending=socialPending(all,now).filter(m=>isToday?m.date<=today:m.date===viewKey);
+  const soon=all.filter(m=>m.date===viewKey&&!m.result&&!socialStarted(m,now));
+  const scored=isToday?all.filter(m=>m.result&&(m.result.at===today||m.date===today)).at(-1):all.find(m=>m.date===viewKey&&m.result);
+  const holiday=isToday?holidayFor(social.holidays,today):null;
+  const when=m=>m.date===viewKey&&!isToday?`Anpfiff ${m.kickoff}`:socialWhen(m,today);
   const [kept,setKept]=useState({}),[openId,setOpenId]=useState(null);
   const [skip,setSkip]=useState(()=>{try{return localStorage.getItem("social-skip")===today;}catch{return false;}});
   const nudge=holiday&&!skip&&!all.some(m=>m.date===today)&&new Date().getHours()<22;
@@ -1955,21 +1968,21 @@ function SocialCard({social,onPlan,onEdit,onEvaluate,onCancel}) {
   return <section className="panel social-card" aria-label="Social Match">
     {pending.map(m=>{const live=m.date===today&&openId!==m.id;
       return <div key={m.id} className="social-block">
-        <div className="card-head"><span className="eyebrow social-eyebrow"><Icon name="glass" size={14}/>{live?"Match läuft":"Auswerten"}</span><small>{socialWhen(m,today)} · {occasionLabel(m.occasion)}</small></div>
+        <div className="card-head"><span className="eyebrow social-eyebrow"><Icon name="glass" size={14}/>{live?"Match läuft":"Auswerten"}</span><small>{when(m)} · {occasionLabel(m.occasion)}</small></div>
         {live?<><ol className="social-rules">{m.rules.map(r=><li key={r}>{r}</li>)}</ol>
           <button className="secondary social-wide" onClick={()=>setOpenId(m.id)}>Zu Hause? Jetzt auswerten</button></>:evaluate(m)}
       </div>;})}
     {soon.map(m=><div key={m.id} className="social-block">
-      <div className="card-head"><span className="eyebrow social-eyebrow"><Icon name="glass" size={14}/>{m.friendly?"Testspiel":"Social Match"}</span><small>{socialWhen(m,today)} · {occasionLabel(m.occasion)}</small></div>
+      <div className="card-head"><span className="eyebrow social-eyebrow"><Icon name="glass" size={14}/>{m.friendly?"Testspiel":"Social Match"}</span><small>{when(m)} · {occasionLabel(m.occasion)}</small></div>
       {m.friendly?<p className="helper-text">Geplanter freier Abend: zählt nicht für die Tabelle. Geniess ihn bewusst.</p>
         :<ol className="social-rules">{m.rules.map(r=><li key={r}>{r}</li>)}</ol>}
       <div className="social-foot"><span>Bis zum Anpfiff änderbar</span><button className="text-btn" onClick={()=>onEdit(m)}><Icon name="edit" size={15}/> Ändern</button></div>
     </div>)}
-    {scored&&!pending.length&&<div className="social-block social-result">
-      <div className="card-head"><span className="eyebrow social-eyebrow"><Icon name="glass" size={14}/>Abpfiff</span><small>{socialWhen(scored,today)}</small></div>
+    {scored&&!pending.some(m=>m.id===scored.id)&&<div className="social-block social-result">
+      <div className="card-head"><span className="eyebrow social-eyebrow"><Icon name="glass" size={14}/>Abpfiff</span><small>{when(scored)}</small></div>
       <p className="social-score"><OutcomeChip outcome={scored.result.outcome}/>{SOCIAL_OUTCOMES[scored.result.outcome].label} · {scored.result.points} {scored.result.points===1?"Punkt":"Punkte"}</p>
-      {scored.result.outcome!=="win"&&<p className="helper-text">Gegentor: {scored.rules.filter((r,i)=>!scored.result.kept[i]).join(" · ")}. Abhaken, nächstes Spiel.</p>}
-      <p className="protein-hint">Saison: Ø {season.avg?.toFixed(1)} Punkte aus {season.played} {season.played===1?"Match":"Matches"} · Ziel Ø {SOCIAL_GOAL.toFixed(1)}</p>
+      {scored.result.outcome!=="win"&&<p className="helper-text">Gegentor: {scored.rules.filter((r,i)=>!scored.result.kept[i]).join(" · ")}.{isToday?" Abhaken, nächstes Spiel.":""}</p>}
+      {isToday&&<p className="protein-hint">Saison: Ø {season.avg?.toFixed(1)} Punkte aus {season.played} {season.played===1?"Match":"Matches"} · Ziel Ø {SOCIAL_GOAL.toFixed(1)}</p>}
     </div>}
     {nudge&&!pending.length&&<div className="social-block">
       <div className="card-head"><span className="eyebrow social-eyebrow"><Icon name="glass" size={14}/>{holiday.name}</span>
@@ -2265,8 +2278,8 @@ function NutritionCard({entry,dateKey:dk,updDay,target,onAddMeal,onUpdateMeal,on
             onClick={()=>updDay(dk,{nutrition:entry.nutrition===l.key?null:l.key})}>
             <span className={"ampel-dot "+l.key} aria-hidden="true">{l.mark}</span>{l.label}</button>)}</div>
         <p className="rating-hint">{level?level.hint:"Rot heisst: viel Süsses, Essen aus Lust statt Hunger, Fast Food."}</p>
-      </div>
-      {onPlanSocial&&<button className="text-btn social-link" onClick={onPlanSocial}><Icon name="glass" size={16}/> Auswärts essen oder trinken? Social Match planen</button>}</>}
+      </div></>}
+      {onPlanSocial&&<button className="text-btn social-link" onClick={onPlanSocial}><Icon name="glass" size={16}/> Auswärts essen oder trinken? Social Match planen</button>}
   </section>;
 }
 
@@ -2319,7 +2332,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
     <DayRings plan={plan} viewKey={viewKey} target={proteinTarget} onOpenPlan={onOpenPlan}>
       {dayOff===0&&activeComplaints(complaints,viewKey).length>0&&<ComplaintStrip complaints={complaints} onReport={onReportComplaint} onResolve={onResolveComplaint}/>}
     </DayRings>
-    {dayOff===0&&socialProps&&<SocialCard {...socialProps}/>}
+    {socialProps&&<SocialCard {...socialProps} viewKey={viewKey}/>}
     <section key={"session-"+viewKey} id="today-session" className={"panel session-card"+(isMatchDay(e)?" match-card":"")} aria-label="Training"
       style={{animation:direction>0?"slideLeft .22s ease-out":"slideRight .22s ease-out"}}>
       <div className="session-top"><span className="eyebrow">{e.completed?"Training erledigt":sessions.length?"Dein Training":"Zeit zum Auftanken"}</span>
@@ -2365,7 +2378,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
     </section>
     {dayOff===0&&<LoadCard plan={plan} dk={viewKey} complaints={complaints}/>}
     <NutritionCard key={"nutrition-"+viewKey} entry={e} dateKey={viewKey} updDay={updDay} target={proteinTarget} {...meals}
-      onPlanSocial={dayOff===0&&socialProps?()=>socialProps.onPlan():null}/>
+      onPlanSocial={dayOff>=0&&socialProps&&!socialMatches(socialProps.social.matches).some(m=>m.date===viewKey)?()=>socialProps.onPlan(dayOff>0?viewKey:undefined):null}/>
     <UpNextCard plan={plan} from={viewKey} onSelect={go}/>
     {sheetOpen&&<WorkoutSheet dateKey={viewKey} entry={e} updDay={updDay} onClose={()=>setSheetOpen(false)}
       onReportComplaint={dayOff===0?()=>setComplaintOpen(true):null}/>}
@@ -3198,7 +3211,9 @@ export default function App() {
   const saveSocial=patch=>{storedExtras.current={...storedExtras.current,...patch};const x=storedExtras.current;
     setSocial({matches:socialMatches(x.socialMatches),rules:x.socialRules||null,holidays:holidayPeriods(x.socialHolidays)});save(planRef.current);};
   const saveSocialMatch=(input,asDefault)=>{const r=planSocialMatch(storedExtras.current.socialMatches,input,storedExtras.current.socialHolidays);
-    if(r.error)return r.error;saveSocial({socialMatches:r.list,...(asDefault?{socialRules:r.match.rules}:{})});setSocialSheet(null);return null;};
+    if(r.error)return r.error;saveSocial({socialMatches:r.list,...(asDefault?{socialRules:r.match.rules}:{})});setSocialSheet(null);
+    const d=r.match.date,t=todayStr(),day=d===t?"heute":d===daysBeforeStr(t,-1)?"morgen":`${DN[dow0(new Date(d+"T12:00:00"))]} ${shortDate(d)}`;
+    setSyncToast(`${r.match.friendly?"Testspiel":"Social Match"} ${day} · ${r.match.kickoff} ${input.id?"geändert":"geplant"}`);return null;};
   const socialProps={social,
     onPlan:(date,friendly)=>setSocialSheet({date,friendly}),onEdit:m=>setSocialSheet({match:m}),
     onEvaluate:(id,kept)=>saveSocial({socialMatches:evaluateSocialMatch(storedExtras.current.socialMatches,id,kept)}),
