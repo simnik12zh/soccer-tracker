@@ -1,5 +1,8 @@
 import webpush from "web-push";
 import { createHash } from "node:crypto";
+import { redisConfig, createRedis } from "./redis.js";
+
+export { redisConfig };
 
 // Daily reminders via Web Push. The server never sees training data: a push only
 // says which slot it is, and the service worker builds the text from the app's
@@ -11,13 +14,6 @@ const TTL_SECONDS = 3600;
 // summer and winter time hit these hours; every other run is skipped.
 export const REMINDER_SLOTS = { 12: "midday", 21: "evening" };
 const PUSH_HOSTS = /^(web\.push\.apple\.com|fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|[a-z0-9-]+\.notify\.windows\.com)$/;
-
-// The Vercel Marketplace integration may use either naming scheme.
-export function redisConfig(env = process.env) {
-  const url = env.UPSTASH_REDIS_REST_URL || env.KV_REST_API_URL;
-  const token = env.UPSTASH_REDIS_REST_TOKEN || env.KV_REST_API_TOKEN;
-  return url && token ? { url, token } : null;
-}
 
 export function zurichNow(date = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
@@ -44,16 +40,7 @@ export const subscriptionId = (endpoint) => createHash("sha256").update(endpoint
 
 export function createPushService({ env = process.env, fetchImpl = globalThis.fetch, push = webpush } = {}) {
   const config = redisConfig(env);
-  const redis = async (...command) => {
-    const res = await fetchImpl(config.url, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
-      body: JSON.stringify(command),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.error) throw new Error("Redis request failed");
-    return data.result;
-  };
+  const redis = config ? createRedis(config, fetchImpl) : null;
 
   // Generated once and kept in Redis, so no key setup is needed in Vercel.
   const vapidKeys = async () => {

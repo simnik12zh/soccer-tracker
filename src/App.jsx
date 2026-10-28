@@ -430,6 +430,45 @@ function reminderStatus(plan,today=todayStr(),target=DEFAULT_PROTEIN_TARGET) {
   return {version:1,written:today,days};
 }
 
+// ─── Garmin import ───────────────────────────────────────────────────────────────
+// Garmin type keys → session IDs by pattern (Garmin publishes no fixed list).
+// 'soccer' resolves against the day's plan: game, team training or futsal.
+const GARMIN_TYPES=[[/strength/,'Gym'],[/pilates|yoga/,'Pilates'],[/mobility|stretch|breath/,'Mobility'],
+  [/soccer|futsal|football/,'soccer'],[/run/,'Easy run'],[/walk|hik/,'Walking']];
+const GARMIN_LABELS={Gym:'Krafttraining',Pilates:'Pilates/Yoga',Mobility:'Mobilität',soccer:'Fussball','Easy run':'Laufen',Walking:'Gehen'};
+function garminSessionType(typeKey) {
+  const key=String(typeKey||'').toLowerCase();
+  for(const [pattern,type] of GARMIN_TYPES)if(pattern.test(key))return type;
+  return null;
+}
+function garminLabel(item) { const type=garminSessionType(item?.type); return type?GARMIN_LABELS[type]:item?.name||'Aktivität'; }
+// Applies a sync without undoing anything the player did: each activity is applied
+// once (by ID), can only mark a day done (never undone), fills an empty day, and is
+// otherwise just listed as "nicht im Plan". Returns the new plan and completed days.
+function applyGarminImport(plan,data,today=todayStr()) {
+  const next={...plan},completed=[];
+  const num=v=>Number.isFinite(v)?Math.round(v):null;
+  for(const day of Array.isArray(data?.steps)?data.steps:[]){
+    if(!day||!validCoachDate(day.date)||day.date>today||!Number.isInteger(day.steps)||day.steps<0)continue;
+    if(next[day.date]?.steps!==day.steps)next[day.date]={...next[day.date],steps:day.steps};
+  }
+  for(const a of Array.isArray(data?.activities)?data.activities:[]){
+    if(!a||typeof a.id!=='string'||!validCoachDate(a.date)||a.date>today)continue;
+    const e=next[a.date]||{},seen=Array.isArray(e.garmin)?e.garmin:[];
+    if(seen.some(g=>g.id===a.id))continue;
+    const type=garminSessionType(a.type),sessions=getSessions(e);
+    const planned=type==='soccer'?sessions.find(s=>['Match','Team Training','Futsal'].includes(s))||null:type&&sessions.includes(type)?type:null;
+    const fill=!planned&&!!type&&!sessions.length;
+    const item={id:a.id,type:String(a.type||'other').slice(0,40),name:typeof a.name==='string'?a.name.slice(0,80):'',
+      start:typeof a.start==='string'?a.start.slice(0,5):null,minutes:num(a.minutes),avgHr:num(a.avgHr),matched:!!planned||fill};
+    const patch={garmin:[...seen,item]};
+    if(fill){patch.sessions=[type==='soccer'?'Futsal':type];patch.workout='';}
+    if((planned||fill)&&!e.completed){patch.completed=true;completed.push(a.date);}
+    next[a.date]={...e,...patch};
+  }
+  return {plan:next,completed};
+}
+
 // Bottom-sheet options. Every change is a draft until Save, including Ruhetag.
 const ALTS = [
   { emoji:'⚽', label:'Match' },
@@ -537,7 +576,10 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
   };
   const day=dk=>{
     const e=plan[dk]||{},sessions=types(dk),guidance=coachingFor(e);
+    const past=dk<=referenceDate;
     return {date:dk,sessions:sessions.map(displayName),nutrition:eating(dk),
+      steps:past&&Number.isInteger(e.steps)?e.steps:null,
+      watchActivities:past&&Array.isArray(e.garmin)&&e.garmin.length?e.garmin.slice(0,4).map(g=>({type:coachText(g.type,40),minutes:g.minutes??null,avgHr:g.avgHr??null,matchedPlan:!!g.matched})):null,
       status:logged(dk)?'logged':sessions.length?(dk<referenceDate?'not_logged':'planned'):plan[dk]?'rest':'no_entry',
       feeling:logged(dk)?FEELINGS.find(f=>f.value===e.feeling)?.label||null:null,
       notes:coachText(e.notes),
@@ -632,6 +674,7 @@ function Icon({name,size=22,...props}) {
     custom:<path d="M3 12h4l2.5-6 5 12 2.5-6H21"/>,
     settings:<><circle cx="12" cy="12" r="3"/><path d="m9 2-1 3-3 1-3 3 2 3-2 3 3 3 3 1 1 3h6l1-3 3-1 3-3-2-3 2-3-3-3-3-1-1-3z"/></>,
     focus:<><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m12 12 9-9"/></>,
+    watch:<><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 6V3h6v3M9 18v3h6v-3M12 9.5V12l1.5 1.5"/></>,
     body:<><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M7.5 10a6 6 0 0 1 9 0M12 10l1.8-2.2"/></>,
     plus:<path d="M12 5v14M5 12h14"/>,
   };
@@ -833,6 +876,11 @@ progress::-webkit-progress-bar{background:#344858}progress::-webkit-progress-val
 .nutri-stats strong{display:block;font-size:18px;font-weight:500;font-variant-numeric:tabular-nums}.nutri-stats>div>span{display:block;font-size:10px;color:#A5B8C8;line-height:1.4;margin-top:3px}
 .ampel-counts{display:flex!important;gap:6px;align-items:center;font-size:14px;font-weight:500}
 .settings-link{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:18px;margin-top:24px;color:#EDF2F5}.settings-link>span{flex:1;min-width:0}.settings-link small{display:block;font-size:11px;color:#A5B8C8;margin-top:3px}
+.watch-list{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.watch-list li{display:flex;align-items:center;gap:8px;font-size:12px;color:#B3DCE2}.watch-list li svg{flex-shrink:0}.watch-list li span{flex:1;min-width:0}.watch-list li small{flex-shrink:0;white-space:nowrap;font-size:11px;color:#E9C46A}
+.steps-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;padding:16px 12px 12px}
+.steps-day{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:#A5B8C8}.steps-day b{font-weight:500;color:#EDF2F5;font-variant-numeric:tabular-nums}
+.steps-bar{height:64px;width:14px;border-radius:7px;background:#263C4D;display:flex;align-items:flex-end;overflow:hidden}.steps-bar span{display:block;width:100%;border-radius:7px;background:#9CCBD3}
 @media(min-width:600px){.plan-switch{padding-left:26px;padding-right:26px}}
 @media(max-width:360px){.ring>svg{width:56px;height:56px}.ring-center{width:56px;height:56px;font-size:15px}.ring-badge{right:calc(50% - 34px)}.ampel-btn{font-size:11px;gap:4px}.plan-switch{padding-left:14px;padding-right:14px}.body-tile strong{font-size:17px}.protein-actions{gap:6px}}
 `;
@@ -875,6 +923,39 @@ function TacticalCard({dk}) {
   const t=tacticalFor(dk);
   return <section className="panel focus-card"><div className="eyebrow">Dein taktischer Fokus</div>
     <h3>{t.focus}</h3><p>{t.detail}</p></section>;
+}
+
+// ─── Access code and Garmin ──────────────────────────────────────────────────────
+// The code matches APP_ACCESS_CODE in Vercel. Kept in its own localStorage key, so it
+// is never part of exported backups.
+const ACCESS_KEY="soccer-access-code";
+function readAccessCode() { try { return localStorage.getItem(ACCESS_KEY)||""; } catch { return ""; } }
+function writeAccessCode(value) { try { value?localStorage.setItem(ACCESS_KEY,value):localStorage.removeItem(ACCESS_KEY); } catch {} }
+const authHeaders=()=>{const code=readAccessCode();return code?{Authorization:`Bearer ${code}`}:{};};
+const GARMIN_ERRORS={
+  access_denied:"Der Zugangscode stimmt nicht.",
+  access_code_not_configured:"In Vercel fehlt noch APP_ACCESS_CODE.",
+  garmin_not_configured:"In Vercel fehlt noch GARMIN_PERSONAL_API_KEY.",
+  garmin_key_invalid:"Der Garmin-Schlüssel ist ungültig oder abgelaufen. Erzeuge in Garmin Connect einen neuen.",
+  garmin_rate_limited:"Garmin bremst gerade. Versuch es später erneut.",
+  garmin_unavailable:"Garmin ist gerade nicht erreichbar.",
+  network:"Keine Verbindung.",
+};
+function GarminSettings({garmin,onSync}) {
+  const [code,setCode]=useState(readAccessCode),[stored,setStored]=useState(()=>!!readAccessCode());
+  const save=()=>{const value=code.trim();writeAccessCode(value);setStored(!!value);if(value)onSync(true);};
+  const time=garmin.at?new Date(garmin.at).toLocaleTimeString("de-CH",{hour:"2-digit",minute:"2-digit"}):"";
+  const status=garmin.state==="syncing"?"Wird abgeglichen …":garmin.state==="error"?garmin.message
+    :garmin.state==="ok"?`Verbunden · letzter Abgleich ${time} Uhr`:stored?"Noch nicht abgeglichen.":"Noch kein Zugangscode gespeichert.";
+  return <section className="settings-backup" aria-label="Garmin"><div className="section-heading"><h2>Garmin</h2></div>
+    <p className="helper-text">Trainings und Schritte von deiner Uhr kommen beim Öffnen der App dazu. Passt ein Training zum Plan, wird der Tag als erledigt markiert. Eigene Einträge werden nie überschrieben.</p>
+    <label htmlFor="access-code" className="eyebrow">Zugangscode</label>
+    <input id="access-code" type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} className="modal-input" value={code}
+      placeholder="Wie APP_ACCESS_CODE in Vercel" onChange={e=>setCode(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")save();}}/>
+    <button className="secondary" onClick={save}>Speichern und abgleichen</button>
+    {stored&&<button className="secondary" disabled={garmin.state==="syncing"} onClick={()=>onSync(true)}>Jetzt abgleichen</button>}
+    <p role="status" className="helper-text">{status}</p>
+  </section>;
 }
 
 // ─── Reminders (Web Push) ────────────────────────────────────────────────────────
@@ -957,7 +1038,7 @@ function ReminderSettings() {
 }
 
 // ─── Setup / settings ────────────────────────────────────────────────────────────
-function SetupScreen({initName,initProteinTarget=DEFAULT_PROTEIN_TARGET,isEdit,onBack,onSave}) {
+function SetupScreen({initName,initProteinTarget=DEFAULT_PROTEIN_TARGET,isEdit,onBack,onSave,garmin,onGarminSync}) {
   const [n,setN]=useState(initName||"");
   const [target,setTarget]=useState(String(initProteinTarget));
   const targetValue=Number(target.trim());
@@ -1025,6 +1106,7 @@ function SetupScreen({initName,initProteinTarget=DEFAULT_PROTEIN_TARGET,isEdit,o
       {!targetOk&&<p role="alert" className="helper-text">Bitte einen Wert zwischen 30 und 400 g eingeben.</p>}
       <button className="primary" style={{width:"100%",marginTop:20}} disabled={!ok} onClick={submit}>{isEdit?"Speichern":"Los geht’s →"}</button>
     </section>
+    {isEdit&&garmin&&<GarminSettings garmin={garmin} onSync={onGarminSync}/>}
     {isEdit&&<ReminderSettings/>}
     <section className="settings-backup"><div className="section-heading"><h2>Deine Daten</h2></div>
       <p className="helper-text">Alles wird nur auf diesem Gerät gespeichert. Speichere eine Sicherung zum Beispiel in iCloud Drive.</p>
@@ -1246,7 +1328,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan}) {
   const go=dk=>{setDirection(dk>viewKey?1:-1);setDayOff(daysUntil(dk));};
   const dayLabel=new Date(viewKey+"T12:00:00").toLocaleDateString("de-CH",{weekday:"long",day:"numeric",month:"long"});
   return <div className="view" {...swipe}>
-    <div className="day-head"><span>{dayLabel}</span>
+    <div className="day-head"><span>{dayLabel}{Number.isInteger(e.steps)&&<> · {e.steps.toLocaleString("de-CH")} Schritte</>}</span>
       {dayOff!==0&&<button className="text-btn" onClick={()=>{setDirection(dayOff>0?-1:1);setDayOff(0);}}>Zu heute</button>}</div>
     <div className="day-nav">
       <button className="week-step" aria-label="Vorherige Woche" onClick={()=>navDay(-7)}>‹</button>
@@ -1278,6 +1360,9 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan}) {
         </button>}
       </div>
       <p className="session-subtitle">{sessionSubtitle(e)}</p>
+      {Array.isArray(e.garmin)&&e.garmin.length>0&&<ul className="watch-list" aria-label="Von Garmin">{e.garmin.map(g=><li key={g.id}>
+        <Icon name="watch" size={16}/><span>{garminLabel(g)}{g.minutes!=null?` · ${g.minutes} min`:""}{g.avgHr?` · Ø ${g.avgHr} bpm`:""}</span>
+        {!g.matched&&<small>nicht im Plan</small>}</li>)}</ul>}
       {guidance&&<aside className={"plan-guidance"+(guideOpen?" open":"")} aria-label="Planhinweis"><strong>{guidance.title}</strong><p>{guidance.text}</p>
         {guidance.text.length>110&&<button className="text-btn more-btn" aria-expanded={guideOpen} onClick={()=>setGuideOpen(o=>!o)}>{guideOpen?"Weniger":"Mehr lesen"}</button>}</aside>}
       <div className="session-actions">
@@ -1563,6 +1648,9 @@ function BodyView({plan,updDay,proteinTarget}) {
   const recent=Object.keys(plan).filter(dk=>dk<=today&&(validBody(plan[dk]?.weight)||validBody(plan[dk]?.bodyFat))).sort().reverse().slice(0,5);
   const nut=nutritionSummary(plan,Array.from({length:7},(_,i)=>daysBeforeStr(today,6-i)),proteinTarget);
   const bf=snap.bodyFat,w=snap.weight,m=snap.mass;
+  const stepDays=Array.from({length:7},(_,i)=>{const date=daysBeforeStr(today,6-i),v=plan[date]?.steps;return {date,steps:Number.isInteger(v)?v:null};});
+  const stepValues=stepDays.map(d=>d.steps).filter(v=>v!=null);
+  const stepAvg=stepValues.length?Math.round(stepValues.reduce((n,v)=>n+v,0)/stepValues.length):0,stepMax=Math.max(1,...stepValues);
   return <div className="view">
     <section className="panel body-hero" aria-label="Körperfett">
       <div className="eyebrow">Körperfett · 7-Tage-Mittel</div>
@@ -1608,6 +1696,13 @@ function BodyView({plan,updDay,proteinTarget}) {
         </div>
       </div>
     </section>
+    {stepDays.some(d=>d.steps!=null)&&<section aria-label="Schritte der letzten sieben Tage">
+      <div className="section-heading"><h2>Schritte</h2><span>Ø {stepAvg.toLocaleString("de-CH")} · letzte 7 Tage</span></div>
+      <div className="panel steps-week">{stepDays.map(d=><div key={d.date} className="steps-day" role="img"
+        aria-label={shortDate(d.date)+": "+(d.steps!=null?d.steps+" Schritte":"keine Daten")}>
+        <span className="steps-bar"><span style={{height:(d.steps!=null?Math.max(4,d.steps/stepMax*100):0)+"%"}}/></span>
+        <b>{d.steps!=null?(d.steps>=1000?Math.round(d.steps/100)/10+"k":d.steps):"–"}</b><small>{DN[dow0(new Date(d.date+"T12:00:00"))]}</small></div>)}</div>
+    </section>}
     {recent.length>0&&<section aria-label="Letzte Messungen">
       <div className="section-heading"><h2>Messungen</h2><span>Antippen zum Bearbeiten</span></div>
       <div className="panel measure-list">{recent.map(dk=>{const e=plan[dk];
@@ -1669,8 +1764,9 @@ function CoachScreen({viewKey,plan,playerName,proteinTarget,onBack}) {
     const controller=new AbortController();requestRef.current=controller;
     setMessages([...base,{role:"assistant",content:""}]);
     try {
-      const resp=await fetch("/api/coach",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json"},
+      const resp=await fetch("/api/coach",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json",...authHeaders()},
         body:JSON.stringify({...buildCoachContext(plan,playerName,viewKey,todayStr(),proteinTarget),messages:base.slice(-20)})});
+      if (resp.status===401) throw Object.assign(new Error("access"),{auth:true});
       if (!resp.ok||!resp.body) throw new Error("bad response");
       const reader=resp.body.getReader(), decoder=new TextDecoder();
       let acc="";
@@ -1678,7 +1774,7 @@ function CoachScreen({viewKey,plan,playerName,proteinTarget,onBack}) {
       if (!acc.trim()) throw new Error("empty response");
       const final=[...base,{role:"assistant",content:acc}];
       setMessages(final); persistCoach(final);
-    } catch(error) { if(error.name!=="AbortError"){setCoachError(true);setMessages(base);} }
+    } catch(error) { if(error.name!=="AbortError"){setCoachError(error.auth?"auth":true);setMessages(base);} }
     finally { setSending(false); }
   };
   // Context-aware opener — rest days get a recovery-oriented prompt, not "today's session".
@@ -1737,7 +1833,7 @@ function CoachScreen({viewKey,plan,playerName,proteinTarget,onBack}) {
         {coachError&&(
           <div style={{alignSelf:"stretch"}}>
             <p style={{margin:"0 0 8px",fontSize:14,color:C.muted,lineHeight:1.5}}>
-              Der Trainer ist gerade nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.
+              {coachError==="auth"?"Der Zugangscode fehlt oder stimmt nicht. Trag ihn unter Saison → Einstellungen → Garmin ein.":"Der Trainer ist gerade nicht erreichbar. Prüfe deine Verbindung und versuche es erneut."}
             </p>
             {messages.length>0&&(
               <button onClick={retryCoach} style={{fontSize:14,fontWeight:600,color:C.sageDk,background:C.surface,
@@ -1777,6 +1873,8 @@ export default function App() {
   const [loadError,setLoadError]=useState(false);
   // Retired feature data is preserved verbatim for backwards-compatible backups.
   const storedExtras=useRef({});
+  const planRef=useRef(plan);planRef.current=plan;
+  const [garmin,setGarmin]=useState(()=>({state:readAccessCode()?"idle":"off"})),[syncToast,setSyncToast]=useState("");
   useEffect(()=>{
     (async()=>{
       try{
@@ -1797,6 +1895,15 @@ export default function App() {
     try{if(sessionStorage.getItem("justRestored")){sessionStorage.removeItem("justRestored");setRestoredToast(true);}}catch{}
   },[]);
   useEffect(()=>{if(!loading&&!loadError)writeReminderStatus(reminderStatus(plan,todayStr(),proteinTarget));},[plan,proteinTarget,loading,loadError]);
+  const syncRef=useRef(null);
+  useEffect(()=>{
+    if(loading||loadError)return;
+    syncRef.current?.();
+    const onVisible=()=>{if(document.visibilityState==="visible")syncRef.current?.();};
+    document.addEventListener("visibilitychange",onVisible);
+    return ()=>document.removeEventListener("visibilitychange",onVisible);
+  },[loading,loadError]);
+  useEffect(()=>{if(!syncToast)return;const t=setTimeout(()=>setSyncToast(""),4500);return ()=>clearTimeout(t);},[syncToast]);
   useEffect(()=>{if(!restoredToast)return;const t=setTimeout(()=>setRestoredToast(false),3200);return ()=>clearTimeout(t);},[restoredToast]);
   useEffect(()=>{if(!celebration)return;const t=setTimeout(()=>setCelebration(null),5000);return ()=>clearTimeout(t);},[celebration]);
   const save=(np,nn,pt)=>{
@@ -1813,6 +1920,28 @@ export default function App() {
       if(!already&&m.check(all,entry,entry.phase)){try{localStorage.setItem(key,"true");}catch{}setCelebration(m);break;}
     }
   };
+  // Pulls Garmin activities and steps since the last sync (two days overlap, max 28 days).
+  const syncGarmin=async(force=false)=>{
+    if(!readAccessCode()){setGarmin({state:"off"});return;}
+    const last=storedExtras.current.garminSync;
+    if(!force&&last?.at&&Date.now()-last.at<10*60*1000)return;
+    const today=todayStr(),oldest=daysBeforeStr(today,27);
+    let from=last?.through?daysBeforeStr(last.through,2):daysBeforeStr(today,13);
+    if(from<oldest)from=oldest;
+    setGarmin(g=>({...g,state:"syncing"}));
+    try{
+      const res=await fetch(`/api/garmin?from=${from}&to=${today}`,{headers:authHeaders()});
+      const body=await res.json().catch(()=>({}));
+      if(!res.ok||!Array.isArray(body.activities)||!Array.isArray(body.steps)){setGarmin({state:"error",message:GARMIN_ERRORS[body.error]||GARMIN_ERRORS.garmin_unavailable});return;}
+      const {plan:next,completed}=applyGarminImport(planRef.current,body,today);
+      storedExtras.current={...storedExtras.current,garminSync:{at:Date.now(),through:today}};
+      setPlan(next);save(next);
+      setGarmin({state:"ok",at:Date.now()});
+      if(completed.length)setSyncToast(completed.length>2?`${completed.length} Trainings von Garmin eingetragen`
+        :"Von Garmin eingetragen: "+completed.map(dk=>sessionsLabel(next[dk])+" ("+shortDate(dk)+")").join(", "));
+    }catch{setGarmin({state:"error",message:GARMIN_ERRORS.network});}
+  };
+  syncRef.current=()=>{if(screen!=="setup")syncGarmin();};
   const updDay=(dk,patch)=>{
     const np={...plan,[dk]:{...plan[dk],...patch}};setPlan(np);save(np);
     if(patch.completed===true&&getSessions(np[dk]).length)checkMilestones(dk,np);
@@ -1833,6 +1962,7 @@ export default function App() {
     <p className="helper-text">Deine gespeicherten Daten wurden nicht verändert. Bitte prüfe den Browser-Zugriff oder sichere die vorhandenen Daten, bevor du eine Sicherung wiederherstellst.</p>
     <button className="secondary" onClick={()=>window.location.reload()}>Erneut versuchen</button></div></main>;
   else if(screen==="setup")content=<SetupScreen initName={playerName} initProteinTarget={proteinTarget} isEdit={!!playerName} onBack={playerName?()=>setScreen("main"):null}
+    garmin={garmin} onGarminSync={syncGarmin}
     onSave={(n,target)=>{const pt=target===DEFAULT_PROTEIN_TARGET&&proteinSetting==null?null:target;setPlayerName(n);setProteinSetting(pt);save(plan,n,pt);setScreen("main");}}/>;
   else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")}/>;
   else content=<main className="app-shell">
@@ -1852,6 +1982,7 @@ export default function App() {
   </main>;
   return <><style>{UI_CSS}</style>{content}
     {restoredToast&&<div className="toast" role="status">✓ Sicherung wiederhergestellt</div>}
+    {syncToast&&!restoredToast&&!storageError&&<div className="toast" role="status">⌚ {syncToast}</div>}
     {storageError&&<div className="toast" role="alert"><p>{storageError}</p><button className="text-btn" onClick={()=>save()}>Erneut speichern</button></div>}
     {celebration&&!storageError&&<div className="toast milestone-toast" role="status"><span>{celebration.emoji}</span><div><strong>{celebration.title}</strong><p>{celebration.message}</p></div>
       <button className="icon-btn" aria-label="Hinweis schließen" onClick={()=>setCelebration(null)}><Icon name="close" size={18}/></button></div>}

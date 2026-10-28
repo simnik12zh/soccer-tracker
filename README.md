@@ -85,6 +85,26 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 - **Retired features** — Hip/Legs check-ins, Mediale Kette and the Routine tab are removed.
   Existing check-ins and top-level rehab fields remain untouched in stored data and backups,
   but are no longer shown or sent to the coach. Exercise image source files are retained.
+- **Garmin import** — the server pulls the Garmin Connect Personal API (read-only, own
+  account) via `GET /api/garmin?from&to` (max 28 days): activity summaries
+  (`/activitylist-service/activities/search/activities`) and daily steps
+  (`/usersummary-service/stats/steps/daily/{from}/{to}`). The personal key
+  (`GARMIN_PERSONAL_API_KEY`, from Garmin Connect, expires after the period chosen there) is
+  exchanged for a bearer JWT that is cached in Redis; parallel calls share one exchange and a
+  rejected token is renewed once. Only id, local date/time, type key, name, minutes, calories
+  and average heart rate are returned; nothing is stored server-side. The app syncs on open and
+  when it returns to the foreground (at most every 10 minutes, from two days before the last
+  sync, first time 14 days). `applyGarminImport` applies each activity once by ID: a type that
+  matches the day's plan (football → game, team training or futsal) marks the day done, an
+  empty day is filled (unplanned football → Freizeitkick/Futsal), anything else is listed as
+  "nicht im Plan". It never un-ticks a day, never changes feelings or notes, and a day the
+  player un-ticked stays un-ticked. Per-day `steps` and `garmin` are optional fields
+  (no key bump); `garminSync` is stored top-level. Today shows steps next to the date and
+  recorded activities on the session card; Körper shows the last seven days of steps. The coach
+  context includes `steps` and `watchActivities` for past days.
+- **Access code** — `APP_ACCESS_CODE` (Vercel env) is required for `/api/garmin` and, when set,
+  for `/api/coach`. The app sends it as `Authorization: Bearer`; it is entered under Saison →
+  Einstellungen → Garmin and stored in its own localStorage key, so exports never contain it.
 - **Daily reminders (Web Push)** — opt-in under Saison → Einstellungen → Erinnerungen. Works on
   iPhone only in the home-screen app (iOS 16.4+). `public/sw.js` is a push-only service worker
   (no fetch handler, no offline caching). Vercel Cron (`vercel.json`) calls `/api/remind` at

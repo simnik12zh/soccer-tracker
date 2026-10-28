@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import Anthropic from '@anthropic-ai/sdk';
+import {accessDenied} from '../api/_lib/access.js';
 
 const src=readFileSync(new URL('../src/App.jsx',import.meta.url),'utf8');
 const backend=readFileSync(new URL('../api/coach.js',import.meta.url),'utf8');
@@ -11,14 +12,14 @@ const dates=src.slice(src.indexOf('const PHASE_LABELS'),src.indexOf('function Ic
 const app=vm.runInNewContext(helpers+dates+'\n({buildCoachContext,buildDefaultPlan})',{Date});
 const plain=x=>JSON.parse(JSON.stringify(x));
 const makeContext=(plan=app.buildDefaultPlan(),view='2026-09-30',today='2026-09-30')=>app.buildCoachContext(plan,'Test',view,today);
-function server(Client){
+function server(Client,env={}){
   const requests=[];
   class FakeAnthropic {
     messages={stream:params=>{requests.push(params);return {on:(event,cb)=>{if(event==='text')cb('Testantwort');},finalMessage:async()=>({})};}};
   }
-  const code=backend.replace(/^import Anthropic[^\n]*\n/,'').replace('export default async function handler','async function handler');
+  const code=backend.replace(/^import [^\n]*\n/gm,'').replace('export default async function handler','async function handler');
   const api=vm.runInNewContext(code+'\n({handler,buildContextBlock,sanitizeMessages,SYSTEM_PROMPT,MODEL})',{
-    Anthropic:Client||FakeAnthropic,process:{env:{ANTHROPIC_API_KEY:'test-only-no-network'}},console,
+    Anthropic:Client||FakeAnthropic,accessDenied,process:{env:{ANTHROPIC_API_KEY:'test-only-no-network',...env}},console,
   });
   return {...api,requests};
 }
