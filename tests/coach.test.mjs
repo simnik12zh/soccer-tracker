@@ -212,7 +212,7 @@ test('nutrition reaches the coach as dated, optional self-reports with a 7-day s
   assert.equal(ctx.upcoming[0].nutrition,null,'future self-reports are never sent');
   assert.equal(ctx.nutrition.proteinTargetGrams,120);
   assert.deepEqual(plain(ctx.nutrition.last7Days),{from:'2026-09-24',to:'2026-09-30',proteinLoggedDays:4,proteinTargetHitDays:1,
-    avgProteinGrams:83,ratedDays:3,ratings:{green:1,amber:1,red:1}});
+    avgProteinGrams:83,ratedDays:3,ratings:{green:1,amber:1,red:1},kcalLoggedDays:0,avgKcal:null});
   assert.equal(ctx.nutrition.previous7Days.proteinLoggedDays,0);
   assert.equal(app.buildCoachContext(plan,'Test','2026-09-30','2026-09-30',5).nutrition.proteinTargetGrams,100,'invalid target falls back to default');
   const api=server(),prompt=api.buildContextBlock(ctx);

@@ -40,6 +40,18 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   `red` Daneben: viel Süsses, Essen aus Lust statt Hunger, Fast Food). Not logged is never zero
   or red. Future days cannot be logged. Daily protein target defaults to 100 g
   (`DEFAULT_PROTEIN_TARGET`); a changed target is stored top-level as `proteinTarget`.
+- **Meal photos** — "Mahlzeit fotografieren" opens the camera (or "oder aus Fotos wählen"); the
+  phone downscales to 1280 px JPEG and `POST /api/meal` (access code required) asks Claude Opus 5.5
+  (`claude-opus-5-5`, effort medium, structured output via `output_config.format`, server-side
+  `fallbacks: "default"`) for components with grams, kcal and protein plus a kcal range and a
+  confidence. The server clamps implausible values and recomputes totals from the components.
+  The estimate is saved immediately as `meals[]` on the day; opening a meal to correct kcal/protein
+  or delete it is optional. Photos are never stored. Day protein = quick-add `protein` + meal
+  protein (the pencil corrects the day total; the quick-add part absorbs the difference); day kcal
+  comes from photographed meals only. Coach context gets per-day kcal and meals plus 7-day
+  averages, with the instruction that photo kcal are rough and cover only photographed meals.
+  Day updates build on the latest plan (`planRef`) so results arriving after an await never drop
+  newer edits.
 - **Plan** — Woche/Monat toggle. The week view shows the browsed week's goals and tactical focus.
 - **Körper** — body-fat 7-day mean as hero with delta vs. the previous 7 days and a 13–14 %
   goal bar; weight, fat mass and lean mass tiles (mass needs weight and body fat in the same

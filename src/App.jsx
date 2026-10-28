@@ -398,17 +398,28 @@ const NUTRITION_LEVELS = [
 function validProtein(v) { return typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<=500; }
 function validProteinTarget(v) { return typeof v==='number'&&Number.isInteger(v)&&v>=30&&v<=400; }
 function nutritionLevel(key) { return NUTRITION_LEVELS.find(l=>l.key===key)||null; }
+// Photographed meals per day: {id, at, title, kcal, protein, kcalLow, kcalHigh, confidence, items, edited?}.
+// Day protein = quick-add grams (`protein`) + meal protein. Day kcal comes from meals only.
+function validMeal(m) { return !!m&&typeof m.id==='string'&&Number.isFinite(m.kcal)&&m.kcal>=0&&m.kcal<=5000&&Number.isFinite(m.protein)&&m.protein>=0&&m.protein<=300; }
+function dayMeals(e) { return Array.isArray(e?.meals)?e.meals.filter(validMeal):[]; }
+function dayProtein(e) {
+  const quick=validProtein(e?.protein)?e.protein:null,meals=dayMeals(e);
+  if(quick==null&&!meals.length)return null;
+  return Math.round((quick||0)+meals.reduce((n,m)=>n+m.protein,0));
+}
+function dayKcal(e) { const meals=dayMeals(e); return meals.length?Math.round(meals.reduce((n,m)=>n+m.kcal,0)):null; }
 // Summary over an explicit list of date keys (e.g. the last seven days).
 function nutritionSummary(plan,days,target=DEFAULT_PROTEIN_TARGET) {
   const rows=days.map(date=>{
-    const e=plan[date]||{},protein=validProtein(e.protein)?e.protein:null;
-    return {date,protein,nutrition:nutritionLevel(e.nutrition)?e.nutrition:null,hit:protein!=null&&protein>=target};
+    const e=plan[date]||{},protein=dayProtein(e);
+    return {date,protein,kcal:dayKcal(e),nutrition:nutritionLevel(e.nutrition)?e.nutrition:null,hit:protein!=null&&protein>=target};
   });
-  const logged=rows.filter(r=>r.protein!=null),counts={green:0,amber:0,red:0};
+  const logged=rows.filter(r=>r.protein!=null),withKcal=rows.filter(r=>r.kcal!=null),counts={green:0,amber:0,red:0};
   rows.forEach(r=>{if(r.nutrition)counts[r.nutrition]++;});
   return {target,days:rows,proteinDays:logged.length,hits:rows.filter(r=>r.hit).length,
     avgProtein:logged.length?Math.round(logged.reduce((n,r)=>n+r.protein,0)/logged.length):null,
-    ratedDays:counts.green+counts.amber+counts.red,counts};
+    ratedDays:counts.green+counts.amber+counts.red,counts,
+    kcalDays:withKcal.length,avgKcal:withKcal.length?Math.round(withKcal.reduce((n,r)=>n+r.kcal,0)/withKcal.length):null};
 }
 
 // What is still open on a day: training, protein, eating rating. Future days have nothing open.
@@ -417,7 +428,7 @@ function dayChecklist(entry,dk,today=todayStr(),target=DEFAULT_PROTEIN_TARGET) {
   const e=entry||{},open=[];
   if(dk>today)return {future:true,open};
   if(getSessions(e).length&&!e.completed)open.push('Training');
-  const protein=validProtein(e.protein)?e.protein:null;
+  const protein=dayProtein(e);
   if(protein==null)open.push('Protein');
   else if(protein<target)open.push(`${target-protein} g Protein`);
   if(!nutritionLevel(e.nutrition))open.push('Ernährung bewerten');
@@ -626,12 +637,15 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
   const target=validProteinTarget(proteinTarget)?proteinTarget:DEFAULT_PROTEIN_TARGET;
   // Self-reported eating; never sent for future dates. Missing stays null, not zero.
   const eating=dk=>{
-    const e=plan[dk]||{},protein=validProtein(e.protein)?e.protein:null,rating=nutritionLevel(e.nutrition)?e.nutrition:null;
-    return dk<=referenceDate&&(protein!=null||rating)?{proteinGrams:protein,rating}:null;
+    const e=plan[dk]||{},protein=dayProtein(e),rating=nutritionLevel(e.nutrition)?e.nutrition:null,meals=dayMeals(e);
+    if(dk>referenceDate||(protein==null&&!rating&&!meals.length))return null;
+    return {proteinGrams:protein,rating,...(meals.length?{kcal:dayKcal(e),
+      meals:meals.slice(0,8).map(m=>({title:coachText(m.title,40),kcal:Math.round(m.kcal),proteinGrams:Math.round(m.protein)}))}:{})};
   };
   const eatingStats=(from,to)=>{
     const keys=Array.from({length:7},(_,i)=>daysBeforeStr(to,6-i)),s=nutritionSummary(plan,keys,target);
-    return {from,to,proteinLoggedDays:s.proteinDays,proteinTargetHitDays:s.hits,avgProteinGrams:s.avgProtein,ratedDays:s.ratedDays,ratings:s.counts};
+    return {from,to,proteinLoggedDays:s.proteinDays,proteinTargetHitDays:s.hits,avgProteinGrams:s.avgProtein,ratedDays:s.ratedDays,ratings:s.counts,
+      kcalLoggedDays:s.kcalDays,avgKcal:s.avgKcal};
   };
   const day=dk=>{
     const e=plan[dk]||{},sessions=types(dk),guidance=coachingFor(e);
@@ -737,6 +751,7 @@ function Icon({name,size=22,...props}) {
     watch:<><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 6V3h6v3M9 18v3h6v-3M12 9.5V12l1.5 1.5"/></>,
     body:<><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M7.5 10a6 6 0 0 1 9 0M12 10l1.8-2.2"/></>,
     plus:<path d="M12 5v14M5 12h14"/>,
+    camera:<><path d="M3.5 8.5h3.2L8.5 6h7l1.8 2.5h3.2V19h-17z"/><circle cx="12" cy="13" r="3.4"/></>,
   };
   const resolved=name==="Futsal"||name==="Team Training"?"ball":name==="plan"?"month":name==="season"?"journey":name;
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>{paths[resolved]||paths.custom}</svg>;
@@ -936,6 +951,16 @@ progress::-webkit-progress-bar{background:#344858}progress::-webkit-progress-val
 .nutri-stats strong{display:block;font-size:18px;font-weight:500;font-variant-numeric:tabular-nums}.nutri-stats>div>span{display:block;font-size:10px;color:#A5B8C8;line-height:1.4;margin-top:3px}
 .ampel-counts{display:flex!important;gap:6px;align-items:center;font-size:14px;font-weight:500}
 .settings-link{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:18px;margin-top:24px;color:#EDF2F5}.settings-link>span{flex:1;min-width:0}.settings-link small{display:block;font-size:11px;color:#A5B8C8;margin-top:3px}
+.kcal-line{font-size:12px;color:#B3DCE2;margin:-6px 0 12px}
+.meal-photo{display:flex;flex-direction:column;align-items:stretch;margin-bottom:8px}.meal-photo .secondary{display:flex;align-items:center;justify-content:center;gap:8px;border-color:#9CCBD3;white-space:nowrap}
+.meal-photo .text-btn{align-self:center;min-height:36px;font-size:12px;color:#B3DCE2}
+.meal-list{list-style:none;margin:0 0 12px;padding:0;border-top:1px solid #344858}
+.meal-row{border-bottom:1px solid #2D4151}.meal-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;text-align:left;border:0;background:transparent;padding:10px 0;min-height:52px}
+.meal-summary>span{min-width:0}.meal-summary strong{display:block;font-size:13px;font-weight:500;color:#EDF2F5;overflow-wrap:anywhere}.meal-summary small{display:block;font-size:11px;color:#A5B8C8;margin-top:2px}
+.meal-summary>b{flex-shrink:0;text-align:right;font-size:13px;font-weight:500;color:#EDF2F5;font-variant-numeric:tabular-nums}.meal-summary>b small{display:block;font-size:11px;font-weight:400;color:#A9D8B8}
+.meal-detail{padding:0 0 12px}.meal-detail ul{list-style:none;margin:0 0 8px;padding:0}.meal-detail li{display:flex;justify-content:space-between;gap:12px;font-size:11px;color:#A5B8C8;padding:3px 0}
+.meal-edit{display:flex;gap:12px}.meal-edit label{flex:1;min-width:0;font-size:11px;color:#A5B8C8}.meal-edit .modal-input{margin:6px 0 0}
+.meal-pending{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #2D4151;font-size:12px;color:#B3DCE2}.meal-pending img{width:44px;height:44px;object-fit:cover;border-radius:10px;flex-shrink:0}.meal-pending span{flex:1}
 .connection-row{display:flex;gap:12px;align-items:flex-start;border-top:1px solid #344858;margin-top:16px;padding-top:14px;color:#B3DCE2}
 .connection-row strong{display:block;font-size:14px;font-weight:500;color:#EDF2F5}.connection-row small{display:block;font-size:12px;color:#B3DCE2;margin-top:3px}.connection-row p{font-size:12px;color:#A5B8C8;margin-top:3px}
 .watch-list{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
@@ -1310,7 +1335,7 @@ function Ring({value,max,color,label,sub,badge,ariaLabel,onClick,children}) {
 }
 function DayRings({plan,viewKey,target,onOpenPlan}) {
   const today=todayStr(),e=plan[viewKey]||{},sessions=getSessions(e);
-  const protein=validProtein(e.protein)?e.protein:null,level=nutritionLevel(e.nutrition);
+  const protein=dayProtein(e),level=nutritionLevel(e.nutrition);
   const phase=phaseForDate(viewKey),week=isHoliday(viewKey)?{done:0,goal:0}:weekTargetProgress(plan,weekAround(viewKey),phase?.name);
   const status=!sessions.length?"Ruhetag":e.completed?"erledigt":viewKey>today?"geplant":viewKey<today?"nicht eingetragen":"offen";
   const check=dayChecklist(e,viewKey,today,target);
@@ -1338,26 +1363,119 @@ function DayRings({plan,viewKey,target,onOpenPlan}) {
 }
 
 // ─── Nutrition card (Today) ──────────────────────────────────────────────────────
-// Quick-add protein (+20/+30/+40 g, correctable) and a traffic-light rating of the
-// whole day's eating. Only writes `protein` / `nutrition`; never touches sessions.
-function NutritionCard({entry,dateKey:dk,updDay,target}) {
+// Photo a meal and the estimate is saved right away; opening a meal to correct it is
+// optional. Quick-add protein (+20/+30/+40 g) stays for shakes and snacks. Only writes
+// `protein`, `meals` and `nutrition`; never touches sessions.
+const MEAL_ERRORS={
+  access_denied:"Der Zugangscode stimmt nicht.",
+  access_code_not_configured:"In Vercel fehlt noch APP_ACCESS_CODE.",
+  model_not_configured:"Auf dem Server fehlt der Anthropic-Schlüssel.",
+  invalid_image:"Das Foto konnte nicht gelesen werden.",
+  no_food:"Auf dem Foto ist kein Essen zu erkennen.",
+  meal_refused:"Dieses Foto kann nicht analysiert werden.",
+  meal_busy:"Gerade viele Anfragen. Gleich erneut versuchen.",
+  meal_unreadable:"Die Schätzung hat nicht geklappt.",
+  meal_unavailable:"Die Schätzung hat nicht geklappt.",
+  network:"Keine Verbindung.",
+};
+const nowTime=()=>new Date().toLocaleTimeString("de-CH",{hour:"2-digit",minute:"2-digit"});
+// Downscale on the phone: faster upload, cheaper analysis, nothing stored.
+async function prepareMealPhoto(file,maxSide=1280) {
+  const url=URL.createObjectURL(file);
+  try{
+    // onload instead of img.decode(): decode() can stay pending in some WebViews.
+    const img=await new Promise((resolve,reject)=>{const i=new Image();i.onload=()=>resolve(i);i.onerror=()=>reject(new Error("unreadable"));i.src=url;});
+    const scale=Math.min(1,maxSide/Math.max(img.naturalWidth,img.naturalHeight));
+    const canvas=document.createElement("canvas");
+    canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
+    canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
+    const dataUrl=canvas.toDataURL("image/jpeg",0.82);
+    return {base64:dataUrl.slice(dataUrl.indexOf(",")+1),preview:dataUrl};
+  }finally{URL.revokeObjectURL(url);}
+}
+function MealRow({meal,onSave,onRemove}) {
+  const [open,setOpen]=useState(false),[kcal,setKcal]=useState(String(meal.kcal)),[protein,setProtein]=useState(String(meal.protein));
+  const num=v=>v.trim()===""?NaN:Number(v.replace(",","."));
+  const k=num(kcal),p=num(protein),valid=Number.isFinite(k)&&k>=0&&k<=5000&&Number.isFinite(p)&&p>=0&&p<=300;
+  const save=()=>{if(!valid)return;onSave({kcal:Math.round(k),protein:Math.round(p),edited:true});setOpen(false);};
+  const range=meal.kcalLow!=null&&meal.kcalHigh!=null&&meal.kcalHigh>meal.kcalLow?`${meal.kcalLow}–${meal.kcalHigh} kcal`:"";
+  return <li className={"meal-row"+(open?" open":"")}>
+    <button className="meal-summary" aria-expanded={open} onClick={()=>{setKcal(String(meal.kcal));setProtein(String(meal.protein));setOpen(o=>!o);}}>
+      <span><strong>{meal.title}</strong><small>{meal.at}{meal.edited?" · angepasst":range?` · ${range}`:""}{!meal.edited&&meal.confidence==="low"?" · unsicher":""}</small></span>
+      <b>{meal.kcal} kcal<small>{meal.protein} g Protein</small></b>
+    </button>
+    {open&&<div className="meal-detail">
+      {Array.isArray(meal.items)&&meal.items.length>0&&<ul>{meal.items.map((i,n)=><li key={n}><span>{i.name}{i.grams?` · ${i.grams} g`:""}</span><span>{i.kcal} kcal · {Math.round(i.protein)} g</span></li>)}</ul>}
+      <div className="meal-edit">
+        <label>kcal<input className="modal-input" inputMode="numeric" value={kcal} onChange={e=>setKcal(e.target.value)}/></label>
+        <label>Protein (g)<input className="modal-input" inputMode="numeric" value={protein} onChange={e=>setProtein(e.target.value)}/></label>
+      </div>
+      {!valid&&<p role="alert" className="protein-hint">Bitte gültige Werte eingeben.</p>}
+      <div className="sheet-footer"><button className="primary" disabled={!valid} onClick={save}>Speichern</button><button className="secondary" onClick={onRemove}>Löschen</button></div>
+    </div>}
+  </li>;
+}
+function NutritionCard({entry,dateKey:dk,updDay,target,onAddMeal,onUpdateMeal,onRemoveMeal}) {
   const today=todayStr(),future=dk>today;
-  const protein=validProtein(entry.protein)?entry.protein:null,level=nutritionLevel(entry.nutrition);
-  const [editing,setEditing]=useState(false),[draft,setDraft]=useState(""),[lastAdd,setLastAdd]=useState(null);
-  const add=g=>{updDay(dk,{protein:Math.min(500,(protein||0)+g)});setLastAdd({g,prev:protein});};
+  const quick=validProtein(entry.protein)?entry.protein:null,meals=dayMeals(entry);
+  const protein=dayProtein(entry),kcal=dayKcal(entry),mealProtein=meals.reduce((n,m)=>n+m.protein,0),level=nutritionLevel(entry.nutrition);
+  const [editing,setEditing]=useState(false),[draft,setDraft]=useState(""),[lastAdd,setLastAdd]=useState(null),[pending,setPending]=useState([]);
+  const cameraRef=useRef(null),libraryRef=useRef(null),hasCode=!!readAccessCode();
+  const add=g=>{updDay(dk,{protein:Math.min(500,(quick||0)+g)});setLastAdd({g,prev:quick});};
   const undo=()=>{if(!lastAdd)return;updDay(dk,{protein:lastAdd.prev});setLastAdd(null);};
   const parsed=draft.trim()===""?null:Number(draft.replace(",","."));
   const draftOk=parsed===null||validProtein(parsed);
   const startEdit=()=>{setDraft(protein==null?"":String(protein));setEditing(true);setLastAdd(null);};
-  const saveDraft=()=>{if(!draftOk)return;updDay(dk,{protein:parsed==null?null:Math.round(parsed)});setEditing(false);};
+  // The pencil corrects the day total; photographed meals stay, the quick-add part absorbs the difference.
+  const saveDraft=()=>{if(!draftOk)return;updDay(dk,{protein:parsed==null?null:Math.max(0,Math.round(parsed-mealProtein))});setEditing(false);};
+  const setItem=(key,patch)=>setPending(list=>list.map(x=>x.key===key?{...x,...patch}:x));
+  const analyze=async item=>{
+    setItem(item.key,{status:"analyzing"});
+    try{
+      const res=await fetch("/api/meal",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify({image:item.image,mediaType:"image/jpeg"})});
+      const body=await res.json().catch(()=>({}));
+      if(!res.ok||!body.meal){setItem(item.key,{status:"error",message:MEAL_ERRORS[body.error]||MEAL_ERRORS.meal_unavailable});return;}
+      const m=body.meal;
+      onAddMeal(dk,{id:item.key,at:item.at,title:m.title,kcal:m.kcal,protein:m.protein,kcalLow:m.kcalLow,kcalHigh:m.kcalHigh,confidence:m.confidence,items:m.items});
+      setPending(list=>list.filter(x=>x.key!==item.key));
+    }catch{setItem(item.key,{status:"error",message:MEAL_ERRORS.network});}
+  };
+  const onPhoto=async ev=>{
+    const file=ev.target.files?.[0];ev.target.value="";
+    if(!file)return;
+    const key=Date.now().toString(36)+Math.random().toString(36).slice(2,7),at=nowTime();
+    setPending(list=>[...list,{key,at,status:"preparing"}]);
+    try{
+      const {base64,preview}=await prepareMealPhoto(file);
+      const item={key,at,image:base64,preview,status:"analyzing"};
+      setItem(key,item);analyze(item);
+    }catch{setItem(key,{status:"error",message:MEAL_ERRORS.invalid_image});}
+  };
   return <section id="today-nutrition" className="panel nutrition-card" aria-label="Ernährung">
     <div className="card-head"><span className="eyebrow">Ernährung</span>
       {level&&<span className="ampel-tag"><span className={"ampel-dot "+level.key} aria-hidden="true">{level.mark}</span>{level.label}</span>}</div>
-    {future?<p className="helper-text">Protein und Bewertung trägst du am Tag selbst ein.</p>:<>
+    {future?<p className="helper-text">Essen, Protein und Bewertung trägst du am Tag selbst ein.</p>:<>
       <div className="protein-head"><strong>{protein??0}<span> / {target} g Protein</span></strong>
         <span className={protein!=null&&protein>=target?"reached":""}>{protein==null?"noch nicht erfasst":protein>=target?"Ziel erreicht ✓":`noch ${target-protein} g`}</span></div>
       <div className="protein-bar" role="progressbar" aria-label="Protein" aria-valuemin={0} aria-valuemax={target} aria-valuenow={protein||0}>
         <span style={{width:Math.min(100,(protein||0)/target*100)+"%"}}/></div>
+      {kcal!=null&&<p className="kcal-line">≈ {kcal.toLocaleString("de-CH")} kcal aus {meals.length} {meals.length===1?"Foto":"Fotos"}</p>}
+      <div className="meal-photo">
+        <button className="secondary" disabled={!hasCode} onClick={()=>cameraRef.current?.click()}><Icon name="camera" size={19}/> Mahlzeit fotografieren</button>
+        <button className="text-btn" disabled={!hasCode} onClick={()=>libraryRef.current?.click()}>oder aus Fotos wählen</button>
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto}/>
+        <input ref={libraryRef} type="file" accept="image/*" hidden onChange={onPhoto}/>
+      </div>
+      {!hasCode&&<p className="protein-hint">Für Fotos zuerst den Zugangscode unter Saison → Einstellungen speichern.</p>}
+      {(pending.length>0||meals.length>0)&&<ul className="meal-list" aria-label="Mahlzeiten">
+        {meals.map(m=><MealRow key={m.id} meal={m} onSave={patch=>onUpdateMeal(dk,m.id,patch)} onRemove={()=>onRemoveMeal(dk,m.id)}/>)}
+        {pending.map(p=><li key={p.key} className="meal-pending" role="status">
+          {p.preview&&<img src={p.preview} alt=""/>}
+          <span>{p.status==="preparing"?"Foto wird vorbereitet …":p.status==="analyzing"?"Wird geschätzt …":p.message}</span>
+          {p.status==="error"&&<>{p.image&&<button className="text-btn" onClick={()=>analyze(p)}>Erneut</button>}
+            <button className="text-btn" onClick={()=>setPending(list=>list.filter(x=>x.key!==p.key))}>Verwerfen</button></>}
+        </li>)}
+      </ul>}
       {editing?<div className="protein-edit">
         <input className="modal-input" aria-label="Protein in Gramm" inputMode="numeric" autoFocus value={draft} placeholder="z. B. 85"
           onChange={ev=>setDraft(ev.target.value)} onKeyDown={ev=>{if(ev.key==="Enter")saveDraft();if(ev.key==="Escape")setEditing(false);}}/>
@@ -1368,7 +1486,7 @@ function NutritionCard({entry,dateKey:dk,updDay,target}) {
         <button className="chip ghost" aria-label="Protein korrigieren" onClick={startEdit}><Icon name="edit" size={16}/></button></div>}
       {editing&&!draftOk&&<p role="alert" className="protein-hint">Bitte 0 bis 500 g eingeben.</p>}
       {lastAdd&&!editing&&<button className="text-btn undo-btn" onClick={undo}>Rückgängig (+{lastAdd.g} g)</button>}
-      {protein==null&&!editing&&<p className="protein-hint">Richtwerte: Joghurt/Skyr ≈ 20 g · Portion Fleisch/Fisch ≈ 30 g · grosse Portion ≈ 40 g</p>}
+      {protein==null&&!editing&&!pending.length&&<p className="protein-hint">Ohne Foto: Joghurt/Skyr ≈ 20 g · Portion Fleisch/Fisch ≈ 30 g · grosse Portion ≈ 40 g</p>}
       <div className="rating"><span className="rating-q">Wie hast du {dk===today?"heute":"an diesem Tag"} gegessen?</span>
         <div className="ampel" role="group" aria-label="Ernährung bewerten">{NUTRITION_LEVELS.map(l=>
           <button key={l.key} className={"ampel-btn "+l.key} aria-pressed={entry.nutrition===l.key}
@@ -1395,7 +1513,7 @@ function UpNextCard({plan,from,onSelect}) {
 }
 
 // ─── Today view ──────────────────────────────────────────────────────────────────
-function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan}) {
+function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals}) {
   const viewKey=offsetDate(dayOff), e=plan[viewKey]||{};
   const [sheetOpen,setSheetOpen]=useState(false);
   const [notesOpen,setNotesOpen]=useState(false);
@@ -1465,7 +1583,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan}) {
       {sessions.length>0&&<details className="session-details"><summary>Hinweise zur Einheit</summary>
         {sessions.map(s=><TipCard key={s} workout={s}/>)}</details>}
     </section>
-    <NutritionCard key={"nutrition-"+viewKey} entry={e} dateKey={viewKey} updDay={updDay} target={proteinTarget}/>
+    <NutritionCard key={"nutrition-"+viewKey} entry={e} dateKey={viewKey} updDay={updDay} target={proteinTarget} {...meals}/>
     <UpNextCard plan={plan} from={viewKey} onSelect={go}/>
     {sheetOpen&&<WorkoutSheet dateKey={viewKey} entry={e} updDay={updDay} onClose={()=>setSheetOpen(false)}/>}
   </div>;
@@ -1776,6 +1894,7 @@ function BodyView({plan,updDay,proteinTarget}) {
               <span className={"ampel-dot "+k} style={{width:10,height:10}} aria-hidden="true"/>{nut.counts[k]}</span>)}</strong>
             <span>Bewertete Tage nach Ampel</span></div>
         </div>
+        {nut.kcalDays>0&&<p className="chart-caption">Ø {nut.avgKcal.toLocaleString("de-CH")} kcal an {nut.kcalDays} {nut.kcalDays===1?"Tag":"Tagen"} mit Essensfotos (Schätzung, nur fotografierte Mahlzeiten)</p>}
       </div>
     </section>
     {stepDays.some(d=>d.steps!=null)&&<section aria-label="Schritte der letzten sieben Tage">
@@ -2076,9 +2195,16 @@ export default function App() {
     setWithings({state:"disconnected"});
   };
   syncRef.current=()=>{if(screen!=="setup")syncSources();};
+  // Always build on the latest plan (planRef), so updates after an await never drop newer edits.
   const updDay=(dk,patch)=>{
-    const np={...plan,[dk]:{...plan[dk],...patch}};setPlan(np);save(np);
+    const cur=planRef.current,np={...cur,[dk]:{...cur[dk],...patch}};planRef.current=np;setPlan(np);save(np);
     if(patch.completed===true&&getSessions(np[dk]).length)checkMilestones(dk,np);
+  };
+  const updDayWith=(dk,fn)=>{const cur=planRef.current,e=cur[dk]||{},np={...cur,[dk]:{...e,...fn(e)}};planRef.current=np;setPlan(np);save(np);};
+  const mealHandlers={
+    onAddMeal:(dk,meal)=>updDayWith(dk,e=>({meals:[...(Array.isArray(e.meals)?e.meals:[]),meal]})),
+    onUpdateMeal:(dk,id,patch)=>updDayWith(dk,e=>({meals:(Array.isArray(e.meals)?e.meals:[]).map(m=>m.id===id?{...m,...patch}:m)})),
+    onRemoveMeal:(dk,id)=>updDayWith(dk,e=>({meals:(Array.isArray(e.meals)?e.meals:[]).filter(m=>m.id!==id)})),
   };
   // Swap only sessions. Logs, notes, body values and archived check-ins stay dated.
   const swapDays=(a,b)=>{
@@ -2105,7 +2231,7 @@ export default function App() {
       <h1>{headings[view]}</h1>
       <p className="subtitle">{playerName} <span style={{color:C.borderSt}}> / </span> {phase?phaseLabel(phase.name):today<SEASON_START?"Deine Saison beginnt bald":"Saison abgeschlossen"}</p>
     </header>
-    {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} proteinTarget={proteinTarget}
+    {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} proteinTarget={proteinTarget} meals={mealHandlers}
       onOpenPlan={()=>{setWkOff(Math.floor((dow0(new Date())+dayOff)/7));setPlanMode("week");setView("plan");window.scrollTo(0,0);}}/>}
     {view==="plan"&&<PlanView mode={planMode} setMode={setPlanMode} today={today} plan={plan} wkOff={wkOff} setWkOff={setWkOff}
       moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays}/>}
