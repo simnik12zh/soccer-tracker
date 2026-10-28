@@ -106,6 +106,19 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   (no key bump); `garminSync` is stored top-level. Today shows steps next to the date and
   recorded activities on the session card; Körper shows the last seven days of steps. The coach
   context includes `steps` and `watchActivities` for past days.
+- **Withings import** — OAuth 2.0 (Public API, scope `user.metrics`). Settings → Verbindungen →
+  "Mit Withings verbinden" calls `POST /api/withings {action:"connect"}` (access code required),
+  which stores a one-time state (10 min, with the redirect URI) in Redis and returns the
+  Withings consent URL. Withings redirects to `/api/withings-callback`, which exchanges the code
+  once and keeps the tokens in Redis (`withings:tokens`); access tokens are refreshed shortly
+  before expiry or after status 343, and the rotated refresh token is always saved. The callback
+  answers a plain request with 200 (URL check). `GET /api/withings?from&to` (max 400 days,
+  first sync 180 days, then from three days before the last sync, at most every 10 minutes)
+  returns one reading per Zurich day: the earliest weigh-in, with body fat from the same or
+  another group that day (types 1 and 6, category 1, plausibility-checked). `applyWithingsImport`
+  never overwrites values entered by hand (`bodySource: "manual"` or older values without a
+  source); scale values are marked `bodySource: "withings"` and shown as such in Körper.
+  Env: `WITHINGS_CLIENT_ID`, `WITHINGS_CLIENT_SECRET`, optional `WITHINGS_REDIRECT_URI`.
 - **Access code** — `APP_ACCESS_CODE` (Vercel env) is required for `/api/garmin` and, when set,
   for `/api/coach`. The app sends it as `Authorization: Bearer`; it is entered under Saison →
   Einstellungen → Garmin and stored in its own localStorage key, so exports never contain it.

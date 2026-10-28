@@ -487,6 +487,24 @@ function applyGarminImport(plan,data,today=todayStr()) {
   return {plan:next,completed};
 }
 
+// ─── Withings import ─────────────────────────────────────────────────────────────
+// Scale readings fill weight/body fat per day. Anything the player entered or
+// corrected by hand (bodySource 'manual', or values without a source) always wins.
+function applyWithingsImport(plan,days,today=todayStr()) {
+  const next={...plan},updated=[];
+  const valid=(v,hi)=>typeof v==='number'&&Number.isFinite(v)&&v>0&&v<hi;
+  for(const d of Array.isArray(days)?days:[]){
+    if(!d||!validCoachDate(d.date)||d.date>today)continue;
+    const e=next[d.date]||{};
+    if(e.bodySource==='manual'||(e.bodySource!=='withings'&&(e.weight!=null||e.bodyFat!=null)))continue;
+    const weight=valid(d.weight,500)?d.weight:e.weight??null,bodyFat=valid(d.bodyFat,100)?d.bodyFat:e.bodyFat??null;
+    if(weight==null&&bodyFat==null)continue;
+    if(e.bodySource==='withings'&&e.weight===weight&&e.bodyFat===bodyFat)continue;
+    next[d.date]={...e,weight,bodyFat,bodySource:'withings'};updated.push(d.date);
+  }
+  return {plan:next,updated};
+}
+
 // Bottom-sheet options. Every change is a draft until Save, including Ruhetag.
 const ALTS = [
   { emoji:'⚽', label:'Match' },
@@ -895,6 +913,8 @@ progress::-webkit-progress-bar{background:#344858}progress::-webkit-progress-val
 .nutri-stats strong{display:block;font-size:18px;font-weight:500;font-variant-numeric:tabular-nums}.nutri-stats>div>span{display:block;font-size:10px;color:#A5B8C8;line-height:1.4;margin-top:3px}
 .ampel-counts{display:flex!important;gap:6px;align-items:center;font-size:14px;font-weight:500}
 .settings-link{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:18px;margin-top:24px;color:#EDF2F5}.settings-link>span{flex:1;min-width:0}.settings-link small{display:block;font-size:11px;color:#A5B8C8;margin-top:3px}
+.connection-row{display:flex;gap:12px;align-items:flex-start;border-top:1px solid #344858;margin-top:16px;padding-top:14px;color:#B3DCE2}
+.connection-row strong{display:block;font-size:14px;font-weight:500;color:#EDF2F5}.connection-row small{display:block;font-size:12px;color:#B3DCE2;margin-top:3px}.connection-row p{font-size:12px;color:#A5B8C8;margin-top:3px}
 .watch-list{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
 .watch-list li{display:flex;align-items:center;gap:8px;font-size:12px;color:#B3DCE2}.watch-list li svg{flex-shrink:0}.watch-list li span{flex:1;min-width:0}.watch-stats{display:block;font-style:normal;font-size:11px;color:#EDF2F5;margin-top:3px;font-variant-numeric:tabular-nums}.watch-stats i{font-style:normal;white-space:nowrap}.watch-list li small{flex-shrink:0;white-space:nowrap;font-size:11px;color:#E9C46A}
 .steps-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;padding:16px 12px 12px}
@@ -960,20 +980,39 @@ const GARMIN_ERRORS={
   garmin_unavailable:"Garmin ist gerade nicht erreichbar.",
   network:"Keine Verbindung.",
 };
-function GarminSettings({garmin,onSync}) {
+const WITHINGS_ERRORS={
+  access_denied:"Der Zugangscode stimmt nicht.",
+  access_code_not_configured:"In Vercel fehlt noch APP_ACCESS_CODE.",
+  storage_not_configured:"In Vercel fehlt der Upstash-Speicher.",
+  withings_not_configured:"In Vercel fehlen noch WITHINGS_CLIENT_ID und WITHINGS_CLIENT_SECRET.",
+  withings_reconnect:"Die Verbindung zu Withings ist abgelaufen. Bitte neu verbinden.",
+  withings_rate_limited:"Withings bremst gerade. Versuch es später erneut.",
+  withings_unavailable:"Withings ist gerade nicht erreichbar.",
+  network:"Keine Verbindung.",
+};
+const syncTime=at=>at?new Date(at).toLocaleTimeString("de-CH",{hour:"2-digit",minute:"2-digit"}):"";
+function sourceStatus(src,stored,offline) {
+  if(!stored)return "Zuerst den Zugangscode speichern.";
+  return src.state==="syncing"?"Wird abgeglichen …":src.state==="error"?src.message:src.state==="ok"?`Verbunden · letzter Abgleich ${syncTime(src.at)} Uhr`:offline;
+}
+function ConnectionSettings({garmin,withings,onSync,onWithingsConnect,onWithingsDisconnect}) {
   const [code,setCode]=useState(readAccessCode),[stored,setStored]=useState(()=>!!readAccessCode());
   const save=()=>{const value=code.trim();writeAccessCode(value);setStored(!!value);if(value)onSync(true);};
-  const time=garmin.at?new Date(garmin.at).toLocaleTimeString("de-CH",{hour:"2-digit",minute:"2-digit"}):"";
-  const status=garmin.state==="syncing"?"Wird abgeglichen …":garmin.state==="error"?garmin.message
-    :garmin.state==="ok"?`Verbunden · letzter Abgleich ${time} Uhr`:stored?"Noch nicht abgeglichen.":"Noch kein Zugangscode gespeichert.";
-  return <section className="settings-backup" aria-label="Garmin"><div className="section-heading"><h2>Garmin</h2></div>
-    <p className="helper-text">Trainings und Schritte von deiner Uhr kommen beim Öffnen der App dazu. Passt ein Training zum Plan, wird der Tag als erledigt markiert. Eigene Einträge werden nie überschrieben.</p>
+  const busy=garmin.state==="syncing"||withings.state==="syncing";
+  return <section className="settings-backup" aria-label="Verbindungen"><div className="section-heading"><h2>Verbindungen</h2></div>
+    <p className="helper-text">Uhr und Waage liefern beim Öffnen der App automatisch. Eigene Einträge werden nie überschrieben.</p>
     <label htmlFor="access-code" className="eyebrow">Zugangscode</label>
     <input id="access-code" type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} className="modal-input" value={code}
       placeholder="Wie APP_ACCESS_CODE in Vercel" onChange={e=>setCode(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")save();}}/>
-    <button className="secondary" onClick={save}>Speichern und abgleichen</button>
-    {stored&&<button className="secondary" disabled={garmin.state==="syncing"} onClick={()=>onSync(true)}>Jetzt abgleichen</button>}
-    <p role="status" className="helper-text">{status}</p>
+    <button className="secondary" onClick={save}>Code speichern und abgleichen</button>
+    <div className="connection-row"><Icon name="watch" size={20}/><div><strong>Garmin</strong>
+      <small role="status">{sourceStatus(garmin,stored,"Noch nicht abgeglichen.")}</small><p>Trainings, Fussball-Werte und Schritte.</p></div></div>
+    <div className="connection-row"><Icon name="body" size={20}/><div><strong>Withings</strong>
+      <small role="status">{withings.state==="disconnected"?"Nicht verbunden.":sourceStatus(withings,stored,"Noch nicht abgeglichen.")}</small><p>Gewicht und Körperfett der Waage.</p></div></div>
+    {stored&&withings.state!=="ok"&&withings.state!=="syncing"
+      &&<button className="secondary" disabled={busy} onClick={onWithingsConnect}>{withings.state==="error"?"Withings neu verbinden":"Mit Withings verbinden"}</button>}
+    {stored&&<button className="secondary" disabled={busy} onClick={()=>onSync(true)}>Jetzt abgleichen</button>}
+    {stored&&(withings.state==="ok"||withings.state==="error")&&<button className="text-btn" disabled={busy} onClick={onWithingsDisconnect}>Withings trennen</button>}
   </section>;
 }
 
@@ -1057,7 +1096,7 @@ function ReminderSettings() {
 }
 
 // ─── Setup / settings ────────────────────────────────────────────────────────────
-function SetupScreen({initName,initProteinTarget=DEFAULT_PROTEIN_TARGET,isEdit,onBack,onSave,garmin,onGarminSync}) {
+function SetupScreen({initName,initProteinTarget=DEFAULT_PROTEIN_TARGET,isEdit,onBack,onSave,connections}) {
   const [n,setN]=useState(initName||"");
   const [target,setTarget]=useState(String(initProteinTarget));
   const targetValue=Number(target.trim());
@@ -1125,7 +1164,7 @@ function SetupScreen({initName,initProteinTarget=DEFAULT_PROTEIN_TARGET,isEdit,o
       {!targetOk&&<p role="alert" className="helper-text">Bitte einen Wert zwischen 30 und 400 g eingeben.</p>}
       <button className="primary" style={{width:"100%",marginTop:20}} disabled={!ok} onClick={submit}>{isEdit?"Speichern":"Los geht’s →"}</button>
     </section>
-    {isEdit&&garmin&&<GarminSettings garmin={garmin} onSync={onGarminSync}/>}
+    {isEdit&&connections&&<ConnectionSettings {...connections}/>}
     {isEdit&&<ReminderSettings/>}
     <section className="settings-backup"><div className="section-heading"><h2>Deine Daten</h2></div>
       <p className="helper-text">Alles wird nur auf diesem Gerät gespeichert. Speichere eine Sicherung zum Beispiel in iCloud Drive.</p>
@@ -1642,7 +1681,7 @@ function MeasurementEditor({plan,initialDate,updDay,onClose}) {
   const parse=v=>v.trim()===""?null:Number(v.replace(",","."));
   const weight=parse(w),fat=parse(bf);
   const valid=dateOk&&(weight===null||Number.isFinite(weight)&&weight>0&&weight<=500)&&(fat===null||Number.isFinite(fat)&&fat>0&&fat<100);
-  const save=()=>{if(!valid)return;updDay(date,{weight:weight==null?null:Math.round(weight*10)/10,bodyFat:fat==null?null:Math.round(fat*10)/10});onClose();};
+  const save=()=>{if(!valid)return;updDay(date,{weight:weight==null?null:Math.round(weight*10)/10,bodyFat:fat==null?null:Math.round(fat*10)/10,bodySource:"manual"});onClose();};
   return <section className="panel body-editor" aria-label="Messung eintragen">
     <div className="eyebrow">Messung eintragen</div>
     <label className="field-label">Datum<input type="date" className="modal-input" max={today} value={date} onChange={e=>pickDate(e.target.value)}/></label>
@@ -1678,7 +1717,7 @@ function BodyView({plan,updDay,proteinTarget}) {
         <div className="hero-value">{fmt1(bf.current.value)}<span> %</span></div>
         <p className="hero-delta">{deltaText(bf.current,bf.previous,"%-Punkte")}</p>
         <GoalBar value={bf.current.value}/>
-        <p className="hero-meta">{bf.current.count} {bf.current.count===1?"Messung":"Messungen"} · Stand {shortDate(bf.anchor)}{bf.ageDays>7?` · seit ${bf.ageDays} Tagen keine neue Messung`:""}</p>
+        <p className="hero-meta">{bf.current.count} {bf.current.count===1?"Messung":"Messungen"} · Stand {shortDate(bf.anchor)}{plan[bf.anchor]?.bodySource==="withings"?" · Withings":""}{bf.ageDays>7?` · seit ${bf.ageDays} Tagen keine neue Messung`:""}</p>
       </>:<p className="helper-text">Noch keine Körperfett-Messung. Trag deine Waage-Werte ein: Es zählt die Entwicklung, nicht der einzelne Tag.</p>}
       {!editor&&<button className="primary add-measure" onClick={()=>setEditor(today)}><Icon name="plus" size={18}/> Messung eintragen</button>}
     </section>
@@ -1895,6 +1934,7 @@ export default function App() {
   const storedExtras=useRef({});
   const planRef=useRef(plan);planRef.current=plan;
   const [garmin,setGarmin]=useState(()=>({state:readAccessCode()?"idle":"off"})),[syncToast,setSyncToast]=useState("");
+  const [withings,setWithings]=useState(()=>({state:readAccessCode()?"idle":"off"}));
   useEffect(()=>{
     (async()=>{
       try{
@@ -1913,6 +1953,11 @@ export default function App() {
       setLoading(false);
     })();
     try{if(sessionStorage.getItem("justRestored")){sessionStorage.removeItem("justRestored");setRestoredToast(true);}}catch{}
+    const withingsResult=new URLSearchParams(window.location.search).get("withings");
+    if(withingsResult){
+      setSyncToast(withingsResult==="connected"?"Withings verbunden":withingsResult==="denied"?"Withings-Verbindung abgebrochen":"Withings-Verbindung hat nicht geklappt");
+      try{window.history.replaceState(null,"",window.location.pathname);}catch{}
+    }
   },[]);
   useEffect(()=>{if(!loading&&!loadError)writeReminderStatus(reminderStatus(plan,todayStr(),proteinTarget));},[plan,proteinTarget,loading,loadError]);
   const syncRef=useRef(null);
@@ -1940,30 +1985,63 @@ export default function App() {
       if(!already&&m.check(all,entry,entry.phase)){try{localStorage.setItem(key,"true");}catch{}setCelebration(m);break;}
     }
   };
-  // Pulls Garmin activities and steps since the last sync (two days overlap, max 28 days).
-  const syncGarmin=async(force=false)=>{
-    if(!readAccessCode()){setGarmin({state:"off"});return;}
-    const last=storedExtras.current.garminSync;
-    if(!force&&last?.at&&last.v===2&&Date.now()-last.at<10*60*1000)return;
-    const today=todayStr(),oldest=daysBeforeStr(today,27);
-    let from=last?.through?daysBeforeStr(last.through,2):daysBeforeStr(today,13);
-    // Version 2 added football metrics: refresh once from the earliest imported day.
-    if(last&&last.v!==2){const first=Object.keys(planRef.current).filter(dk=>planRef.current[dk]?.garmin?.length).sort()[0];if(first&&first<from)from=first;}
-    if(from<oldest)from=oldest;
-    setGarmin(g=>({...g,state:"syncing"}));
-    try{
-      const res=await fetch(`/api/garmin?from=${from}&to=${today}`,{headers:authHeaders()});
-      const body=await res.json().catch(()=>({}));
-      if(!res.ok||!Array.isArray(body.activities)||!Array.isArray(body.steps)){setGarmin({state:"error",message:GARMIN_ERRORS[body.error]||GARMIN_ERRORS.garmin_unavailable});return;}
-      const {plan:next,completed}=applyGarminImport(planRef.current,body,today);
-      storedExtras.current={...storedExtras.current,garminSync:{at:Date.now(),through:today,v:2}};
-      setPlan(next);save(next);
-      setGarmin({state:"ok",at:Date.now()});
-      if(completed.length)setSyncToast(completed.length>2?`${completed.length} Trainings von Garmin eingetragen`
-        :"Von Garmin eingetragen: "+completed.map(dk=>sessionsLabel(next[dk])+" ("+shortDate(dk)+")").join(", "));
-    }catch{setGarmin({state:"error",message:GARMIN_ERRORS.network});}
+  // Pulls Garmin (activities, steps) and Withings (weight, body fat) since the last sync.
+  const fetchSource=async url=>{
+    try{const res=await fetch(url,{headers:authHeaders()});return {res,body:await res.json().catch(()=>({}))};}
+    catch{return {res:null,body:{error:"network"}};}
   };
-  syncRef.current=()=>{if(screen!=="setup")syncGarmin();};
+  const syncSources=async(force=false)=>{
+    if(!readAccessCode()){setGarmin({state:"off"});setWithings({state:"off"});return;}
+    const now=Date.now(),today=todayStr(),extras=storedExtras.current;
+    const gLast=extras.garminSync,wLast=extras.withingsSync;
+    const due=last=>force||!(last?.at&&now-last.at<10*60*1000);
+    const garminDue=due(gLast?.v===2?gLast:null),withingsDue=due(wLast);
+    if(!garminDue&&!withingsDue)return;
+    let gFrom=gLast?.through?daysBeforeStr(gLast.through,2):daysBeforeStr(today,13);
+    // Version 2 added football metrics: refresh once from the earliest imported day.
+    if(gLast&&gLast.v!==2){const first=Object.keys(planRef.current).filter(dk=>planRef.current[dk]?.garmin?.length).sort()[0];if(first&&first<gFrom)gFrom=first;}
+    if(gFrom<daysBeforeStr(today,27))gFrom=daysBeforeStr(today,27);
+    const wFrom=wLast?.through?daysBeforeStr(wLast.through,3):daysBeforeStr(today,180);
+    if(garminDue)setGarmin(g=>({...g,state:"syncing"}));
+    if(withingsDue)setWithings(w=>({...w,state:"syncing"}));
+    const [g,w]=await Promise.all([garminDue?fetchSource(`/api/garmin?from=${gFrom}&to=${today}`):null,withingsDue?fetchSource(`/api/withings?from=${wFrom}&to=${today}`):null]);
+    let next=planRef.current,changed=false;const notes=[];
+    if(g){
+      if(g.res?.ok&&Array.isArray(g.body.activities)&&Array.isArray(g.body.steps)){
+        const r=applyGarminImport(next,g.body,today);next=r.plan;changed=true;
+        storedExtras.current={...storedExtras.current,garminSync:{at:Date.now(),through:today,v:2}};
+        setGarmin({state:"ok",at:Date.now()});
+        if(r.completed.length)notes.push(r.completed.length>2?`${r.completed.length} Trainings von Garmin eingetragen`
+          :"Von Garmin eingetragen: "+r.completed.map(dk=>sessionsLabel(next[dk])+" ("+shortDate(dk)+")").join(", "));
+      }else setGarmin({state:"error",message:GARMIN_ERRORS[g.body.error]||GARMIN_ERRORS.garmin_unavailable});
+    }
+    if(w){
+      if(w.res?.ok&&Array.isArray(w.body.days)){
+        const r=applyWithingsImport(next,w.body.days,today);next=r.plan;changed=true;
+        storedExtras.current={...storedExtras.current,withingsSync:{at:Date.now(),through:today}};
+        setWithings({state:"ok",at:Date.now()});
+        if(r.updated.length)notes.push(`Withings: ${r.updated.length} ${r.updated.length===1?"Messung":"Messungen"} übernommen`);
+      }else if(w.body.error==="withings_not_connected")setWithings({state:"disconnected"});
+      else setWithings({state:"error",message:WITHINGS_ERRORS[w.body.error]||WITHINGS_ERRORS.withings_unavailable});
+    }
+    if(changed){setPlan(next);save(next);}
+    if(notes.length)setSyncToast(notes.join(" · "));
+  };
+  const connectWithings=async()=>{
+    setWithings(w=>({...w,state:"syncing"}));
+    try{
+      const res=await fetch("/api/withings",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify({action:"connect"})});
+      const body=await res.json().catch(()=>({}));
+      if(res.ok&&typeof body.url==="string"&&body.url.startsWith("https://account.withings.com/")){window.location.href=body.url;return;}
+      setWithings({state:"error",message:WITHINGS_ERRORS[body.error]||WITHINGS_ERRORS.withings_unavailable});
+    }catch{setWithings({state:"error",message:WITHINGS_ERRORS.network});}
+  };
+  const disconnectWithings=async()=>{
+    try{await fetch("/api/withings",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify({action:"disconnect"})});}catch{}
+    const {withingsSync,...rest}=storedExtras.current;storedExtras.current=rest;save(planRef.current);
+    setWithings({state:"disconnected"});
+  };
+  syncRef.current=()=>{if(screen!=="setup")syncSources();};
   const updDay=(dk,patch)=>{
     const np={...plan,[dk]:{...plan[dk],...patch}};setPlan(np);save(np);
     if(patch.completed===true&&getSessions(np[dk]).length)checkMilestones(dk,np);
@@ -1984,7 +2062,7 @@ export default function App() {
     <p className="helper-text">Deine gespeicherten Daten wurden nicht verändert. Bitte prüfe den Browser-Zugriff oder sichere die vorhandenen Daten, bevor du eine Sicherung wiederherstellst.</p>
     <button className="secondary" onClick={()=>window.location.reload()}>Erneut versuchen</button></div></main>;
   else if(screen==="setup")content=<SetupScreen initName={playerName} initProteinTarget={proteinTarget} isEdit={!!playerName} onBack={playerName?()=>setScreen("main"):null}
-    garmin={garmin} onGarminSync={syncGarmin}
+    connections={{garmin,withings,onSync:syncSources,onWithingsConnect:connectWithings,onWithingsDisconnect:disconnectWithings}}
     onSave={(n,target)=>{const pt=target===DEFAULT_PROTEIN_TARGET&&proteinSetting==null?null:target;setPlayerName(n);setProteinSetting(pt);save(plan,n,pt);setScreen("main");}}/>;
   else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")}/>;
   else content=<main className="app-shell">
@@ -2004,7 +2082,7 @@ export default function App() {
   </main>;
   return <><style>{UI_CSS}</style>{content}
     {restoredToast&&<div className="toast" role="status">✓ Sicherung wiederhergestellt</div>}
-    {syncToast&&!restoredToast&&!storageError&&<div className="toast" role="status">⌚ {syncToast}</div>}
+    {syncToast&&!restoredToast&&!storageError&&<div className="toast" role="status">{syncToast}</div>}
     {storageError&&<div className="toast" role="alert"><p>{storageError}</p><button className="text-btn" onClick={()=>save()}>Erneut speichern</button></div>}
     {celebration&&!storageError&&<div className="toast milestone-toast" role="status"><span>{celebration.emoji}</span><div><strong>{celebration.title}</strong><p>{celebration.message}</p></div>
       <button className="icon-btn" aria-label="Hinweis schließen" onClick={()=>setCelebration(null)}><Icon name="close" size={18}/></button></div>}
