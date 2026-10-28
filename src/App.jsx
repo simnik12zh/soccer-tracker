@@ -408,6 +408,35 @@ function dayProtein(e) {
   return Math.round((quick||0)+meals.reduce((n,m)=>n+m.protein,0));
 }
 function dayKcal(e) { const meals=dayMeals(e); return meals.length?Math.round(meals.reduce((n,m)=>n+m.kcal,0)):null; }
+// Favourite meals, stored top-level as `mealFavorites`: [{id, title, kcal, protein, items?, uses, lastUsed, created}].
+// One tap adds a copy to the day (source 'favorite'); no photo, no model call.
+const MAX_FAVORITES=12;
+const favoriteKey=t=>String(t||'').trim().toLowerCase();
+function validFavorite(f) { return !!f&&typeof f.id==='string'&&typeof f.title==='string'&&f.title.trim()!==''&&validMeal({id:f.id,kcal:f.kcal,protein:f.protein}); }
+// Most used first, then most recently used or created.
+function favoriteList(list) {
+  return (Array.isArray(list)?list:[]).filter(validFavorite)
+    .sort((a,b)=>(b.uses||0)-(a.uses||0)||String(b.lastUsed||b.created||'').localeCompare(String(a.lastUsed||a.created||'')));
+}
+function findFavorite(list,meal) {
+  return favoriteList(list).find(f=>(meal?.favoriteId&&f.id===meal.favoriteId)||favoriteKey(f.title)===favoriteKey(meal?.title))||null;
+}
+// A favourite with the same name is updated, not duplicated. When full, the least used one goes.
+function saveFavorite(list,meal,today=todayStr()) {
+  const all=favoriteList(list),title=String(meal?.title||'').trim().replace(/\s+/g,' ').slice(0,40);
+  if(!title||!validMeal({id:'x',kcal:meal.kcal,protein:meal.protein}))return all;
+  const existing=all.find(f=>favoriteKey(f.title)===favoriteKey(title)),rest=all.filter(f=>f!==existing);
+  const items=Array.isArray(meal.items)?meal.items.slice(0,12):[];
+  const fav={id:existing?.id||`fav-${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`,title,
+    kcal:Math.round(meal.kcal),protein:Math.round(meal.protein),...(items.length?{items}:{}),
+    uses:existing?.uses||0,lastUsed:existing?.lastUsed||null,created:existing?.created||today};
+  return favoriteList([fav,...rest.slice(0,MAX_FAVORITES-1)]);
+}
+function removeFavorite(list,id) { return favoriteList(list).filter(f=>f.id!==id); }
+function useFavorite(list,id,today=todayStr()) { return favoriteList(list).map(f=>f.id===id?{...f,uses:(f.uses||0)+1,lastUsed:today}:f); }
+function mealFromFavorite(f,at,id) {
+  return {id,at,title:f.title,kcal:f.kcal,protein:f.protein,...(Array.isArray(f.items)&&f.items.length?{items:f.items}:{}),favoriteId:f.id,source:'favorite'};
+}
 // Summary over an explicit list of date keys (e.g. the last seven days).
 function nutritionSummary(plan,days,target=DEFAULT_PROTEIN_TARGET) {
   const rows=days.map(date=>{
@@ -826,7 +855,7 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
     const e=plan[dk]||{},protein=dayProtein(e),rating=nutritionLevel(e.nutrition)?e.nutrition:null,meals=dayMeals(e);
     if(dk>referenceDate||(protein==null&&!rating&&!meals.length))return null;
     return {proteinGrams:protein,rating,...(meals.length?{kcal:dayKcal(e),
-      meals:meals.slice(0,8).map(m=>({title:coachText(m.title,40),kcal:Math.round(m.kcal),proteinGrams:Math.round(m.protein)}))}:{})};
+      meals:meals.slice(0,8).map(m=>({title:coachText(m.title,40),kcal:Math.round(m.kcal),proteinGrams:Math.round(m.protein),...(m.source==='favorite'?{fromFavorite:true}:{})}))}:{})};
   };
   const eatingStats=(from,to)=>{
     const keys=Array.from({length:7},(_,i)=>daysBeforeStr(to,6-i)),s=nutritionSummary(plan,keys,target);
@@ -946,6 +975,7 @@ function Icon({name,size=22,...props}) {
     watch:<><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 6V3h6v3M9 18v3h6v-3M12 9.5V12l1.5 1.5"/></>,
     body:<><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M7.5 10a6 6 0 0 1 9 0M12 10l1.8-2.2"/></>,
     plus:<path d="M12 5v14M5 12h14"/>,
+    star:<path d="m12 3.6 2.55 5.17 5.7.83-4.13 4.02.98 5.68L12 16.62 6.9 19.3l.98-5.68-4.13-4.02 5.7-.83z"/>,
     alert:<><path d="M12 3.5 2.8 19.5h18.4z"/><path d="M12 10v4.2M12 17h.01"/></>,
     camera:<><path d="M3.5 8.5h3.2L8.5 6h7l1.8 2.5h3.2V19h-17z"/><circle cx="12" cy="13" r="3.4"/></>,
   };
@@ -1195,6 +1225,15 @@ progress::-webkit-progress-bar{background:#344858}progress::-webkit-progress-val
 .meal-summary>b{flex-shrink:0;text-align:right;font-size:13px;font-weight:500;color:#EDF2F5;font-variant-numeric:tabular-nums}.meal-summary>b small{display:block;font-size:11px;font-weight:400;color:#A9D8B8}
 .meal-detail{padding:0 0 12px}.meal-detail ul{list-style:none;margin:0 0 8px;padding:0}.meal-detail li{display:flex;justify-content:space-between;gap:12px;font-size:11px;color:#A5B8C8;padding:3px 0}
 .meal-edit{display:flex;gap:12px}.meal-edit label{flex:1;min-width:0;font-size:11px;color:#A5B8C8}.meal-edit .modal-input{margin:6px 0 0}
+.meal-name{display:block;font-size:11px;color:#A5B8C8;margin-bottom:10px}.meal-name .modal-input{margin:6px 0 0}
+.meal-summary strong svg{display:inline-block;vertical-align:-1px;margin-right:5px;color:#E9C46A;fill:#E9C46A}
+.fav-toggle{display:flex;align-items:center;gap:6px;min-height:40px;margin:6px 0 2px;padding:0;font-size:13px;color:#B3DCE2!important}.fav-toggle[aria-pressed=true] svg{fill:#E9C46A;color:#E9C46A}
+.fav-block{margin:4px 0 12px}.fav-head{display:flex;align-items:center;justify-content:space-between;min-height:32px}.fav-head .text-btn{min-height:32px;padding:0;font-size:12px;color:#B3DCE2}
+.fav-chips{display:flex;gap:8px;overflow-x:auto;padding:4px 0 6px;scrollbar-width:none;-webkit-overflow-scrolling:touch}.fav-chips::-webkit-scrollbar{display:none}
+.fav-chip{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;max-width:190px;min-height:52px;padding:6px 12px;text-align:left}
+.fav-chip span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.fav-chip small{font-size:11px;color:#A5B8C8;white-space:nowrap}
+.fav-chip.remove{flex-direction:row;align-items:center;gap:8px;border-color:#8E4E46;min-height:44px}.fav-chip.remove svg{flex-shrink:0;color:#E58A7E}
+.fav-form{margin-top:8px;padding:12px;border:1px solid #344858;border-radius:14px}.fav-form .secondary{width:100%;margin-top:10px}
 .meal-pending{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #2D4151;font-size:12px;color:#B3DCE2}.meal-pending img{width:44px;height:44px;object-fit:cover;border-radius:10px;flex-shrink:0}.meal-pending span{flex:1}
 .connection-row{display:flex;gap:12px;align-items:flex-start;border-top:1px solid #344858;margin-top:16px;padding-top:14px;color:#B3DCE2}
 .connection-row strong{display:block;font-size:14px;font-weight:500;color:#EDF2F5}.connection-row small{display:block;font-size:12px;color:#B3DCE2;margin-top:3px}.connection-row p{font-size:12px;color:#A5B8C8;margin-top:3px}
@@ -1706,33 +1745,67 @@ async function prepareMealPhoto(file,maxSide=1280) {
     return {base64:dataUrl.slice(dataUrl.indexOf(",")+1),preview:dataUrl};
   }finally{URL.revokeObjectURL(url);}
 }
-function MealRow({meal,onSave,onRemove}) {
-  const [open,setOpen]=useState(false),[kcal,setKcal]=useState(String(meal.kcal)),[protein,setProtein]=useState(String(meal.protein));
+function MealRow({meal,onSave,onRemove,isFavorite,onToggleFavorite}) {
+  const [open,setOpen]=useState(false),[kcal,setKcal]=useState(String(meal.kcal)),[protein,setProtein]=useState(String(meal.protein)),[title,setTitle]=useState(meal.title);
   const num=v=>v.trim()===""?NaN:Number(v.replace(",","."));
-  const k=num(kcal),p=num(protein),valid=Number.isFinite(k)&&k>=0&&k<=5000&&Number.isFinite(p)&&p>=0&&p<=300;
-  const save=()=>{if(!valid)return;onSave({kcal:Math.round(k),protein:Math.round(p),edited:true});setOpen(false);};
+  const k=num(kcal),p=num(protein),valid=Number.isFinite(k)&&k>=0&&k<=5000&&Number.isFinite(p)&&p>=0&&p<=300&&title.trim()!=="";
+  const changed=valid&&(Math.round(k)!==meal.kcal||Math.round(p)!==meal.protein||title.trim()!==meal.title);
+  const save=()=>{if(!valid)return;onSave({title:title.trim().slice(0,40),kcal:Math.round(k),protein:Math.round(p),...(changed?{edited:true}:{})});setOpen(false);};
+  // Saving as favourite takes the values in the fields, so a corrected portion is what gets reused.
+  const toggleFavorite=()=>{if(isFavorite){onToggleFavorite(null);return;}if(!valid)return;
+    const values={title:title.trim().slice(0,40),kcal:Math.round(k),protein:Math.round(p)};
+    if(changed)onSave({...values,edited:true});onToggleFavorite({...meal,...values});};
   const range=meal.kcalLow!=null&&meal.kcalHigh!=null&&meal.kcalHigh>meal.kcalLow?`${meal.kcalLow}–${meal.kcalHigh} kcal`:"";
   return <li className={"meal-row"+(open?" open":"")}>
-    <button className="meal-summary" aria-expanded={open} onClick={()=>{setKcal(String(meal.kcal));setProtein(String(meal.protein));setOpen(o=>!o);}}>
-      <span><strong>{meal.title}</strong><small>{meal.at}{meal.edited?" · angepasst":range?` · ${range}`:""}{!meal.edited&&meal.confidence==="low"?" · unsicher":""}</small></span>
+    <button className="meal-summary" aria-expanded={open} onClick={()=>{setKcal(String(meal.kcal));setProtein(String(meal.protein));setTitle(meal.title);setOpen(o=>!o);}}>
+      <span><strong>{isFavorite&&<Icon name="star" size={12}/>}{meal.title}</strong><small>{meal.at}{meal.source==="favorite"?" · Favorit":meal.edited?" · angepasst":range?` · ${range}`:""}{meal.source!=="favorite"&&!meal.edited&&meal.confidence==="low"?" · unsicher":""}</small></span>
       <b>{meal.kcal} kcal<small>{meal.protein} g Protein</small></b>
     </button>
     {open&&<div className="meal-detail">
       {Array.isArray(meal.items)&&meal.items.length>0&&<ul>{meal.items.map((i,n)=><li key={n}><span>{i.name}{i.grams?` · ${i.grams} g`:""}</span><span>{i.kcal} kcal · {Math.round(i.protein)} g</span></li>)}</ul>}
+      <label className="meal-name">Name<input className="modal-input" maxLength={40} value={title} onChange={e=>setTitle(e.target.value)}/></label>
       <div className="meal-edit">
         <label>kcal<input className="modal-input" inputMode="numeric" value={kcal} onChange={e=>setKcal(e.target.value)}/></label>
         <label>Protein (g)<input className="modal-input" inputMode="numeric" value={protein} onChange={e=>setProtein(e.target.value)}/></label>
       </div>
       {!valid&&<p role="alert" className="protein-hint">Bitte gültige Werte eingeben.</p>}
+      <button className="text-btn fav-toggle" aria-pressed={!!isFavorite} disabled={!isFavorite&&!valid} onClick={toggleFavorite}>
+        <Icon name="star" size={16}/> {isFavorite?"Aus Favoriten entfernen":"Als Favorit merken"}</button>
       <div className="sheet-footer"><button className="primary" disabled={!valid} onClick={save}>Speichern</button><button className="secondary" onClick={onRemove}>Löschen</button></div>
     </div>}
   </li>;
 }
-function NutritionCard({entry,dateKey:dk,updDay,target,onAddMeal,onUpdateMeal,onRemoveMeal}) {
+// Favourites row: one tap adds the meal; "Verwalten" removes favourites or adds one by hand (e.g. a shake).
+function FavoriteMeals({favorites,onUse,onSave,onRemove}) {
+  const favs=favoriteList(favorites),[manage,setManage]=useState(false),[form,setForm]=useState({title:"",kcal:"",protein:""});
+  const num=v=>v.trim()===""?NaN:Number(v.replace(",","."));
+  const k=num(form.kcal),p=num(form.protein),valid=form.title.trim()!==""&&Number.isFinite(k)&&k>=0&&k<=5000&&Number.isFinite(p)&&p>=0&&p<=300;
+  const add=()=>{if(!valid)return;onSave({title:form.title,kcal:k,protein:p});setForm({title:"",kcal:"",protein:""});};
+  return <div className="fav-block">
+    <div className="fav-head"><span className="eyebrow">Favoriten</span>
+      <button className="text-btn" aria-expanded={manage} onClick={()=>setManage(m=>!m)}>{manage?"Fertig":favs.length?"Verwalten":"Anlegen"}</button></div>
+    {favs.length>0?<div className="fav-chips">{favs.map(f=>manage
+      ?<button key={f.id} className="chip fav-chip remove" aria-label={f.title+" aus Favoriten entfernen"} onClick={()=>onRemove(f.id)}>
+        <span>{f.title}</span><Icon name="close" size={14}/></button>
+      :<button key={f.id} className="chip fav-chip" aria-label={`${f.title} eintragen, ${f.protein} g Protein, ${f.kcal} kcal`} onClick={()=>onUse(f)}>
+        <span>{f.title}</span><small>{f.protein} g · {f.kcal} kcal</small></button>)}</div>
+    :!manage&&<p className="protein-hint">Was du oft isst, einmal merken: Mahlzeit antippen → „Als Favorit merken". Danach reicht ein Tipp.</p>}
+    {manage&&<div className="fav-form">
+      <label className="meal-name">Name<input className="modal-input" maxLength={40} placeholder="z. B. Proteinshake" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label>
+      <div className="meal-edit">
+        <label>kcal<input className="modal-input" inputMode="numeric" value={form.kcal} onChange={e=>setForm({...form,kcal:e.target.value})}/></label>
+        <label>Protein (g)<input className="modal-input" inputMode="numeric" value={form.protein} onChange={e=>setForm({...form,protein:e.target.value})}/></label>
+      </div>
+      <button className="secondary" disabled={!valid} onClick={add}>Favorit hinzufügen</button>
+    </div>}
+  </div>;
+}
+function NutritionCard({entry,dateKey:dk,updDay,target,onAddMeal,onUpdateMeal,onRemoveMeal,favorites,onSaveFavorite,onRemoveFavorite,onUseFavorite}) {
   const today=todayStr(),future=dk>today;
   const quick=validProtein(entry.protein)?entry.protein:null,meals=dayMeals(entry);
   const protein=dayProtein(entry),kcal=dayKcal(entry),mealProtein=meals.reduce((n,m)=>n+m.protein,0),level=nutritionLevel(entry.nutrition);
-  const [editing,setEditing]=useState(false),[draft,setDraft]=useState(""),[lastAdd,setLastAdd]=useState(null),[pending,setPending]=useState([]);
+  const [editing,setEditing]=useState(false),[draft,setDraft]=useState(""),[lastAdd,setLastAdd]=useState(null),[pending,setPending]=useState([]),[lastFav,setLastFav]=useState(null);
+  const useFav=f=>{const id="f"+Date.now().toString(36)+Math.random().toString(36).slice(2,5);onUseFavorite(dk,f,id,dk===today?nowTime():"");setLastFav({id,title:f.title});};
   const cameraRef=useRef(null),libraryRef=useRef(null),hasCode=!!readAccessCode();
   const add=g=>{updDay(dk,{protein:Math.min(500,(quick||0)+g)});setLastAdd({g,prev:quick});};
   const undo=()=>{if(!lastAdd)return;updDay(dk,{protein:lastAdd.prev});setLastAdd(null);};
@@ -1772,7 +1845,7 @@ function NutritionCard({entry,dateKey:dk,updDay,target,onAddMeal,onUpdateMeal,on
         <span className={protein!=null&&protein>=target?"reached":""}>{protein==null?"noch nicht erfasst":protein>=target?"Ziel erreicht ✓":`noch ${target-protein} g`}</span></div>
       <div className="protein-bar" role="progressbar" aria-label="Protein" aria-valuemin={0} aria-valuemax={target} aria-valuenow={protein||0}>
         <span style={{width:Math.min(100,(protein||0)/target*100)+"%"}}/></div>
-      {kcal!=null&&<p className="kcal-line">≈ {kcal.toLocaleString("de-CH")} kcal aus {meals.length} {meals.length===1?"Foto":"Fotos"}</p>}
+      {kcal!=null&&<p className="kcal-line">≈ {kcal.toLocaleString("de-CH")} kcal aus {meals.length} {meals.length===1?"Mahlzeit":"Mahlzeiten"}</p>}
       <div className="meal-photo">
         <button className="secondary" disabled={!hasCode} onClick={()=>cameraRef.current?.click()}><Icon name="camera" size={19}/> Mahlzeit fotografieren</button>
         <button className="text-btn" disabled={!hasCode} onClick={()=>libraryRef.current?.click()}>oder aus Fotos wählen</button>
@@ -1780,8 +1853,13 @@ function NutritionCard({entry,dateKey:dk,updDay,target,onAddMeal,onUpdateMeal,on
         <input ref={libraryRef} type="file" accept="image/*" hidden onChange={onPhoto}/>
       </div>
       {!hasCode&&<p className="protein-hint">Für Fotos zuerst den Zugangscode unter Saison → Einstellungen speichern.</p>}
+      <FavoriteMeals favorites={favorites} onUse={useFav} onSave={onSaveFavorite} onRemove={onRemoveFavorite}/>
+      {lastFav&&meals.some(m=>m.id===lastFav.id)&&<button className="text-btn undo-btn" onClick={()=>{onRemoveMeal(dk,lastFav.id);setLastFav(null);}}>
+        {lastFav.title} eingetragen · Rückgängig</button>}
       {(pending.length>0||meals.length>0)&&<ul className="meal-list" aria-label="Mahlzeiten">
-        {meals.map(m=><MealRow key={m.id} meal={m} onSave={patch=>onUpdateMeal(dk,m.id,patch)} onRemove={()=>onRemoveMeal(dk,m.id)}/>)}
+        {meals.map(m=>{const fav=findFavorite(favorites,m);
+          return <MealRow key={m.id} meal={m} onSave={patch=>onUpdateMeal(dk,m.id,patch)} onRemove={()=>onRemoveMeal(dk,m.id)} isFavorite={!!fav}
+            onToggleFavorite={values=>{if(values)onSaveFavorite(values);else if(fav)onRemoveFavorite(fav.id);}}/>;})}
         {pending.map(p=><li key={p.key} className="meal-pending" role="status">
           {p.preview&&<img src={p.preview} alt=""/>}
           <span>{p.status==="preparing"?"Foto wird vorbereitet …":p.status==="analyzing"?"Wird geschätzt …":p.message}</span>
@@ -2270,7 +2348,7 @@ function BodyView({plan,updDay,proteinTarget}) {
               <span className={"ampel-dot "+k} style={{width:10,height:10}} aria-hidden="true"/>{nut.counts[k]}</span>)}</strong>
             <span>Bewertete Tage nach Ampel</span></div>
         </div>
-        {nut.kcalDays>0&&<p className="chart-caption">Ø {nut.avgKcal.toLocaleString("de-CH")} kcal an {nut.kcalDays} {nut.kcalDays===1?"Tag":"Tagen"} mit Essensfotos (Schätzung, nur fotografierte Mahlzeiten)</p>}
+        {nut.kcalDays>0&&<p className="chart-caption">Ø {nut.avgKcal.toLocaleString("de-CH")} kcal an {nut.kcalDays} {nut.kcalDays===1?"Tag":"Tagen"} mit erfassten Mahlzeiten (Schätzung, nur erfasstte Mahlzeiten)</p>}
       </div>
     </section>
     {stepDays.some(d=>d.steps!=null)&&<section aria-label="Schritte der letzten sieben Tage">
@@ -2521,7 +2599,7 @@ function factLines(f) {
   if(body.length)lines.push(["Körper",body.join(" · ")]);
   const food=[n.proteinDays?`Protein-Ziel ${n.proteinHitDays}/7 Tage · Ø ${n.avgProtein} g`:null,
     n.ratings.green+n.ratings.amber+n.ratings.red?`Ampel ${n.ratings.green} grün · ${n.ratings.amber} gelb · ${n.ratings.red} rot`:null,
-    n.avgKcal?`Ø ${n.avgKcal.toLocaleString("de-CH")} kcal (${n.kcalDays} Tage mit Fotos)`:null].filter(Boolean);
+    n.avgKcal?`Ø ${n.avgKcal.toLocaleString("de-CH")} kcal (${n.kcalDays} Tage mit Mahlzeiten)`:null].filter(Boolean);
   if(food.length)lines.push(["Ernährung",food.join(" · ")]);
   const rec=[r.avgSleepMin?`Ø Schlaf ${fmtHM(r.avgSleepMin)}`:null,r.avgHrv?`Ø HRV ${r.avgHrv}`:null,
     r.avgRestingHr?`Ø Ruhepuls ${r.avgRestingHr}${r.prevAvgRestingHr?` (${sign(r.avgRestingHr-r.prevAvgRestingHr)})`:""}`:null,
@@ -2589,7 +2667,7 @@ export default function App() {
   const planRef=useRef(plan);planRef.current=plan;
   const [garmin,setGarmin]=useState(()=>({state:readAccessCode()?"idle":"off"})),[syncToast,setSyncToast]=useState("");
   const [withings,setWithings]=useState(()=>({state:readAccessCode()?"idle":"off"}));
-  const [reportWeek,setReportWeek]=useState(null),[complaints,setComplaints]=useState([]);
+  const [reportWeek,setReportWeek]=useState(null),[complaints,setComplaints]=useState([]),[favorites,setFavorites]=useState([]);
   const openReport=week=>{setReportWeek(week||lastCompletedWeek());setScreen("report");window.scrollTo(0,0);};
   useEffect(()=>{
     (async()=>{
@@ -2602,6 +2680,7 @@ export default function App() {
           const {playerName:name,plan:savedPlan,proteinTarget:storedTarget,...extras}=updated;
           storedExtras.current=extras;
           setComplaints(Array.isArray(extras.complaints)?extras.complaints:[]);
+          setFavorites(favoriteList(extras.mealFavorites));
           const target=validProteinTarget(storedTarget)?storedTarget:null;
           setPlayerName(typeof name==="string"?name:"");setPlan(savedPlan);setProteinSetting(target);setScreen(name?"main":"setup");
           if(previous||updated!==d)localStorage.setItem(SK,JSON.stringify({...extras,playerName:name||"",...(target!=null?{proteinTarget:target}:{}),plan:savedPlan}));
@@ -2733,8 +2812,15 @@ export default function App() {
   const reportComplaintNow=c=>saveComplaints(reportComplaint(storedExtras.current.complaints,c,todayStr()));
   const resolveComplaintNow=id=>saveComplaints(resolveComplaint(storedExtras.current.complaints,id,todayStr()));
   const planner={playerName,proteinTarget,complaints,onApply:applyProposal,onUndo:undoProposal};
+  const saveFavorites=list=>{storedExtras.current={...storedExtras.current,mealFavorites:list};setFavorites(list);save(planRef.current);};
+  const addMeal=(dk,meal)=>updDayWith(dk,e=>({meals:[...(Array.isArray(e.meals)?e.meals:[]),meal]}));
   const mealHandlers={
-    onAddMeal:(dk,meal)=>updDayWith(dk,e=>({meals:[...(Array.isArray(e.meals)?e.meals:[]),meal]})),
+    favorites,
+    onSaveFavorite:meal=>saveFavorites(saveFavorite(storedExtras.current.mealFavorites,meal,todayStr())),
+    onRemoveFavorite:id=>saveFavorites(removeFavorite(storedExtras.current.mealFavorites,id)),
+    onUseFavorite:(dk,f,id,at)=>{storedExtras.current={...storedExtras.current,mealFavorites:useFavorite(storedExtras.current.mealFavorites,f.id,todayStr())};
+      setFavorites(storedExtras.current.mealFavorites);addMeal(dk,mealFromFavorite(f,at,id));},
+    onAddMeal:addMeal,
     onUpdateMeal:(dk,id,patch)=>updDayWith(dk,e=>({meals:(Array.isArray(e.meals)?e.meals:[]).map(m=>m.id===id?{...m,...patch}:m)})),
     onRemoveMeal:(dk,id)=>updDayWith(dk,e=>({meals:(Array.isArray(e.meals)?e.meals:[]).filter(m=>m.id!==id)})),
   };

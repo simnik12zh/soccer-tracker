@@ -52,6 +52,14 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   averages, with the instruction that photo kcal are rough and cover only photographed meals.
   Day updates build on the latest plan (`planRef`) so results arriving after an await never drop
   newer edits.
+- **Meal favourites** — open a meal → "Als Favorit merken" (name, kcal and protein as shown in
+  the fields; the name is editable). Favourites appear as a scrollable chip row under the photo
+  button, most used first; one tap adds a copy to the viewed day (`source: 'favorite'`,
+  `favoriteId`, no photo, no model call) with an inline "Rückgängig". "Verwalten" removes
+  favourites (meals already logged stay) or adds one by hand (e.g. a shake). Same name = update,
+  max. 12 (the least used one goes). Stored top-level as `mealFavorites` in the `soccer-v3` blob
+  (no key bump). Favourite meals count for protein and kcal like photo meals; the coach context
+  marks them `fromFavorite`.
 - **Plan** — Woche/Monat toggle. The week view shows the browsed week's goals and tactical focus.
 - **Körper** — body-fat 7-day mean as hero with delta vs. the previous 7 days and a 13–14 %
   goal bar; weight, fat mass and lean mass tiles (mass needs weight and body fat in the same
