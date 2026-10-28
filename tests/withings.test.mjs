@@ -117,6 +117,8 @@ test('measurements: refresh near expiry keeps the rotated token, retries 343 onc
   const r=await call(withingsHandler({env:ENV,fetchImpl:b.fetchImpl,now:()=>NOW}));
   assert.equal(r.code,200);
   assert.deepEqual(r.body.days,[{date:'2026-10-27',weight:78.1,bodyFat:15.4},{date:'2026-10-28',weight:77.9,bodyFat:15.3}]);
+  assert.match(r.body.account,/^[0-9a-f]{12}$/,'hashed account id, not the raw Withings user id');
+  assert.notEqual(r.body.account,'42');
   assert.equal(b.tokenRequests.length,2,'refresh before expiry, then once more after 343');
   assert.equal(b.tokenRequests[0].params.refresh_token,'refresh-0');
   assert.equal(b.tokenRequests[1].params.refresh_token,'refresh-1','uses the rotated refresh token');
@@ -170,4 +172,26 @@ test('scale values never overwrite what the player entered by hand',()=>{
   assert.equal(next['2026-10-24'],plan['2026-10-24'],'unchanged: same object');
   assert.equal(next['2026-10-29'],undefined);assert.equal(next['2026-10-25'],undefined);
   assert.match(source,/bodySource:"manual"\}\);onClose\(\)/,'manual editor marks its values');
+});
+
+test('values from a previous or deleted Withings source are cleaned, manual ones never',()=>{
+  const plan={
+    '2026-09-01':{weight:90,bodyFat:25,bodySource:'withings'},
+    '2026-10-20':{weight:91,bodyFat:26,bodySource:'withings',sessions:['Gym'],completed:true},
+    '2026-10-21':{weight:79,bodyFat:16,bodySource:'manual'},
+    '2026-10-22':{weight:78.5,bodyFat:15.9},
+    '2026-10-23':{weight:92,bodyFat:27,bodySource:'withings'},
+  };
+  const days=[{date:'2026-10-23',weight:78.2,bodyFat:15.6}];
+  const window=app.applyWithingsImport(plan,days,'2026-10-28','2026-10-15');
+  assert.deepEqual(plain(window.removed),['2026-10-20'],'only scale values inside the window');
+  assert.deepEqual(plain(window.plan['2026-10-20']),{weight:null,bodyFat:null,sessions:['Gym'],completed:true},'training data kept');
+  assert.equal(window.plan['2026-09-01'].weight,90,'outside the window untouched');
+  assert.equal(window.plan['2026-10-21'].weight,79);assert.equal(window.plan['2026-10-22'].weight,78.5);
+  assert.deepEqual([window.plan['2026-10-23'].weight,window.plan['2026-10-23'].bodySource],[78.2,'withings']);
+  const switched=app.applyWithingsImport(plan,days,'2026-10-28','0000-01-01');
+  assert.deepEqual(plain(switched.removed).sort(),['2026-09-01','2026-10-20']);
+  assert.equal(app.applyWithingsImport(plan,days,'2026-10-28').removed.length,0,'no cleanup without a window');
+  assert.match(source,/body\.account!==wLast\.account/,'account switch is detected');
+  assert.match(source,/wLast\?\.through&&wLast\.account\?/,'syncs without a known account reload the full window');
 });

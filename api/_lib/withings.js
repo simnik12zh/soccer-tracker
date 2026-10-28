@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { redisConfig, createRedis } from "./redis.js";
 import { accessDenied } from "./access.js";
 
@@ -109,6 +109,8 @@ export function createWithingsClient({ env = process.env, fetchImpl = globalThis
       const base = { action: "getmeas", meastypes: "1,6", category: "1",
         startdate: String(Date.parse(from + "T00:00:00Z") / 1000 - 86400), enddate: String(Date.parse(to + "T23:59:59Z") / 1000 + 86400) };
       const groups = [];
+      // Which Withings account the values belong to (hashed), so the app notices a switch.
+      const account = createHash("sha256").update(String((await storedTokens()).userid || "")).digest("hex").slice(0, 12);
       let offset = null, token = await accessToken(), retried = false;
       for (let page = 0; page < MAX_PAGES; page++) {
         const json = await post("/measure", offset != null ? { ...base, offset: String(offset) } : base, token);
@@ -118,7 +120,7 @@ export function createWithingsClient({ env = process.env, fetchImpl = globalThis
         groups.push(...(Array.isArray(json.body?.measuregrps) ? json.body.measuregrps : []));
         if (json.body?.more && json.body?.offset != null) offset = json.body.offset; else break;
       }
-      return normalizeMeasures(groups, from, to);
+      return { days: normalizeMeasures(groups, from, to), account };
     },
   };
 }
@@ -151,7 +153,7 @@ export function withingsHandler(deps = {}) {
       if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
       const { from, to } = req.query || {};
       if (!validDate(from) || !validDate(to) || from > to || rangeDays(from, to) > MAX_RANGE_DAYS) return res.status(400).json({ error: "invalid_range" });
-      return res.status(200).json({ days: await client.fetchRange(from, to), from, to });
+      return res.status(200).json({ ...(await client.fetchRange(from, to)), from, to });
     } catch (err) {
       if (!(err instanceof WithingsError)) console.error("Withings request failed:", err?.message);
       return res.status(err instanceof WithingsError ? err.status : 502).json({ error: err instanceof WithingsError ? err.code : "withings_unavailable" });

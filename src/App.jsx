@@ -490,8 +490,19 @@ function applyGarminImport(plan,data,today=todayStr()) {
 // ─── Withings import ─────────────────────────────────────────────────────────────
 // Scale readings fill weight/body fat per day. Anything the player entered or
 // corrected by hand (bodySource 'manual', or values without a source) always wins.
-function applyWithingsImport(plan,days,today=todayStr()) {
-  const next={...plan},updated=[];
+// With `cleanFrom`, earlier scale values from cleanFrom..today that Withings no longer
+// returns (deleted there, or from another account) are removed.
+function applyWithingsImport(plan,days,today=todayStr(),cleanFrom=null) {
+  const next={...plan},updated=[],removed=[];
+  if(cleanFrom){
+    const present=new Set((Array.isArray(days)?days:[]).map(d=>d?.date));
+    for(const dk of Object.keys(next)){
+      const e=next[dk];
+      if(e?.bodySource!=='withings'||dk<cleanFrom||dk>today||present.has(dk))continue;
+      const {bodySource,...rest}=e;
+      next[dk]={...rest,weight:null,bodyFat:null};removed.push(dk);
+    }
+  }
   const valid=(v,hi)=>typeof v==='number'&&Number.isFinite(v)&&v>0&&v<hi;
   for(const d of Array.isArray(days)?days:[]){
     if(!d||!validCoachDate(d.date)||d.date>today)continue;
@@ -502,7 +513,7 @@ function applyWithingsImport(plan,days,today=todayStr()) {
     if(e.bodySource==='withings'&&e.weight===weight&&e.bodyFat===bodyFat)continue;
     next[d.date]={...e,weight,bodyFat,bodySource:'withings'};updated.push(d.date);
   }
-  return {plan:next,updated};
+  return {plan:next,updated,removed};
 }
 
 // Bottom-sheet options. Every change is a draft until Save, including Ruhetag.
@@ -2001,7 +2012,8 @@ export default function App() {
     // Version 2 added football metrics: refresh once from the earliest imported day.
     if(gLast&&gLast.v!==2){const first=Object.keys(planRef.current).filter(dk=>planRef.current[dk]?.garmin?.length).sort()[0];if(first&&first<gFrom)gFrom=first;}
     if(gFrom<daysBeforeStr(today,27))gFrom=daysBeforeStr(today,27);
-    const wFrom=wLast?.through?daysBeforeStr(wLast.through,3):daysBeforeStr(today,180);
+    // Without a known account (first sync, or synced before accounts were tracked) reload 180 days.
+    const wFrom=wLast?.through&&wLast.account?daysBeforeStr(wLast.through,3):daysBeforeStr(today,180);
     if(garminDue)setGarmin(g=>({...g,state:"syncing"}));
     if(withingsDue)setWithings(w=>({...w,state:"syncing"}));
     const [g,w]=await Promise.all([garminDue?fetchSource(`/api/garmin?from=${gFrom}&to=${today}`):null,withingsDue?fetchSource(`/api/withings?from=${wFrom}&to=${today}`):null]);
@@ -2017,10 +2029,18 @@ export default function App() {
     }
     if(w){
       if(w.res?.ok&&Array.isArray(w.body.days)){
-        const r=applyWithingsImport(next,w.body.days,today);next=r.plan;changed=true;
-        storedExtras.current={...storedExtras.current,withingsSync:{at:Date.now(),through:today}};
+        let body=w.body,from=wFrom;
+        // Another Withings account than last time: drop its scale values and reload 180 days.
+        const switched=!!(wLast?.account&&body.account&&body.account!==wLast.account);
+        if(switched){
+          from=daysBeforeStr(today,180);
+          if(wFrom>from){const again=await fetchSource(`/api/withings?from=${from}&to=${today}`);if(again.res?.ok&&Array.isArray(again.body.days))body=again.body;}
+        }
+        const r=applyWithingsImport(next,body.days,today,switched?"0000-01-01":from);next=r.plan;changed=true;
+        storedExtras.current={...storedExtras.current,withingsSync:{at:Date.now(),through:today,account:body.account||null}};
         setWithings({state:"ok",at:Date.now()});
-        if(r.updated.length)notes.push(`Withings: ${r.updated.length} ${r.updated.length===1?"Messung":"Messungen"} übernommen`);
+        if(switched)notes.push("Withings-Konto gewechselt: Waagen-Werte neu geladen");
+        else if(r.updated.length)notes.push(`Withings: ${r.updated.length} ${r.updated.length===1?"Messung":"Messungen"} übernommen`);
       }else if(w.body.error==="withings_not_connected")setWithings({state:"disconnected"});
       else setWithings({state:"error",message:WITHINGS_ERRORS[w.body.error]||WITHINGS_ERRORS.withings_unavailable});
     }
