@@ -80,7 +80,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   measurements; a seven-day nutrition overview (traffic lights, protein hits, average); steps;
   sleep & recovery with labelled rows (Schlaf, HRV, Puls). Manual entry is a text link, since
   the scale delivers automatically.
-- **Saison** — season progress, weekly reports, phase timeline (earlier phases folded behind
+- **Saison** ("Deine Saison.") — season progress, weekly reports, phase timeline (earlier phases folded behind
   "Frühere Phasen anzeigen", no "0 / 0" counts) and the settings entry (profile, connections,
   reminders, backup export/restore). The weekly report shows its numbers as tiles per topic
   (`factGroups`).

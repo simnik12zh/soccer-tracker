@@ -315,7 +315,7 @@ const TYPE_LABELS = {
 };
 function displayName(type) { return TYPE_LABELS[type] || type; }
 // Large titles: break compound words at the word joint (soft hyphen), not mid-syllable.
-function titleBreaks(label) { return String(label).replace(/(Mannschafts|Kraft)(training)/,'$1\u00AD$2'); }
+function titleBreaks(label) { return String(label).replace(/(Mannschafts|Kraft)(training)/,'$1\u00AD$2').replace(/\//g,'/\u200B'); }
 function sessionsLabel(e) { return getSessions(e).map(displayName).join(' + '); }
 function guidanceTitle(e) {
   const title=coachingFor(e)?.title;
@@ -1108,7 +1108,7 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .milestone-toast{display:flex;align-items:center;gap:12px;max-width:520px;width:90vw}.milestone-toast>span{font-size:26px}.milestone-toast strong{font-size:14px}.milestone-toast p{font-size:12px;line-height:1.6;color:#B6C9D5;margin-top:3px}
 @keyframes slideLeft{from{opacity:.3;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
 @keyframes slideRight{from{opacity:.3;transform:translateX(-16px)}to{opacity:1;transform:translateX(0)}}
-@media(max-width:360px){.view{padding-left:14px;padding-right:14px}.session-card{padding:20px 16px}.log-circle{width:68px;height:68px}.session-actions>div{gap:2px;flex-direction:column}.sheet{padding-left:14px;padding-right:14px}.feeling-row>div{gap:3px}}
+@media(max-width:360px){.view{padding-left:14px;padding-right:14px}.session-card{padding:20px 16px}.log-circle{width:68px;height:68px}.session-actions>div{gap:14px}.wide-only{display:none}.sheet{padding-left:14px;padding-right:14px}.feeling-row>div{gap:3px}}
 
 /* Confirmed games: warm gold, ball + H/A markers, not colour alone. */
 .match-card{border-color:var(--gold-line);background:linear-gradient(135deg,#30302A,var(--panel))}
@@ -1303,6 +1303,7 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .coach-input{flex-shrink:0;display:flex;gap:8px;align-items:center;padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
 .coach-input input{flex:1;min-height:48px;border:1px solid var(--line-strong);border-radius:var(--r-pill);padding:0 18px;background:var(--surface);color:var(--text);outline:none}
 .coach-send{width:48px;height:48px;flex-shrink:0;border-radius:50%;border:0;background:var(--accent);color:var(--bg);display:flex;align-items:center;justify-content:center}
+.field-hint{font-size:12px;color:var(--muted);line-height:1.5;margin-top:6px}
 .connection-row{display:flex;gap:12px;align-items:flex-start;border-top:1px solid var(--line);margin-top:16px;padding-top:14px;color:var(--accent-ink)}
 .connection-row strong{display:block;font-size:14px;font-weight:500;color:var(--text)}.connection-row small{display:block;font-size:12px;color:var(--accent-ink);margin-top:3px}.connection-row p{font-size:12px;color:var(--muted);margin-top:3px}
 .watch-list{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
@@ -1391,8 +1392,9 @@ function ConnectionSettings({garmin,withings,scale,onSync,onWithingsConnect,onWi
   return <section className="settings-backup" aria-label="Verbindungen"><div className="section-heading"><h2>Verbindungen</h2></div>
     <p className="helper-text">Uhr und Waage liefern beim Öffnen der App automatisch. Eigene Einträge werden nie überschrieben.</p>
     <label htmlFor="access-code" className="eyebrow">Zugangscode</label>
+    <p className="field-hint">Schaltet Uhr, Waage, Essensfotos und den Trainer frei.</p>
     <input id="access-code" type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} className="modal-input" value={code}
-      placeholder="Wie APP_ACCESS_CODE in Vercel" onChange={e=>setCode(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")save();}}/>
+      placeholder="Dein Zugangscode" onChange={e=>setCode(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")save();}}/>
     <button className="secondary" onClick={save}>Code speichern und abgleichen</button>
     <div className="connection-row"><Icon name="watch" size={20}/><div><strong>Garmin</strong>
       <small role="status">{sourceStatus(garmin,stored,"Noch nicht abgeglichen.")}</small><p>Trainings, Fussball-Werte und Schritte.</p></div></div>
@@ -2026,7 +2028,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
         {e.completed&&!sessions.includes('Match')&&<p>Spieltermin laut Spielplan. Dein bereits abgeschlossenes Training bleibt unverändert.</p>}
       </div>}
       <div className="session-main">
-        <h2>{sessions.length?sessions.map((s,i)=><span key={s}>{i>0&&<><br/><span style={{fontWeight:300,color:C.muted}}>+ </span></>}{titleBreaks(displayName(s))}</span>):"Ruhetag"}</h2>
+        <h2>{sessions.length?sessions.map((s,i)=><span key={s}>{i>0&&<><br/><span style={{fontWeight:300,color:C.muted}}>+{"\u00A0"}</span></>}{titleBreaks(displayName(s))}</span>):"Ruhetag"}</h2>
         {sessions.length>0&&<button className={"log-circle"+(e.completed?" logged":"")}
           aria-label={e.completed?"Eintrag rückgängig machen":"Training als erledigt eintragen"}
           onClick={()=>e.completed?setConfirmUnlog(true):updDay(viewKey,{completed:true})}>
@@ -2042,7 +2044,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
         {guidance.text.length>110&&<button className="text-btn more-btn" aria-expanded={guideOpen} onClick={()=>setGuideOpen(o=>!o)}>{guideOpen?"Weniger":"Mehr lesen"}</button>}</aside>}
       <div className="session-actions">
         <div><button className="text-btn" onClick={()=>setSheetOpen(true)}><Icon name="edit" size={16}/> Ändern</button>
-          <button className="text-btn" onClick={()=>setNotesOpen(o=>!o)} aria-expanded={notesOpen}><Icon name="note" size={16}/> {e.notes?"Notiz":"Notiz hinzufügen"}</button>
+          <button className="text-btn" onClick={()=>setNotesOpen(o=>!o)} aria-expanded={notesOpen}><Icon name="note" size={16}/> {e.notes?"Notiz":<>Notiz<span className="wide-only"> hinzufügen</span></>}</button>
           {dayOff===0&&<button className="text-btn" onClick={()=>setComplaintOpen(true)}><Icon name="alert" size={16}/> Beschwerde</button>}</div>
       </div>
       {confirmUnlog&&<div className="inline-confirm"><p>Diesen Trainingseintrag entfernen?</p>
@@ -2473,7 +2475,7 @@ function JourneyView({plan,today,onGoToDay,onOpenSettings,onOpenReport}) {
   const done=entries.filter(e=>e.completed&&getSessions(e).length).length;
   const current=phaseForDate(today), idx=PHASES.indexOf(current), next=PHASES[idx+1];
   return <div className="view">
-    <section className="panel journey-summary"><div className="eyebrow">Deine Saison · 2026 / 27</div>
+    <section className="panel journey-summary"><div className="eyebrow">Saison 2026 / 27</div>
       <div><strong>{done}</strong><span>Trainingstage erledigt<br/>von {planned} geplant</span></div>
       <progress aria-label="Saisonfortschritt" max={Math.max(planned,1)} value={done}/>
       <p>{current?(next?daysUntil(next.start)+" Tage bis "+phaseLabel(next.name):daysUntil(current.end)+" Tage bis Saisonende"):today<SEASON_START?"Deine Saison startet am "+shortDate(SEASON_START):"Saison abgeschlossen."}</p>
@@ -2902,7 +2904,7 @@ export default function App() {
   const goToDay=dk=>{setDayOff(daysUntil(dk)??0);setView("today");window.scrollTo(0,0);};
   const today=todayStr(),phase=phaseForDate(today);
   const tabs=[["today","Heute","today"],["plan","Plan","plan"],["body","Körper","body"],["season","Saison","season"]];
-  const headings={today:dayOff===0?"Heute zählt.":dayOff<0?"Rückblick.":"Vorschau.",plan:"Dein Plan.",body:"Dein Körper.",season:"Dein Weg."};
+  const headings={today:dayOff===0?"Heute zählt.":dayOff<0?"Rückblick.":"Vorschau.",plan:"Dein Plan.",body:"Dein Körper.",season:"Deine Saison."};
   let content;
   if(loading)content=<main className="app-shell"><p className="loading-state">Dein Plan wird geladen …</p></main>;
   else if(loadError)content=<main className="app-shell"><div className="view" style={{paddingTop:80}}><h1>Daten nicht lesbar.</h1>
