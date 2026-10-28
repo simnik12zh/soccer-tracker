@@ -135,6 +135,16 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   never overwrites values entered by hand (`bodySource: "manual"` or older values without a
   source); scale values are marked `bodySource: "withings"` and shown as such in Körper.
   Env: `WITHINGS_CLIENT_ID`, `WITHINGS_CLIENT_SECRET`, optional `WITHINGS_REDIRECT_URI`.
+- **Sleep and recovery** — the Garmin sync also pulls sleep summaries (31-day max), HRV daily
+  summaries and the v2 daily summaries (resting HR, Body Battery max); each is optional and a
+  missing source never fails the sync. Per day (`recovery`): sleep minutes and score, overnight
+  HRV with Garmin's personal balanced range and status, resting HR, Body Battery. `recoveryStatus`
+  rates the day good / caution / low from sleep length, HRV against his own range, resting HR
+  against his previous 14 days and Body Battery (two low signals = low; one low or two cautions
+  = caution). Heute shows a compact strip (sleep plus anything that stands out); Körper shows
+  seven nights with HRV and resting HR. The coach gets the values for past days and today's
+  assessment, with instructions to adapt load and not over-read one night. Sync version 3 reloads
+  28 days once so baselines exist.
 - **Access code** — `APP_ACCESS_CODE` (Vercel env) is required for `/api/garmin` and, when set,
   for `/api/coach`. The app sends it as `Authorization: Bearer`; it is entered under Saison →
   Einstellungen → Garmin and stored in its own localStorage key, so exports never contain it.

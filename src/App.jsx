@@ -474,6 +474,15 @@ function applyGarminImport(plan,data,today=todayStr()) {
     if(!day||!validCoachDate(day.date)||day.date>today||!Number.isInteger(day.steps)||day.steps<0)continue;
     if(next[day.date]?.steps!==day.steps)next[day.date]={...next[day.date],steps:day.steps};
   }
+  const RECOVERY_FIELDS=['sleepMin','sleepScore','hrv','hrvWeekly','hrvLow','hrvHigh','hrvFloor','restingHr','bodyBattery'];
+  for(const day of Array.isArray(data?.recovery)?data.recovery:[]){
+    if(!day||!validCoachDate(day.date)||day.date>today)continue;
+    const rec={};
+    for(const k of RECOVERY_FIELDS)if(Number.isFinite(day[k]))rec[k]=Math.round(day[k]);
+    if(typeof day.hrvStatus==='string'&&/^[A-Z]{3,12}$/.test(day.hrvStatus))rec.hrvStatus=day.hrvStatus;
+    if(!Object.keys(rec).length||JSON.stringify(next[day.date]?.recovery)===JSON.stringify(rec))continue;
+    next[day.date]={...next[day.date],recovery:rec};
+  }
   for(const a of Array.isArray(data?.activities)?data.activities:[]){
     if(!a||typeof a.id!=='string'||!validCoachDate(a.date)||a.date>today)continue;
     const e=next[a.date]||{},seen=Array.isArray(e.garmin)?e.garmin:[];
@@ -496,6 +505,34 @@ function applyGarminImport(plan,data,today=todayStr()) {
     next[a.date]={...e,...patch};
   }
   return {plan:next,completed};
+}
+
+// ─── Recovery ────────────────────────────────────────────────────────────────────
+// Watch data for the night before `dk`, compared with his own baselines: HRV with Garmin's
+// personal balanced range, resting HR with his previous 14 days, plus sleep length and Body
+// Battery. A guide for training load, not a medical assessment.
+const RECOVERY_LABELS={good:'Gut erholt',caution:'Eingeschränkt',low:'Wenig erholt'};
+function fmtHM(minutes) { return Math.floor(minutes/60)+':'+String(Math.round(minutes%60)).padStart(2,'0')+' h'; }
+function recoveryStatus(plan,dk) {
+  const r=plan[dk]?.recovery;
+  if(!r)return null;
+  const signals=[],num=Number.isFinite;
+  if(num(r.sleepMin))signals.push({key:'sleep',level:r.sleepMin<360?'low':r.sleepMin<420?'caution':'good',text:'Schlaf '+fmtHM(r.sleepMin),short:'Schlaf '+fmtHM(r.sleepMin)});
+  if(num(r.hrv)){
+    const level=num(r.hrvLow)?(num(r.hrvFloor)&&r.hrv<r.hrvFloor?'low':r.hrv<r.hrvLow?'caution':'good')
+      :['LOW','POOR'].includes(r.hrvStatus)?'low':r.hrvStatus==='UNBALANCED'?'caution':'good';
+    signals.push({key:'hrv',level,text:`HRV ${r.hrv} ms${level==='good'?'':' (unter Normalbereich)'}`,short:`HRV ${r.hrv} ↓`});
+  }
+  if(num(r.restingHr)){
+    const prev=Array.from({length:14},(_,i)=>plan[daysBeforeStr(dk,i+1)]?.recovery?.restingHr).filter(num);
+    const diff=prev.length>=4?r.restingHr-prev.reduce((n,v)=>n+v,0)/prev.length:null;
+    const level=diff==null?'good':diff>=6?'low':diff>=3?'caution':'good';
+    signals.push({key:'restingHr',level,text:`Ruhepuls ${r.restingHr}${diff!=null&&diff>=3?` (+${Math.round(diff)})`:''}`,short:`Ruhepuls ${r.restingHr} +${Math.round(diff??0)}`});
+  }
+  if(num(r.bodyBattery))signals.push({key:'bodyBattery',level:r.bodyBattery<30?'low':r.bodyBattery<50?'caution':'good',text:`Body Battery ${r.bodyBattery}`,short:`Body Battery ${r.bodyBattery}`});
+  if(!signals.length)return null;
+  const lows=signals.filter(x=>x.level==='low').length,cautions=signals.filter(x=>x.level==='caution').length;
+  return {level:lows>=2?'low':lows===1||cautions>=2?'caution':'good',signals};
 }
 
 // ─── Withings import ─────────────────────────────────────────────────────────────
@@ -652,6 +689,9 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
     const past=dk<=referenceDate;
     return {date:dk,sessions:sessions.map(displayName),nutrition:eating(dk),
       steps:past&&Number.isInteger(e.steps)?e.steps:null,
+      recovery:past&&e.recovery?{sleepMinutes:e.recovery.sleepMin??null,sleepScore:e.recovery.sleepScore??null,hrvMs:e.recovery.hrv??null,
+        hrvBalancedRange:e.recovery.hrvLow!=null&&e.recovery.hrvHigh!=null?[e.recovery.hrvLow,e.recovery.hrvHigh]:null,hrvStatus:e.recovery.hrvStatus??null,
+        restingHr:e.recovery.restingHr??null,bodyBatteryMax:e.recovery.bodyBattery??null}:null,
       watchActivities:past&&Array.isArray(e.garmin)&&e.garmin.length?e.garmin.slice(0,4).map(g=>({type:coachText(g.type,40),minutes:g.minutes??null,avgHr:g.avgHr??null,
         distanceKm:g.distanceKm??null,maxSpeedKmh:g.maxSpeedKmh??null,trainingLoad:g.load??null,highHrMinutes:g.highHrMin??null,matchedPlan:!!g.matched})):null,
       status:logged(dk)?'logged':sessions.length?(dk<referenceDate?'not_logged':'planned'):plan[dk]?'rest':'no_entry',
@@ -694,7 +734,7 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
   return {schemaVersion:2,referenceDate,timezone:'Europe/Zurich',playerName:coachText(playerName,100),
     phase:phase?{name:phaseLabel(phase.name),description:phase.description}:null,
     nextPhase:next?phaseLabel(next.name):null,daysToNextPhase:phaseEnd?dayDistance(phaseEnd):null,
-    today:day(referenceDate),selectedDay:viewKey!==referenceDate?day(viewKey):null,
+    today:{...day(referenceDate),recoveryAssessment:(r=>r?{level:r.level,signals:r.signals.map(x=>({signal:x.key,level:x.level,text:x.text}))}:null)(recoveryStatus(plan,referenceDate))},selectedDay:viewKey!==referenceDate?day(viewKey):null,
     recentDays:Array.from({length:14},(_,i)=>day(daysBeforeStr(referenceDate,14-i))),
     upcoming:Array.from({length:7},(_,i)=>day(daysBeforeStr(referenceDate,-i-1))),
     nextMatch:nextMatchDate?{...day(nextMatchDate),daysAway:dayDistance(nextMatchDate)}:null,
@@ -951,6 +991,12 @@ progress::-webkit-progress-bar{background:#344858}progress::-webkit-progress-val
 .nutri-stats strong{display:block;font-size:18px;font-weight:500;font-variant-numeric:tabular-nums}.nutri-stats>div>span{display:block;font-size:10px;color:#A5B8C8;line-height:1.4;margin-top:3px}
 .ampel-counts{display:flex!important;gap:6px;align-items:center;font-size:14px;font-weight:500}
 .settings-link{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:18px;margin-top:24px;color:#EDF2F5}.settings-link>span{flex:1;min-width:0}.settings-link small{display:block;font-size:11px;color:#A5B8C8;margin-top:3px}
+.recovery{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;padding:0 8px 10px;margin-bottom:8px;border-bottom:1px solid #2D4151}
+.recovery-badge{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;padding:5px 10px;border-radius:99px;background:#15222F;color:#EDF2F5}
+.recovery-dot{width:9px;height:9px;border-radius:50%;background:#8FD19E}.recovery.caution .recovery-dot{background:#E9C46A}.recovery.low .recovery-dot{background:#E58A7E}
+.recovery-signals{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:11px;color:#A5B8C8}.recovery-signals .flag{color:#E9C46A}.recovery.low .recovery-signals .flag{color:#F0A99F}
+.sleep-fill{background:#9CCBD3!important}.sleep-fill.good{background:#8FD19E!important}.sleep-fill.caution{background:#E9C46A!important}.sleep-fill.low{background:#E58A7E!important}
+.night-metric{font-size:10px;color:#A5B8C8;font-variant-numeric:tabular-nums}
 .kcal-line{font-size:12px;color:#B3DCE2;margin:-6px 0 12px}
 .meal-photo{display:flex;flex-direction:column;align-items:stretch;margin-bottom:8px}.meal-photo .secondary{display:flex;align-items:center;justify-content:center;gap:8px;border-color:#9CCBD3;white-space:nowrap}
 .meal-photo .text-btn{align-self:center;min-height:36px;font-size:12px;color:#B3DCE2}
@@ -1342,7 +1388,15 @@ function DayRings({plan,viewKey,target,onOpenPlan}) {
   const summary=check.future?"Vorschau. Ernährung trägst du am Tag selbst ein."
     :check.open.length?<>{viewKey===today?"Noch offen: ":"Nicht eingetragen: "}<strong>{check.open.join(" · ")}</strong></>
     :viewKey===today?"Alles erledigt für heute. Stark.":"Alles eingetragen.";
+  const recovery=viewKey<=today?recoveryStatus(plan,viewKey):null;
   return <section className="panel rings" aria-label="Tagesübersicht">
+    {recovery&&<div className={"recovery "+recovery.level} role="status"
+      aria-label={"Erholung: "+RECOVERY_LABELS[recovery.level]+". "+recovery.signals.map(x=>x.text).join(", ")}>
+      <span className="recovery-badge"><span className="recovery-dot" aria-hidden="true"/>{RECOVERY_LABELS[recovery.level]}</span>
+      {/* Compact: sleep always, other signals only when they stand out. Details live in Körper. */}
+      <span className="recovery-signals" aria-hidden="true">{recovery.signals.filter(x=>x.key==='sleep'||x.level!=='good').map(x=>
+        <span key={x.key} className={x.level!=='good'?'flag':''}>{x.short}</span>)}</span>
+    </div>}
     <div className="ring-row">
       <Ring value={e.completed&&sessions.length?1:0} max={1} color="#9CCBD3" label="Training" sub={status}
         ariaLabel={"Training: "+status} onClick={()=>scrollToId("today-session")}>
@@ -1848,6 +1902,9 @@ function BodyView({plan,updDay,proteinTarget}) {
   const recent=Object.keys(plan).filter(dk=>dk<=today&&(validBody(plan[dk]?.weight)||validBody(plan[dk]?.bodyFat))).sort().reverse().slice(0,5);
   const nut=nutritionSummary(plan,Array.from({length:7},(_,i)=>daysBeforeStr(today,6-i)),proteinTarget);
   const bf=snap.bodyFat,w=snap.weight,m=snap.mass;
+  const nights=Array.from({length:7},(_,i)=>{const date=daysBeforeStr(today,6-i);return {date,r:plan[date]?.recovery||null};});
+  const sleeps=nights.map(n=>n.r?.sleepMin).filter(Number.isFinite);
+  const sleepAvg=sleeps.length?Math.round(sleeps.reduce((a,b)=>a+b,0)/sleeps.length):null;
   const stepDays=Array.from({length:7},(_,i)=>{const date=daysBeforeStr(today,6-i),v=plan[date]?.steps;return {date,steps:Number.isInteger(v)?v:null};});
   const stepValues=stepDays.map(d=>d.steps).filter(v=>v!=null);
   const stepAvg=stepValues.length?Math.round(stepValues.reduce((n,v)=>n+v,0)/stepValues.length):0,stepMax=Math.max(1,...stepValues);
@@ -1903,6 +1960,16 @@ function BodyView({plan,updDay,proteinTarget}) {
         aria-label={shortDate(d.date)+": "+(d.steps!=null?d.steps+" Schritte":"keine Daten")}>
         <span className="steps-bar"><span style={{height:(d.steps!=null?Math.max(4,d.steps/stepMax*100):0)+"%"}}/></span>
         <b>{d.steps!=null?(d.steps>=1000?Math.round(d.steps/100)/10+"k":d.steps):"–"}</b><small>{DN[dow0(new Date(d.date+"T12:00:00"))]}</small></div>)}</div>
+    </section>}
+    {nights.some(n=>n.r)&&<section aria-label="Schlaf und Erholung der letzten sieben Tage">
+      <div className="section-heading"><h2>Schlaf & Erholung</h2><span>{sleepAvg!=null?`Ø ${fmtHM(sleepAvg)} Schlaf`:"letzte 7 Tage"}</span></div>
+      <div className="panel steps-week">{nights.map(n=>{const st=n.r?recoveryStatus(plan,n.date):null;
+        return <div key={n.date} className="steps-day" role="img" aria-label={shortDate(n.date)+": "+(st?st.signals.map(x=>x.text).join(", "):"keine Daten")}>
+          <span className="steps-bar"><span className={"sleep-fill "+(st?.level||"")} style={{height:(n.r?.sleepMin?Math.max(6,Math.min(100,n.r.sleepMin/540*100)):0)+"%"}}/></span>
+          <b>{n.r?.sleepMin?fmtHM(n.r.sleepMin).replace(" h",""):"–"}</b>
+          <small className="night-metric">{n.r?.hrv!=null?n.r.hrv:"–"}</small><small className="night-metric">{n.r?.restingHr!=null?n.r.restingHr:"–"}</small>
+          <small>{DN[dow0(new Date(n.date+"T12:00:00"))]}</small></div>;})}</div>
+      <p className="chart-caption">Balken: Schlafdauer · darunter HRV (ms) und Ruhepuls · Farbe: Erholung des Tages</p>
     </section>}
     {recent.length>0&&<section aria-label="Letzte Messungen">
       <div className="section-heading"><h2>Messungen</h2><span>Antippen zum Bearbeiten</span></div>
@@ -2137,11 +2204,11 @@ export default function App() {
     const now=Date.now(),today=todayStr(),extras=storedExtras.current;
     const gLast=extras.garminSync,wLast=extras.withingsSync;
     const due=last=>force||!(last?.at&&now-last.at<10*60*1000);
-    const garminDue=due(gLast?.v===2?gLast:null),withingsDue=due(wLast);
+    const garminDue=due(gLast?.v===3?gLast:null),withingsDue=due(wLast);
     if(!garminDue&&!withingsDue)return;
     let gFrom=gLast?.through?daysBeforeStr(gLast.through,2):daysBeforeStr(today,13);
-    // Version 2 added football metrics: refresh once from the earliest imported day.
-    if(gLast&&gLast.v!==2){const first=Object.keys(planRef.current).filter(dk=>planRef.current[dk]?.garmin?.length).sort()[0];if(first&&first<gFrom)gFrom=first;}
+    // Version 3 added sleep and recovery: reload the longest window once so baselines exist.
+    if(gLast&&gLast.v!==3)gFrom=daysBeforeStr(today,27);
     if(gFrom<daysBeforeStr(today,27))gFrom=daysBeforeStr(today,27);
     const wWindow=withingsWindow(wLast,today),wFrom=wWindow.from;
     if(garminDue)setGarmin(g=>({...g,state:"syncing"}));
@@ -2151,7 +2218,7 @@ export default function App() {
     if(g){
       if(g.res?.ok&&Array.isArray(g.body.activities)&&Array.isArray(g.body.steps)){
         const r=applyGarminImport(next,g.body,today);next=r.plan;changed=true;
-        storedExtras.current={...storedExtras.current,garminSync:{at:Date.now(),through:today,v:2}};
+        storedExtras.current={...storedExtras.current,garminSync:{at:Date.now(),through:today,v:3}};
         setGarmin({state:"ok",at:Date.now()});
         if(r.completed.length)notes.push(r.completed.length>2?`${r.completed.length} Trainings von Garmin eingetragen`
           :"Von Garmin eingetragen: "+r.completed.map(dk=>sessionsLabel(next[dk])+" ("+shortDate(dk)+")").join(", "));

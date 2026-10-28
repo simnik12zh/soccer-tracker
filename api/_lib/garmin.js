@@ -63,6 +63,42 @@ export function normalizeSteps(list) {
     .map((d) => ({ date: d.calendarDate, steps: d.totalSteps }));
 }
 
+// Sleep, HRV, resting heart rate and Body Battery per calendar day (the day you wake up).
+// Each source is optional; implausible values are dropped.
+const inRange = (v, lo, hi) => (Number.isFinite(v) && v >= lo && v <= hi ? Math.round(v) : null);
+export function normalizeRecovery({ sleep, hrv, summaries } = {}, from, to) {
+  const days = new Map();
+  const day = (d) => { if (!days.has(d)) days.set(d, { date: d }); return days.get(d); };
+  const inWindow = (d) => validDate(d) && d >= from && d <= to;
+  for (const raw of Array.isArray(sleep) ? sleep : []) {
+    const s = raw?.dailySleepDTO || raw;
+    if (!inWindow(s?.calendarDate)) continue;
+    const minutes = inRange(Number.isFinite(s.sleepTimeSeconds) ? s.sleepTimeSeconds / 60 : NaN, 60, 1080);
+    const score = inRange(s.sleepScores?.overall?.value, 0, 100);
+    if (minutes != null) day(s.calendarDate).sleepMin = minutes;
+    if (score != null) day(s.calendarDate).sleepScore = score;
+  }
+  for (const h of Array.isArray(hrv?.hrvSummaries) ? hrv.hrvSummaries : []) {
+    if (!inWindow(h?.calendarDate)) continue;
+    const value = inRange(h.lastNightAvg, 5, 250);
+    if (value == null) continue;
+    const d = day(h.calendarDate);
+    d.hrv = value;
+    const weekly = inRange(h.weeklyAvg, 5, 250); if (weekly != null) d.hrvWeekly = weekly;
+    if (typeof h.status === "string" && /^[A-Z]{3,12}$/.test(h.status)) d.hrvStatus = h.status;
+    const low = inRange(h.baseline?.balancedLow, 5, 250), high = inRange(h.baseline?.balancedUpper, 5, 250), floor = inRange(h.baseline?.lowUpper, 5, 250);
+    if (low != null && high != null && low < high) { d.hrvLow = low; d.hrvHigh = high; }
+    if (floor != null) d.hrvFloor = floor;
+  }
+  for (const u of Array.isArray(summaries?.data) ? summaries.data : []) {
+    if (!inWindow(u?.calendarDate)) continue;
+    const rhr = inRange(u.heartRate?.restingValue, 25, 120), battery = inRange(u.bodyBattery?.maxValue, 0, 100);
+    if (rhr != null) day(u.calendarDate).restingHr = rhr;
+    if (battery != null) day(u.calendarDate).bodyBattery = battery;
+  }
+  return [...days.values()].filter((d) => Object.keys(d).length > 1).sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
 export function createGarminClient({ env = process.env, fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
   const key = env.GARMIN_PERSONAL_API_KEY;
   const config = redisConfig(env), redis = config ? createRedis(config, fetchImpl) : null;
@@ -107,11 +143,17 @@ export function createGarminClient({ env = process.env, fetchImpl = globalThis.f
     configured: !!key,
     async fetchRange(from, to) {
       const q = new URLSearchParams({ start: "0", limit: "99", startDate: from, endDate: to, sortOrder: "asc" });
-      const [activities, steps] = await Promise.all([
+      // Recovery sources are optional: a missing one (e.g. no HRV-capable watch) never fails the sync.
+      const optional = (path) => get(path).catch((err) => { if (err?.code === "garmin_key_invalid") throw err; return null; });
+      const range = new URLSearchParams({ startDate: from, endDate: to });
+      const [activities, steps, sleep, hrv, summaries] = await Promise.all([
         get(`/activitylist-service/activities/search/activities?${q}`),
         get(`/usersummary-service/stats/steps/daily/${from}/${to}`),
+        optional(`/sleep-service/sleep/dailySleepSummariesByDate?${range}`),
+        optional(`/hrv-service/hrv/daily/${from}/${to}`),
+        optional(`/usersummary-service/v2/dailysummaries?${range}`),
       ]);
-      return { activities: normalizeActivities(activities), steps: normalizeSteps(steps) };
+      return { activities: normalizeActivities(activities), steps: normalizeSteps(steps), recovery: normalizeRecovery({ sleep, hrv, summaries }, from, to) };
     },
   };
 }
