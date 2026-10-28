@@ -22,19 +22,29 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 ## Architecture
 
 - **`src/App.jsx`** — entire UI in one file by design. Four bottom-tab views (Heute / Plan /
-  Körper / Saison), a full-screen Coach chat (header button "Trainer"), and a settings screen
-  reached from Saison. Midnight & Ice
-  dark palette in `C`; shared responsive styles in `UI_CSS`, inline SVG icons, reduced-motion
-  support and a keyboard-accessible session sheet. No extra UI dependencies.
+  Körper / Saison), a full-screen Coach chat (header button "Trainer") and a settings screen
+  (gear icon in the header, also linked at the end of Saison). Midnight & Ice dark palette:
+  CSS tokens on `:root` in `UI_CSS` (`--bg`, `--surface`, `--panel`, `--line*`, `--text`,
+  `--muted`, `--faint`, `--accent*`, `--good`, `--warn`, `--bad`, `--gold*`; radii `--r-s` 12,
+  `--r-m` 14, `--r-l` 22, `--r-pill`), legacy inline styles still use `C`. Text is at least
+  11 px (labels), explanations 12 px. Inline SVG icons only (games use the pitch icon, no
+  emoji), reduced-motion support and a keyboard-accessible session sheet. Sections on Plan,
+  Körper and Saison use one heading pattern (`.section-heading` above the card); cards on
+  Heute carry their own small eyebrow. No extra UI dependencies.
   The season plan is generated from hard-coded `PHASES` +
   per-phase weekly `TEMPLATES` (with Ibiza and Tuscany holiday overrides) by
   `buildDefaultPlan()`, spanning 2026-06-29 → 2027-08-05.
-- **Heute** — compact day strip (‹ › jump a week, swipe moves a day), three rings for the
+- **Heute** — compact day strip (‹ › jump a week, swipe moves a day). The ring card starts
+  with one status area (recovery line plus active complaints) and then three rings for the
   selected day (Training, Protein vs. target, Wochenziele Kraft + Reha) with a sentence naming
   what is still open (`dayChecklist`; past days say "nicht eingetragen", never "skipped"). The
   session card keeps FERTIG next to the title so it stays above the tab bar on a phone; long
-  plan guidance is clamped to two lines. Below: the nutrition card and "Als Nächstes" (next two
-  planned days plus the next game within seven days, `upcomingDays`).
+  plan guidance is clamped to two lines, and its title drops a repeated session name
+  (`guidanceTitle`). The load card is one line (value, short status, advice) and expands to the
+  bar and explanation. The nutrition card: total with a pencil to correct it, photo button plus a
+  library button, one "Schnell eintragen" row (favourites, then +20/+30/+40 g protein), meals,
+  rating. Below: "Als Nächstes" (next two planned days plus the next game within seven days,
+  `upcomingDays`). Choosing "Krank/verletzt" in the session sheet offers to report where it hurts.
 - **Nutrition (level A)** — per day, optional `protein` (grams via +20/+30/+40 quick-add,
   correctable, undo for the last add) and `nutrition` (`green` Im Plan / `amber` Gemischt /
   `red` Daneben: viel Süsses, Essen aus Lust statt Hunger, Fast Food). Not logged is never zero
@@ -60,14 +70,20 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   max. 12 (the least used one goes). Stored top-level as `mealFavorites` in the `soccer-v3` blob
   (no key bump). Favourite meals count for protein and kcal like photo meals; the coach context
   marks them `fromFavorite`.
-- **Plan** — Woche/Monat toggle. The week view shows the browsed week's goals and tactical focus.
+- **Plan** — Woche/Monat toggle. The week view marks today, has one edit button per day (swap
+  lives in the session sheet: "Mit einem anderen Tag tauschen"), then Plan-Vorschlag,
+  Wochenziele, Belastung (six weekly bars with the normal range as one band) and Taktik.
 - **Körper** — body-fat 7-day mean as hero with delta vs. the previous 7 days and a 13–14 %
   goal bar; weight, fat mass and lean mass tiles (mass needs weight and body fat in the same
   window, `bodySnapshot`); trend chart (Körperfett/Gewicht, 4 Wochen / 3 Monate / Saison);
   dated measurement editor (any date up to today, empty field removes a value); the last five
-  measurements; a seven-day nutrition overview (traffic lights, protein hits, average).
-- **Saison** — season progress, phase timeline and the settings entry (name, protein target,
-  backup export/restore).
+  measurements; a seven-day nutrition overview (traffic lights, protein hits, average); steps;
+  sleep & recovery with labelled rows (Schlaf, HRV, Puls). Manual entry is a text link, since
+  the scale delivers automatically.
+- **Saison** — season progress, weekly reports, phase timeline (earlier phases folded behind
+  "Frühere Phasen anzeigen", no "0 / 0" counts) and the settings entry (profile, connections,
+  reminders, backup export/restore). The weekly report shows its numbers as tiles per topic
+  (`factGroups`).
 - **Fixtures** — `MATCH_SCHEDULE` contains the seven FC Julius Bär games from the user's
   27 September 2026 screenshot, including opponent, home/away, kickoff, match ID and
   `Europe/Zurich` timezone. Kickoffs are local clock strings so the October DST change
