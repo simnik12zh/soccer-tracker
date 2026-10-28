@@ -535,6 +535,51 @@ function recoveryStatus(plan,dk) {
   return {level:lows>=2?'low':lows===1||cautions>=2?'caution':'good',signals};
 }
 
+// ─── Complaints ──────────────────────────────────────────────────────────────────
+// Reported only when something hurts; an episode stays active until marked as resolved.
+// Stored top-level (`complaints`): {id, area, side, level 1–3, since, updated, resolved, log}.
+const COMPLAINT_AREAS=[
+  {key:'hip',label:'Hüfte',sided:true,lower:true},{key:'groin',label:'Leiste',sided:true,lower:true},
+  {key:'hamstring',label:'Oberschenkel hinten',sided:true,lower:true},{key:'quad',label:'Oberschenkel vorne',sided:true,lower:true},
+  {key:'knee',label:'Knie',sided:true,lower:true},{key:'calf',label:'Wade/Achilles',sided:true,lower:true},
+  {key:'ankle',label:'Sprunggelenk/Fuss',sided:true,lower:true},{key:'back',label:'Rücken',sided:false,lower:true},
+  {key:'shoulder',label:'Schulter',sided:true,lower:false},{key:'other',label:'Anderes',sided:false,lower:false},
+];
+const COMPLAINT_LEVELS=[{level:1,label:'Leicht',hint:'Zwickt, Training geht'},{level:2,label:'Mittel',hint:'Stört, Training nur eingeschränkt'},{level:3,label:'Stark',hint:'Training nicht möglich'}];
+function complaintArea(key) { return COMPLAINT_AREAS.find(a=>a.key===key)||COMPLAINT_AREAS.at(-1); }
+function complaintLabel(c) { return complaintArea(c.area).label+(c.side?' '+c.side:''); }
+function activeComplaints(list,today=todayStr()) { return (Array.isArray(list)?list:[]).filter(c=>c&&!c.resolved&&c.since<=today&&[1,2,3].includes(c.level)); }
+// Same area and side while still active = an update of that episode, not a new one.
+function reportComplaint(list,{area,side=null,level},today=todayStr()) {
+  const all=Array.isArray(list)?list:[],key=complaintArea(area).key,sd=complaintArea(area).sided&&['links','rechts'].includes(side)?side:null;
+  if(![1,2,3].includes(level))return all;
+  const existing=all.find(c=>!c.resolved&&c.area===key&&(c.side||null)===sd);
+  if(existing)return all.map(c=>c===existing?{...c,level,updated:today,log:[...(c.log||[]),{date:today,level}].slice(-30)}:c);
+  return [...all,{id:`${today}-${key}-${sd||'x'}-${Math.random().toString(36).slice(2,6)}`,area:key,side:sd,level,since:today,updated:today,resolved:null,log:[{date:today,level}]}].slice(-40);
+}
+function resolveComplaint(list,id,today=todayStr()) {
+  return (Array.isArray(list)?list:[]).map(c=>c.id===id&&!c.resolved?{...c,resolved:today,updated:today,log:[...(c.log||[]),{date:today,level:0}].slice(-30)}:c);
+}
+function complaintTrend(c) { const l=(c.log||[]).filter(x=>x.level>0);if(l.length<2)return 'new';const a=l.at(-2).level,b=l.at(-1).level;return b<a?'better':b>a?'worse':'same'; }
+function complaintDays(c,today=todayStr()) { const u=x=>{const [y,m,d]=x.split('-').map(Number);return Date.UTC(y,m-1,d);};return Math.round((u(today)-u(c.since))/86400000)+1; }
+// Worst level within one week, counting the level it had when the week started.
+function complaintLevelIn(c,from,to) {
+  const log=(c.log||[]).filter(x=>x.level>0),before=log.filter(x=>x.date<from).at(-1);
+  const levels=[...(before?[before.level]:[]),...log.filter(x=>x.date>=from&&x.date<=to).map(x=>x.level)];
+  return levels.length?Math.max(...levels):c.level;
+}
+// Complaints that were active at some point between from and to.
+function complaintsInRange(list,from,to) {
+  return (Array.isArray(list)?list:[]).filter(c=>c&&c.since<=to&&(!c.resolved||c.resolved>=from)).map(c=>({area:complaintLabel(c),
+    level:COMPLAINT_LEVELS[complaintLevelIn(c,from,to)-1]?.label||null,since:c.since,resolved:c.resolved&&c.resolved<=to?c.resolved:null}));
+}
+function complaintsForCoach(list,today=todayStr()) {
+  const all=Array.isArray(list)?list:[];
+  return {active:activeComplaints(all,today).map(c=>({area:complaintLabel(c),level:COMPLAINT_LEVELS[c.level-1].label,lowerBody:complaintArea(c.area).lower,
+      since:c.since,daysActive:complaintDays(c,today),lastUpdate:c.updated,trend:complaintTrend(c)})),
+    recentlyResolved:all.filter(c=>c.resolved&&c.resolved>=daysBeforeStr(today,14)).map(c=>({area:complaintLabel(c),since:c.since,resolved:c.resolved}))};
+}
+
 // ─── Training load ───────────────────────────────────────────────────────────────
 // Garmin's own Acute Load / Training Status is not in the personal API, so the app
 // rebuilds the idea from each activity's Garmin training load: acute = last 7 days,
@@ -570,7 +615,11 @@ function plannedLoad(plan,dk,typical) {
   const sessions=getSessions(e).filter(s=>LOAD_TYPE_FOR_SESSION[s]&&typical[LOAD_TYPE_FOR_SESSION[s]]);
   return {sessions,load:sessions.reduce((n,s)=>n+typical[LOAD_TYPE_FOR_SESSION[s]],0)};
 }
-function loadAdvice(plan,dk=todayStr(),status=loadStatus(plan,dk),recovery=recoveryStatus(plan,dk)) {
+function loadAdvice(plan,dk=todayStr(),status=loadStatus(plan,dk),recovery=recoveryStatus(plan,dk),complaints=[]) {
+  // A complaint from "Mittel" upwards counts even without enough watch data.
+  const hurting=activeComplaints(complaints,dk).filter(c=>c.level>=2).sort((a,b)=>b.level-a.level)[0];
+  if(hurting)return hurting.level===3?`Wegen ${complaintLabel(hurting)} (stark): heute keine Belastung für diese Stelle. Hält es an, abklären lassen.`
+    :`Wegen ${complaintLabel(hurting)}: keine Zusatzeinheit, nur schmerzfreie Bewegungen.`;
   if(!status.ready)return `Noch zu wenig Daten von der Uhr: ${status.historyDays} von 21 Tagen.`;
   const typical=typicalLoads(plan,dk),planned=plannedLoad(plan,dk,typical);
   const label=planned.sessions.map(displayName).join(' + ');
@@ -600,9 +649,10 @@ function weeklyLoads(plan,dk=todayStr(),n=6) {
 // Applying changes only open days (and guidance on fixed days still ahead); the previous
 // sessions/guidance are kept so the whole proposal can be undone.
 const PLAN_SESSIONS=['Match','Team Training','Futsal','Gym','Pilates','Mobility','Walking','Easy run'];
-function planWeekInput(plan,weekStart,today=todayStr()) {
+function planWeekInput(plan,weekStart,today=todayStr(),complaints=[]) {
   const days=Array.from({length:7},(_,i)=>daysBeforeStr(weekStart,-i));
   return {weekStart,matchDayBefore:isMatchDay(plan[daysBeforeStr(weekStart,1)]),
+    complaints:activeComplaints(complaints,today).map(c=>({area:complaintLabel(c),level:c.level,lowerBody:complaintArea(c.area).lower})),
     days:days.map(date=>{
       const e=plan[date]||{},sessions=getSessions(e),locked=date<today||!!e.completed;
       const fixed=locked||isMatchDay(e)||sessions.some(x=>x==='Team Training'||x==='Sick/Injured'||!PLAN_SESSIONS.includes(x));
@@ -766,7 +816,7 @@ function coachText(value,max=1200) {
 function validCoachDate(dk) {
   return /^\d{4}-\d{2}-\d{2}$/.test(dk)&&dateKey(new Date(dk+'T12:00:00'))===dk;
 }
-function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),proteinTarget=DEFAULT_PROTEIN_TARGET) {
+function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),proteinTarget=DEFAULT_PROTEIN_TARGET,complaints=[]) {
   const dates=Object.keys(plan).filter(dk=>validCoachDate(dk)&&plan[dk]&&typeof plan[dk]==='object').sort();
   const types=dk=>[...new Set(getSessions(plan[dk]))];
   const logged=dk=>dk<=referenceDate&&plan[dk]?.completed===true&&types(dk).length>0;
@@ -845,7 +895,8 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
       const typical=typicalLoads(plan,referenceDate),planned=plannedLoad(plan,referenceDate,typical);
       return {ready:true,acute7Days:st.acute,averageWeek4Weeks:st.weekly,optimalRange:[st.low,st.high],ratio:st.ratio,status:st.status,headroomToday:st.headroom,
         plannedTodayLoad:planned.load||null,typicalLoadBySession:Object.fromEntries(Object.entries(typical).map(([k,v])=>[GARMIN_LABELS[k]||k,v])),
-        last6Weeks:weeklyLoads(plan,referenceDate,6),appAdvice:loadAdvice(plan,referenceDate,st)};})(),
+        last6Weeks:weeklyLoads(plan,referenceDate,6),appAdvice:loadAdvice(plan,referenceDate,st,recoveryStatus(plan,referenceDate),complaints)};})(),
+    complaints:complaintsForCoach(complaints,referenceDate),
     nutrition:{proteinTargetGrams:target,last7Days:eatingStats(daysBeforeStr(referenceDate,6),referenceDate),
       previous7Days:eatingStats(daysBeforeStr(referenceDate,13),daysBeforeStr(referenceDate,7))},
     tactical:tacticalFor(referenceDate)};
@@ -895,6 +946,7 @@ function Icon({name,size=22,...props}) {
     watch:<><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 6V3h6v3M9 18v3h6v-3M12 9.5V12l1.5 1.5"/></>,
     body:<><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M7.5 10a6 6 0 0 1 9 0M12 10l1.8-2.2"/></>,
     plus:<path d="M12 5v14M5 12h14"/>,
+    alert:<><path d="M12 3.5 2.8 19.5h18.4z"/><path d="M12 10v4.2M12 17h.01"/></>,
     camera:<><path d="M3.5 8.5h3.2L8.5 6h7l1.8 2.5h3.2V19h-17z"/><circle cx="12" cy="13" r="3.4"/></>,
   };
   const resolved=name==="Futsal"||name==="Team Training"?"ball":name==="plan"?"month":name==="season"?"journey":name;
@@ -1124,6 +1176,16 @@ progress::-webkit-progress-bar{background:#344858}progress::-webkit-progress-val
 .proposal-days li.fixed .proposal-body strong{color:#B3DCE2}.proposal-days li.changed{background:linear-gradient(90deg,rgba(156,203,211,.08),transparent)}
 .proposal-days li.changed .proposal-date{color:#B3DCE2}.proposal-was{color:#E9C46A!important}
 .proposal-body strong small{display:inline;font-size:11px;font-weight:400;color:#A5B8C8}.plan-proposal .sheet-footer .primary{flex:2;white-space:nowrap}
+.complaint-strip{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.complaint-row{border:1px solid #6B5A3E;border-radius:14px;background:rgba(233,196,106,.07)}.complaint-row.l3{border-color:#8E4E46;background:rgba(229,138,126,.08)}.complaint-row.l1{border-color:#3E5A4A;background:rgba(143,209,158,.06)}
+.complaint-summary{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:transparent;padding:10px 12px;font-size:13px;color:#EDF2F5}
+.complaint-summary>span:nth-child(2){flex:1;min-width:0}.complaint-summary strong{font-weight:500}.complaint-summary small{display:block;font-size:11px;color:#A5B8C8;margin-top:2px}
+.complaint-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;background:#E9C46A}.complaint-row.l1 .complaint-dot{background:#8FD19E}.complaint-row.l3 .complaint-dot{background:#E58A7E}
+.complaint-update{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 12px}.complaint-update .chip{flex:1;min-width:0;padding:0 6px;font-size:12px;white-space:nowrap}.chip[aria-pressed=true]{border-color:#9CCBD3;background:#29424E}.chip.good{border-color:#5E8A6A;color:#A9D8B8}
+.complaint-areas{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 10px}.complaint-areas .chip{padding:0 12px;font-size:13px}
+.complaint-sides{display:flex;gap:8px;margin-bottom:6px}.complaint-sides .chip{flex:1}
+.complaint-levels{display:grid;gap:8px}.complaint-level{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;min-height:56px;padding:10px 14px;border-radius:14px;border:1px solid #344858;background:#15222F;color:#EDF2F5}
+.complaint-level strong{font-size:14px;font-weight:500}.complaint-level small{font-size:11px;color:#A5B8C8}.complaint-level.l1{border-color:#3E5A4A}.complaint-level.l2{border-color:#6B5A3E}.complaint-level.l3{border-color:#8E4E46}
 .kcal-line{font-size:12px;color:#B3DCE2;margin:-6px 0 12px}
 .meal-photo{display:flex;flex-direction:column;align-items:stretch;margin-bottom:8px}.meal-photo .secondary{display:flex;align-items:center;justify-content:center;gap:8px;border-color:#9CCBD3;white-space:nowrap}
 .meal-photo .text-btn{align-self:center;min-height:36px;font-size:12px;color:#B3DCE2}
@@ -1543,9 +1605,54 @@ function DayRings({plan,viewKey,target,onOpenPlan}) {
   </section>;
 }
 
+// ─── Complaints (Today) ──────────────────────────────────────────────────────────
+// Two taps: body area, then severity (saves). Side is optional.
+function ComplaintSheet({onReport,onClose}) {
+  const [area,setArea]=useState(null),[side,setSide]=useState(null);
+  const dialog=useRef(null),closeRef=useRef(onClose);closeRef.current=onClose;
+  useEffect(()=>{
+    const previous=document.activeElement,overflow=document.body.style.overflow;
+    document.body.style.overflow="hidden";dialog.current?.focus();
+    const key=ev=>{if(ev.key==="Escape"){ev.preventDefault();closeRef.current();}};
+    document.addEventListener("keydown",key);
+    return ()=>{document.body.style.overflow=overflow;document.removeEventListener("keydown",key);previous?.focus();};
+  },[]);
+  const a=area?complaintArea(area):null;
+  return <>
+    <div className="sheet-backdrop" onClick={onClose}/>
+    <section className="sheet" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="complaint-title" tabIndex={-1}>
+      <div className="sheet-handle"/>
+      <div className="sheet-heading"><div><div className="eyebrow">Beschwerde melden</div><h2 id="complaint-title">Wo zwickt es?</h2></div>
+        <button className="icon-btn" onClick={onClose} aria-label="Schliessen"><Icon name="close"/></button></div>
+      <div className="complaint-areas">{COMPLAINT_AREAS.map(x=><button key={x.key} className="chip" aria-pressed={area===x.key}
+        onClick={()=>{setArea(x.key);if(!x.sided)setSide(null);}}>{x.label}</button>)}</div>
+      {a?.sided&&<div className="complaint-sides" role="group" aria-label="Seite">{["links","rechts"].map(sd=>
+        <button key={sd} className="chip" aria-pressed={side===sd} onClick={()=>setSide(side===sd?null:sd)}>{sd[0].toUpperCase()+sd.slice(1)}</button>)}</div>}
+      {a&&<><p className="helper-text">Wie stark?</p>
+        <div className="complaint-levels">{COMPLAINT_LEVELS.map(l=><button key={l.level} className={"complaint-level l"+l.level}
+          onClick={()=>{onReport({area,side,level:l.level});onClose();}}><strong>{l.label}</strong><small>{l.hint}</small></button>)}</div></>}
+      <p className="helper-text">Keine Diagnose: Bei starken oder anhaltenden Schmerzen bitte ärztlich oder physiotherapeutisch abklären lassen.</p>
+    </section>
+  </>;
+}
+function ComplaintStrip({complaints,onReport,onResolve}) {
+  const today=todayStr(),active=activeComplaints(complaints,today),[open,setOpen]=useState(null);
+  const stale=c=>complaintDays({since:c.updated},today)>3;
+  if(!active.length)return null;
+  return <section className="complaint-strip" aria-label="Aktive Beschwerden">{active.map(c=>{const days=complaintDays(c,today);
+    return <div key={c.id} className={"complaint-row l"+c.level}>
+      <button className="complaint-summary" aria-expanded={open===c.id} onClick={()=>setOpen(open===c.id?null:c.id)}>
+        <span className="complaint-dot" aria-hidden="true"/><span><strong>{complaintLabel(c)}</strong> · {COMPLAINT_LEVELS[c.level-1].label}
+          <small>{days===1?"seit heute":`seit ${days} Tagen`}{stale(c)?" · noch aktuell?":""}</small></span><Icon name="edit" size={15}/></button>
+      {open===c.id&&<div className="complaint-update">{COMPLAINT_LEVELS.map(l=><button key={l.level} className="chip" aria-pressed={c.level===l.level}
+          onClick={()=>{onReport({area:c.area,side:c.side,level:l.level});setOpen(null);}}>{l.label}</button>)}
+        <button className="chip good" onClick={()=>{onResolve(c.id);setOpen(null);}}>Wieder gut</button></div>}
+    </div>;})}</section>;
+}
+
 // ─── Load card (Today) ───────────────────────────────────────────────────────────
-function LoadCard({plan,dk}) {
-  const status=loadStatus(plan,dk),advice=loadAdvice(plan,dk,status);
+function LoadCard({plan,dk,complaints}) {
+  const status=loadStatus(plan,dk),advice=loadAdvice(plan,dk,status,recoveryStatus(plan,dk),complaints);
   if(!status.ready&&!status.historyDays)return null;
   const typical=status.ready?typicalLoads(plan,dk):{},planned=status.ready?plannedLoad(plan,dk,typical):{load:0};
   const scaleMax=status.ready?Math.max(status.veryHigh*1.15,status.acute+planned.load)*1.05:1;
@@ -1719,12 +1826,12 @@ function UpNextCard({plan,from,onSelect}) {
 }
 
 // ─── Today view ──────────────────────────────────────────────────────────────────
-function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,onOpenReport}) {
+function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,onOpenReport,complaints,onReportComplaint,onResolveComplaint}) {
   const viewKey=offsetDate(dayOff), e=plan[viewKey]||{};
   const [sheetOpen,setSheetOpen]=useState(false);
   const [notesOpen,setNotesOpen]=useState(false);
   const [confirmUnlog,setConfirmUnlog]=useState(false);
-  const [guideOpen,setGuideOpen]=useState(false);
+  const [guideOpen,setGuideOpen]=useState(false),[complaintOpen,setComplaintOpen]=useState(false);
   const [direction,setDirection]=useState(1);
   useEffect(()=>{setNotesOpen(false);setConfirmUnlog(false);setSheetOpen(false);setGuideOpen(false);},[viewKey]);
   const navDay=delta=>{setDirection(Math.sign(delta));setDayOff(o=>o+delta);};
@@ -1749,6 +1856,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
     {dayOff===0&&[1,2].includes(new Date().getDay())&&!readReport(lastCompletedWeek())?.read&&
       <button className="panel report-banner" onClick={()=>onOpenReport(lastCompletedWeek())}><Icon name="note" size={20}/>
         <span><strong>Dein Wochenreport ist da</strong><small>{weekLabel(lastCompletedWeek())}</small></span><Icon name="arrow" size={18}/></button>}
+    {dayOff===0&&<ComplaintStrip complaints={complaints} onReport={onReportComplaint} onResolve={onResolveComplaint}/>}
     <DayRings plan={plan} viewKey={viewKey} target={proteinTarget} onOpenPlan={onOpenPlan}/>
     <section key={"session-"+viewKey} id="today-session" className={"panel session-card"+(isMatchDay(e)?" match-card":"")} aria-label="Training"
       style={{animation:direction>0?"slideLeft .22s ease-out":"slideRight .22s ease-out"}}>
@@ -1776,7 +1884,8 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
         {guidance.text.length>110&&<button className="text-btn more-btn" aria-expanded={guideOpen} onClick={()=>setGuideOpen(o=>!o)}>{guideOpen?"Weniger":"Mehr lesen"}</button>}</aside>}
       <div className="session-actions">
         <div><button className="text-btn" onClick={()=>setSheetOpen(true)}><Icon name="edit" size={16}/> Ändern</button>
-          <button className="text-btn" onClick={()=>setNotesOpen(o=>!o)} aria-expanded={notesOpen}><Icon name="note" size={16}/> {e.notes?"Notiz":"Notiz hinzufügen"}</button></div>
+          <button className="text-btn" onClick={()=>setNotesOpen(o=>!o)} aria-expanded={notesOpen}><Icon name="note" size={16}/> {e.notes?"Notiz":"Notiz hinzufügen"}</button>
+          {dayOff===0&&<button className="text-btn" onClick={()=>setComplaintOpen(true)}><Icon name="alert" size={16}/> Beschwerde</button>}</div>
       </div>
       {confirmUnlog&&<div className="inline-confirm"><p>Diesen Trainingseintrag entfernen?</p>
         <button className="text-btn" onClick={()=>{updDay(viewKey,{completed:false,feeling:null});setConfirmUnlog(false);}}>Entfernen</button>
@@ -1792,10 +1901,11 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
       {sessions.length>0&&<details className="session-details"><summary>Hinweise zur Einheit</summary>
         {sessions.map(s=><TipCard key={s} workout={s}/>)}</details>}
     </section>
-    {dayOff===0&&<LoadCard plan={plan} dk={viewKey}/>}
+    {dayOff===0&&<LoadCard plan={plan} dk={viewKey} complaints={complaints}/>}
     <NutritionCard key={"nutrition-"+viewKey} entry={e} dateKey={viewKey} updDay={updDay} target={proteinTarget} {...meals}/>
     <UpNextCard plan={plan} from={viewKey} onSelect={go}/>
     {sheetOpen&&<WorkoutSheet dateKey={viewKey} entry={e} updDay={updDay} onClose={()=>setSheetOpen(false)}/>}
+    {complaintOpen&&<ComplaintSheet onReport={onReportComplaint} onClose={()=>setComplaintOpen(false)}/>}
   </div>;
 }
 
@@ -1967,7 +2077,7 @@ function bodySnapshot(plan,today=todayStr()) {
 // Numbers for one completed week (Mon–Sun), computed in the app so they are exact;
 // the coach only writes the assessment around them.
 function lastCompletedWeek(today=todayStr()) { return daysBeforeStr(weekAround(today)[0],7); }
-function weeklyReportFacts(plan,weekStart,target=DEFAULT_PROTEIN_TARGET) {
+function weeklyReportFacts(plan,weekStart,target=DEFAULT_PROTEIN_TARGET,complaints=[]) {
   const days=Array.from({length:7},(_,i)=>daysBeforeStr(weekStart,-i)),weekEnd=days[6],prevDays=days.map(d=>daysBeforeStr(d,7));
   const types=dk=>[...new Set(getSessions(plan[dk]))],logged=dk=>plan[dk]?.completed===true&&types(dk).length>0;
   const sessions={};
@@ -1997,7 +2107,8 @@ function weeklyReportFacts(plan,weekStart,target=DEFAULT_PROTEIN_TARGET) {
     nutrition:{proteinTarget:target,proteinHitDays:nut.hits,proteinDays:nut.proteinDays,avgProtein:nut.avgProtein,ratings:nut.counts,avgKcal:nut.avgKcal,kcalDays:nut.kcalDays},
     recovery:{nights:rec.length,avgSleepMin:avg(rec,'sleepMin'),avgHrv:avg(rec,'hrv'),avgRestingHr:avg(rec,'restingHr'),prevAvgRestingHr:avg(prevRec,'restingHr'),
       cautionDays:levels.filter(l=>l==='caution').length,lowDays:levels.filter(l=>l==='low').length},
-    steps:{avg:steps.length?Math.round(steps.reduce((a,b)=>a+b,0)/steps.length):null,days:steps.length}};
+    steps:{avg:steps.length?Math.round(steps.reduce((a,b)=>a+b,0)/steps.length):null,days:steps.length},
+    complaints:complaintsInRange(complaints,weekStart,weekEnd)};
 }
 
 // Minimal responsive SVG line chart: rolling-average line (gap-aware), raw
@@ -2220,7 +2331,7 @@ function JourneyView({plan,today,onGoToDay,onOpenSettings,onOpenReport}) {
 }
 
 // ─── Coach screen (full-screen chat) ─────────────────────────────────────────────
-function CoachScreen({viewKey,plan,playerName,proteinTarget,onBack}) {
+function CoachScreen({viewKey,plan,playerName,proteinTarget,complaints,onBack}) {
   const [messages,setMessages]=useState([]);
   const [input,setInput]=useState("");
   const [sending,setSending]=useState(false);
@@ -2245,7 +2356,7 @@ function CoachScreen({viewKey,plan,playerName,proteinTarget,onBack}) {
     setMessages([...base,{role:"assistant",content:""}]);
     try {
       const resp=await fetch("/api/coach",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json",...authHeaders()},
-        body:JSON.stringify({...buildCoachContext(plan,playerName,viewKey,todayStr(),proteinTarget),messages:base.slice(-20)})});
+        body:JSON.stringify({...buildCoachContext(plan,playerName,viewKey,todayStr(),proteinTarget,complaints),messages:base.slice(-20)})});
       if (resp.status===401) throw Object.assign(new Error("access"),{auth:true});
       if (!resp.ok||!resp.body) throw new Error("bad response");
       const reader=resp.body.getReader(), decoder=new TextDecoder();
@@ -2349,7 +2460,7 @@ function writeProposal(weekStart,data) { try { data?localStorage.setItem(proposa
 const PLAN_ERRORS={access_denied:"Der Zugangscode stimmt nicht.",access_code_not_configured:"In Vercel fehlt noch APP_ACCESS_CODE.",
   model_not_configured:"Auf dem Server fehlt der Anthropic-Schlüssel.",plan_busy:"Gerade viele Anfragen. Gleich erneut versuchen.",
   plan_refused:"Für diese Woche gibt es keinen Vorschlag.",invalid_week:"Diese Woche kann nicht geplant werden."};
-function PlanProposal({plan,weekStart,playerName,proteinTarget,onApply,onUndo}) {
+function PlanProposal({plan,weekStart,playerName,proteinTarget,complaints,onApply,onUndo}) {
   const [record,setRecord]=useState(()=>readProposal(weekStart)),[busy,setBusy]=useState(false),[error,setError]=useState("");
   useEffect(()=>{setRecord(readProposal(weekStart));setError("");},[weekStart]);
   const save=r=>{writeProposal(weekStart,r);setRecord(r);};
@@ -2359,7 +2470,7 @@ function PlanProposal({plan,weekStart,playerName,proteinTarget,onApply,onUndo}) 
     setBusy(true);setError("");
     try{
       const res=await fetch("/api/plan",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},
-        body:JSON.stringify({...planWeekInput(plan,weekStart,today),context:buildCoachContext(plan,playerName,today,today,proteinTarget)})});
+        body:JSON.stringify({...planWeekInput(plan,weekStart,today,complaints),context:buildCoachContext(plan,playerName,today,today,proteinTarget,complaints)})});
       const body=await res.json().catch(()=>({}));
       if(!res.ok||!body.proposal){setError(PLAN_ERRORS[body.error]||"Der Vorschlag hat nicht geklappt. Versuch es erneut.");return;}
       save({proposal:body.proposal,createdAt:new Date().toISOString(),applied:null});
@@ -2417,10 +2528,11 @@ function factLines(f) {
     r.cautionDays+r.lowDays?`${r.cautionDays+r.lowDays} Tage eingeschränkt`:null].filter(Boolean);
   if(rec.length)lines.push(["Erholung",rec.join(" · ")]);
   if(f.steps.avg)lines.push(["Bewegung",`Ø ${f.steps.avg.toLocaleString("de-CH")} Schritte`]);
+  if(f.complaints?.length)lines.push(["Beschwerden",f.complaints.map(c=>`${c.area}${c.level?` (${c.level})`:""}${c.resolved?" · wieder gut":""}`).join(" · ")]);
   return lines;
 }
 function ReportScreen({plan,weekStart,playerName,proteinTarget,onBack,planner}) {
-  const facts=weeklyReportFacts(plan,weekStart,proteinTarget),latest=weekStart===lastCompletedWeek();
+  const facts=weeklyReportFacts(plan,weekStart,proteinTarget,planner?.complaints),latest=weekStart===lastCompletedWeek();
   const [text,setText]=useState(()=>readReport(weekStart)?.text||""),[busy,setBusy]=useState(false),[error,setError]=useState("");
   const requestRef=useRef(null);
   useEffect(()=>()=>requestRef.current?.abort(),[]);
@@ -2429,7 +2541,7 @@ function ReportScreen({plan,weekStart,playerName,proteinTarget,onBack,planner}) 
     const controller=new AbortController();requestRef.current=controller;
     try{
       const resp=await fetch("/api/coach",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json",...authHeaders()},
-        body:JSON.stringify({...buildCoachContext(plan,playerName,todayStr(),todayStr(),proteinTarget),weeklyReport:{...facts,isLatest:latest},
+        body:JSON.stringify({...buildCoachContext(plan,playerName,todayStr(),todayStr(),proteinTarget,planner?.complaints),weeklyReport:{...facts,isLatest:latest},
           messages:[{role:"user",content:`Wochenreport für die Woche ${weekLabel(weekStart)}`}]})});
       if(resp.status===401)throw Object.assign(new Error("access"),{auth:true});
       // Only the coach's plain-text stream counts (never an HTML error page).
@@ -2477,7 +2589,7 @@ export default function App() {
   const planRef=useRef(plan);planRef.current=plan;
   const [garmin,setGarmin]=useState(()=>({state:readAccessCode()?"idle":"off"})),[syncToast,setSyncToast]=useState("");
   const [withings,setWithings]=useState(()=>({state:readAccessCode()?"idle":"off"}));
-  const [reportWeek,setReportWeek]=useState(null);
+  const [reportWeek,setReportWeek]=useState(null),[complaints,setComplaints]=useState([]);
   const openReport=week=>{setReportWeek(week||lastCompletedWeek());setScreen("report");window.scrollTo(0,0);};
   useEffect(()=>{
     (async()=>{
@@ -2489,6 +2601,7 @@ export default function App() {
           const updated=migrateCoachedPlan(migrateMatchSchedule(d));
           const {playerName:name,plan:savedPlan,proteinTarget:storedTarget,...extras}=updated;
           storedExtras.current=extras;
+          setComplaints(Array.isArray(extras.complaints)?extras.complaints:[]);
           const target=validProteinTarget(storedTarget)?storedTarget:null;
           setPlayerName(typeof name==="string"?name:"");setPlan(savedPlan);setProteinSetting(target);setScreen(name?"main":"setup");
           if(previous||updated!==d)localStorage.setItem(SK,JSON.stringify({...extras,playerName:name||"",...(target!=null?{proteinTarget:target}:{}),plan:savedPlan}));
@@ -2615,7 +2728,11 @@ export default function App() {
   const updDayWith=(dk,fn)=>{const cur=planRef.current,e=cur[dk]||{},np={...cur,[dk]:{...e,...fn(e)}};planRef.current=np;setPlan(np);save(np);};
   const applyProposal=proposal=>{const {plan:np,previous}=applyWeekProposal(planRef.current,proposal,todayStr());planRef.current=np;setPlan(np);save(np);return previous;};
   const undoProposal=previous=>{const np=undoWeekProposal(planRef.current,previous);planRef.current=np;setPlan(np);save(np);};
-  const planner={playerName,proteinTarget,onApply:applyProposal,onUndo:undoProposal};
+  // Complaints live top-level in the stored blob (storedExtras), mirrored in state for rendering.
+  const saveComplaints=list=>{storedExtras.current={...storedExtras.current,complaints:list};setComplaints(list);save(planRef.current);};
+  const reportComplaintNow=c=>saveComplaints(reportComplaint(storedExtras.current.complaints,c,todayStr()));
+  const resolveComplaintNow=id=>saveComplaints(resolveComplaint(storedExtras.current.complaints,id,todayStr()));
+  const planner={playerName,proteinTarget,complaints,onApply:applyProposal,onUndo:undoProposal};
   const mealHandlers={
     onAddMeal:(dk,meal)=>updDayWith(dk,e=>({meals:[...(Array.isArray(e.meals)?e.meals:[]),meal]})),
     onUpdateMeal:(dk,id,patch)=>updDayWith(dk,e=>({meals:(Array.isArray(e.meals)?e.meals:[]).map(m=>m.id===id?{...m,...patch}:m)})),
@@ -2640,14 +2757,14 @@ export default function App() {
     connections={{garmin,withings,scale:scaleSummary(plan),onSync:syncSources,onWithingsConnect:connectWithings,onWithingsDisconnect:disconnectWithings}}
     onSave={(n,target)=>{const pt=target===DEFAULT_PROTEIN_TARGET&&proteinSetting==null?null:target;setPlayerName(n);setProteinSetting(pt);save(plan,n,pt);setScreen("main");}}/>;
   else if(screen==="report")content=<ReportScreen plan={plan} weekStart={reportWeek||lastCompletedWeek()} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")} planner={planner}/>;
-  else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")}/>;
+  else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} complaints={complaints} onBack={()=>setScreen("main")}/>;
   else content=<main className="app-shell">
     <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Soccer Tracker</span>
       <button className="coach-pill" aria-label="KI-Trainer öffnen" onClick={()=>setScreen("coach")}><Icon name="coach" size={17}/><span>Trainer</span></button></div>
       <h1>{headings[view]}</h1>
       <p className="subtitle">{playerName} <span style={{color:C.borderSt}}> / </span> {phase?phaseLabel(phase.name):today<SEASON_START?"Deine Saison beginnt bald":"Saison abgeschlossen"}</p>
     </header>
-    {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} proteinTarget={proteinTarget} meals={mealHandlers} onOpenReport={openReport}
+    {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} proteinTarget={proteinTarget} meals={mealHandlers} onOpenReport={openReport} complaints={complaints} onReportComplaint={reportComplaintNow} onResolveComplaint={resolveComplaintNow}
       onOpenPlan={()=>{setWkOff(Math.floor((dow0(new Date())+dayOff)/7));setPlanMode("week");setView("plan");window.scrollTo(0,0);}}/>}
     {view==="plan"&&<PlanView mode={planMode} setMode={setPlanMode} today={today} plan={plan} wkOff={wkOff} setWkOff={setWkOff}
       moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays} planner={planner}/>}

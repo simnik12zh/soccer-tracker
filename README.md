@@ -177,7 +177,19 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   (fixed / changed with "bisher"), "Übernehmen" writes sessions and guidance (`coaching`, shown
   in Heute) for open days and guidance for fixed days ahead; "Rückgängig" restores the previous
   sessions and guidance only, so later logs, notes and food entries stay. Proposals are stored
-  under `coach-plan-<weekStart>`.
+  under `coach-plan-<weekStart>`. With a lower-body complaint at Mittel or Stark the server also
+  strips Easy run and Futsal from every open day.
+- **Complaints (Beschwerden)** — reported only when something hurts: "Beschwerde" next to Ändern /
+  Notiz in Heute opens a sheet (body area → optional side for hip, groin, thighs, knee, calf,
+  ankle, shoulder → Leicht / Mittel / Stark, which saves). An episode stays active until "Wieder
+  gut"; reporting the same area and side again updates its level (log kept for the trend). Active
+  episodes show as a row above the rings in Heute (tap → change level or "Wieder gut"; "noch
+  aktuell?" after 3 days without an update). Effects: `loadAdvice` puts Mittel/Stark first (also
+  without watch data); the coach context gets `complaints` (active with level, days, trend, plus
+  resolved in the last 14 days) and the prompt says how to dose, to recommend a professional
+  after 7 days or when it gets worse, and never to diagnose; the plan proposal gets them as
+  `complaints` (enforced rule above); the weekly report lists complaints active that week with
+  their worst level. Stored top-level as `complaints` in the `soccer-v3` blob (no key bump).
 - **Access code** — `APP_ACCESS_CODE` (Vercel env) is required for `/api/garmin` and, when set,
   for `/api/coach`. The app sends it as `Authorization: Bearer`; it is entered under Saison →
   Einstellungen → Garmin and stored in its own localStorage key, so exports never contain it.

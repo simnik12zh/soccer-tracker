@@ -15,6 +15,7 @@ Rules:
 - Weekly goals in active phases: 2× Gym (Krafttraining) and 2× Mobility (Prävention/Reha), counting what is already done this week. Gym and Mobility fit well on the same day. Leave at least 48 hours between two Gym days.
 - Day after a game: only Walking or rest. Day before a game: no Easy run, no Futsal; Gym only as a short upper-body session, and say so in the guidance.
 - At most two sessions per day and at least one full rest day per week. Do not stack Gym on a team-training day.
+- Complaints (week.complaints: area, level 1 Leicht / 2 Mittel / 3 Stark, lowerBody): a lower-body complaint at Mittel or Stark → no Easy run and no Futsal; Gym only for the upper body or pain-free exercises, and say what to leave out. Stark → mostly rest, Walking and pain-free Mobility. Leicht → plan normally, but name the area in the guidance. Never diagnose.
 - Load (load.status): high or veryHigh → lighter week, no extra runs or futsal, Gym with fewer sets; low → room for one extra Easy run or Futsal. Several caution/low recovery days → lighter as well.
 - Prefer the days he usually trains on (see recent weeks), but goals and rules come first.
 - Guidance: title up to 60 characters, guidance up to 220 characters, concrete (sets, reserve, minutes, what to leave out). German with Swiss spelling (ss, never ß). Summary: 2–3 sentences on why the week looks like this.
@@ -57,6 +58,8 @@ const hasMatch = (day) => !!day && (day.match || (day.sessions || []).includes("
 export function enforcePlanRules(input, raw) {
   const byDate = new Map((Array.isArray(raw?.days) ? raw.days : []).filter((d) => validDate(d?.date)).map((d) => [d.date, d]));
   const inputByDate = new Map(input.days.map((d) => [d.date, d]));
+  // A lower-body complaint at Mittel or Stark rules out runs and futsal on open days.
+  const legsRestricted = (input.complaints || []).some((c) => c.lowerBody && c.level >= 2);
   const matchOn = (date) => hasMatch(inputByDate.get(date)) || (date === nextDay(input.days[0].date, -1) && input.matchDayBefore);
   const days = input.days.map((day) => {
     const proposed = byDate.get(day.date) || {};
@@ -64,7 +67,7 @@ export function enforcePlanRules(input, raw) {
       : [...new Set((Array.isArray(proposed.sessions) ? proposed.sessions : []).filter((s) => SESSION_IDS.includes(s) && s !== "Match" && s !== "Team Training"))].slice(0, 2);
     if (!day.fixed) {
       if (matchOn(nextDay(day.date, -1))) sessions = sessions.filter((s) => s === "Walking" || s === "Mobility").slice(0, 1);
-      if (matchOn(nextDay(day.date, 1))) sessions = sessions.filter((s) => s !== "Easy run" && s !== "Futsal");
+      if (matchOn(nextDay(day.date, 1)) || legsRestricted) sessions = sessions.filter((s) => s !== "Easy run" && s !== "Futsal");
     }
     const keepText = !day.locked;
     return {
@@ -91,6 +94,9 @@ export function validatePlanInput(body) {
     days: days.map((d) => ({ date: d.date, sessions: d.sessions.filter((s) => typeof s === "string").map((s) => s.slice(0, 60)),
       fixed: !!d.fixed, locked: !!d.locked, completed: !!d.completed, match: d.match ? { opponent: text(d.match.opponent, 80), kickoff: text(d.match.kickoff, 5) } : null,
       currentTitle: text(d.currentTitle, 80) })),
+    complaints: (Array.isArray(body.complaints) ? body.complaints : []).slice(0, 10)
+      .filter((c) => c && [1, 2, 3].includes(c.level))
+      .map((c) => ({ area: text(c.area, 40), level: c.level, lowerBody: !!c.lowerBody })),
   };
 }
 
