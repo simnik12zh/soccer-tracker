@@ -488,6 +488,18 @@ function applyGarminImport(plan,data,today=todayStr()) {
 }
 
 // ─── Withings import ─────────────────────────────────────────────────────────────
+const WITHINGS_FULL_DAYS=180;
+// Incremental sync only after a full 180-day load succeeded for the same account;
+// otherwise (first sync, account switch, failed reload) load the full window again.
+function withingsWindow(last,today=todayStr()) {
+  const full=daysBeforeStr(today,WITHINGS_FULL_DAYS);
+  const incremental=!!(last?.through&&last.account&&last.fullFor===last.account);
+  return incremental?{from:daysBeforeStr(last.through,3),full:false}:{from:full,full:true};
+}
+function scaleSummary(plan) {
+  const days=Object.keys(plan).filter(dk=>plan[dk]?.bodySource==='withings'&&(plan[dk].weight!=null||plan[dk].bodyFat!=null)).sort();
+  return {count:days.length,since:days[0]||null};
+}
 // Scale readings fill weight/body fat per day. Anything the player entered or
 // corrected by hand (bodySource 'manual', or values without a source) always wins.
 // With `cleanFrom`, earlier scale values from cleanFrom..today that Withings no longer
@@ -1006,7 +1018,7 @@ function sourceStatus(src,stored,offline) {
   if(!stored)return "Zuerst den Zugangscode speichern.";
   return src.state==="syncing"?"Wird abgeglichen …":src.state==="error"?src.message:src.state==="ok"?`Verbunden · letzter Abgleich ${syncTime(src.at)} Uhr`:offline;
 }
-function ConnectionSettings({garmin,withings,onSync,onWithingsConnect,onWithingsDisconnect}) {
+function ConnectionSettings({garmin,withings,scale,onSync,onWithingsConnect,onWithingsDisconnect}) {
   const [code,setCode]=useState(readAccessCode),[stored,setStored]=useState(()=>!!readAccessCode());
   const save=()=>{const value=code.trim();writeAccessCode(value);setStored(!!value);if(value)onSync(true);};
   const busy=garmin.state==="syncing"||withings.state==="syncing";
@@ -1019,7 +1031,7 @@ function ConnectionSettings({garmin,withings,onSync,onWithingsConnect,onWithings
     <div className="connection-row"><Icon name="watch" size={20}/><div><strong>Garmin</strong>
       <small role="status">{sourceStatus(garmin,stored,"Noch nicht abgeglichen.")}</small><p>Trainings, Fussball-Werte und Schritte.</p></div></div>
     <div className="connection-row"><Icon name="body" size={20}/><div><strong>Withings</strong>
-      <small role="status">{withings.state==="disconnected"?"Nicht verbunden.":sourceStatus(withings,stored,"Noch nicht abgeglichen.")}</small><p>Gewicht und Körperfett der Waage.</p></div></div>
+      <small role="status">{withings.state==="disconnected"?"Nicht verbunden.":sourceStatus(withings,stored,"Noch nicht abgeglichen.")}</small><p>Gewicht und Körperfett der Waage.{scale?.count?` Gespeichert: ${scale.count} ${scale.count===1?"Messung":"Messungen"} seit ${shortDate(scale.since)} ${scale.since.slice(0,4)}.`:""}</p></div></div>
     {stored&&withings.state!=="ok"&&withings.state!=="syncing"
       &&<button className="secondary" disabled={busy} onClick={onWithingsConnect}>{withings.state==="error"?"Withings neu verbinden":"Mit Withings verbinden"}</button>}
     {stored&&<button className="secondary" disabled={busy} onClick={()=>onSync(true)}>Jetzt abgleichen</button>}
@@ -2012,8 +2024,7 @@ export default function App() {
     // Version 2 added football metrics: refresh once from the earliest imported day.
     if(gLast&&gLast.v!==2){const first=Object.keys(planRef.current).filter(dk=>planRef.current[dk]?.garmin?.length).sort()[0];if(first&&first<gFrom)gFrom=first;}
     if(gFrom<daysBeforeStr(today,27))gFrom=daysBeforeStr(today,27);
-    // Without a known account (first sync, or synced before accounts were tracked) reload 180 days.
-    const wFrom=wLast?.through&&wLast.account?daysBeforeStr(wLast.through,3):daysBeforeStr(today,180);
+    const wWindow=withingsWindow(wLast,today),wFrom=wWindow.from;
     if(garminDue)setGarmin(g=>({...g,state:"syncing"}));
     if(withingsDue)setWithings(w=>({...w,state:"syncing"}));
     const [g,w]=await Promise.all([garminDue?fetchSource(`/api/garmin?from=${gFrom}&to=${today}`):null,withingsDue?fetchSource(`/api/withings?from=${wFrom}&to=${today}`):null]);
@@ -2029,15 +2040,18 @@ export default function App() {
     }
     if(w){
       if(w.res?.ok&&Array.isArray(w.body.days)){
-        let body=w.body,from=wFrom;
-        // Another Withings account than last time: drop its scale values and reload 180 days.
+        let body=w.body,full=wWindow.full;
+        // Another Withings account than last time: reload the full window. If that second
+        // request fails, only the short window is applied and the next sync loads everything.
         const switched=!!(wLast?.account&&body.account&&body.account!==wLast.account);
-        if(switched){
-          from=daysBeforeStr(today,180);
-          if(wFrom>from){const again=await fetchSource(`/api/withings?from=${from}&to=${today}`);if(again.res?.ok&&Array.isArray(again.body.days))body=again.body;}
+        if(switched&&!full){
+          const again=await fetchSource(`/api/withings?from=${daysBeforeStr(today,WITHINGS_FULL_DAYS)}&to=${today}`);
+          if(again.res?.ok&&Array.isArray(again.body.days)){body=again.body;full=true;}
         }
-        const r=applyWithingsImport(next,body.days,today,switched?"0000-01-01":from);next=r.plan;changed=true;
-        storedExtras.current={...storedExtras.current,withingsSync:{at:Date.now(),through:today,account:body.account||null}};
+        const cleanFrom=switched&&full?"0000-01-01":full?daysBeforeStr(today,WITHINGS_FULL_DAYS):wFrom;
+        const r=applyWithingsImport(next,body.days,today,cleanFrom);next=r.plan;changed=true;
+        const account=body.account||null,fullFor=full?account:(wLast?.account===account?wLast?.fullFor||null:null);
+        storedExtras.current={...storedExtras.current,withingsSync:{at:Date.now(),through:today,account,fullFor}};
         setWithings({state:"ok",at:Date.now()});
         if(switched)notes.push("Withings-Konto gewechselt: Waagen-Werte neu geladen");
         else if(r.updated.length)notes.push(`Withings: ${r.updated.length} ${r.updated.length===1?"Messung":"Messungen"} übernommen`);
@@ -2082,7 +2096,7 @@ export default function App() {
     <p className="helper-text">Deine gespeicherten Daten wurden nicht verändert. Bitte prüfe den Browser-Zugriff oder sichere die vorhandenen Daten, bevor du eine Sicherung wiederherstellst.</p>
     <button className="secondary" onClick={()=>window.location.reload()}>Erneut versuchen</button></div></main>;
   else if(screen==="setup")content=<SetupScreen initName={playerName} initProteinTarget={proteinTarget} isEdit={!!playerName} onBack={playerName?()=>setScreen("main"):null}
-    connections={{garmin,withings,onSync:syncSources,onWithingsConnect:connectWithings,onWithingsDisconnect:disconnectWithings}}
+    connections={{garmin,withings,scale:scaleSummary(plan),onSync:syncSources,onWithingsConnect:connectWithings,onWithingsDisconnect:disconnectWithings}}
     onSave={(n,target)=>{const pt=target===DEFAULT_PROTEIN_TARGET&&proteinSetting==null?null:target;setPlayerName(n);setProteinSetting(pt);save(plan,n,pt);setScreen("main");}}/>;
   else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")}/>;
   else content=<main className="app-shell">

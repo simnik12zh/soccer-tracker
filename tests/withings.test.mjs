@@ -8,7 +8,7 @@ const plain=value=>JSON.parse(JSON.stringify(value));
 const source=readFileSync(new URL('../src/App.jsx',import.meta.url),'utf8');
 const helpers=source.slice(source.indexOf('const SK ='),source.indexOf('// Midnight & Ice.'));
 const FixedDate=class extends Date{constructor(...args){super(...(args.length?args:['2026-10-28T12:00:00+01:00']));}};
-const app=vm.runInNewContext(helpers+'\n({applyWithingsImport})',{Date:FixedDate});
+const app=vm.runInNewContext(helpers+'\n({applyWithingsImport,withingsWindow,scaleSummary})',{Date:FixedDate});
 
 const ENV={APP_ACCESS_CODE:'code-123',WITHINGS_CLIENT_ID:'cid',WITHINGS_CLIENT_SECRET:'csecret',KV_REST_API_URL:'https://redis.example',KV_REST_API_TOKEN:'t'};
 const NOW=Date.parse('2026-10-28T11:00:00Z');
@@ -193,5 +193,17 @@ test('values from a previous or deleted Withings source are cleaned, manual ones
   assert.deepEqual(plain(switched.removed).sort(),['2026-09-01','2026-10-20']);
   assert.equal(app.applyWithingsImport(plan,days,'2026-10-28').removed.length,0,'no cleanup without a window');
   assert.match(source,/body\.account!==wLast\.account/,'account switch is detected');
-  assert.match(source,/wLast\?\.through&&wLast\.account\?/,'syncs without a known account reload the full window');
+});
+
+test('incremental Withings sync only after a full load for the same account',()=>{
+  const today='2026-10-28',full={from:'2026-05-01',full:true};
+  assert.deepEqual(plain(app.withingsWindow(undefined,today)),full,'first sync');
+  assert.deepEqual(plain(app.withingsWindow({through:'2026-10-27'},today)),full,'stored before accounts were tracked');
+  assert.deepEqual(plain(app.withingsWindow({through:'2026-10-27',account:'abc'},today)),full,'account known but never fully loaded');
+  assert.deepEqual(plain(app.withingsWindow({through:'2026-10-27',account:'abc',fullFor:'old'},today)),full,'full load was for another account');
+  assert.deepEqual(plain(app.withingsWindow({through:'2026-10-27',account:'abc',fullFor:'abc'},today)),{from:'2026-10-24',full:false});
+  assert.match(source,/if\(switched&&!full\)/,'account switch reloads the full window');
+  assert.match(source,/fullFor=full\?account:/,'only a successful full load is remembered');
+  const summary=app.scaleSummary({'2026-10-03':{weight:79,bodySource:'withings'},'2026-10-28':{weight:78,bodySource:'withings'},'2026-10-20':{weight:80},'2026-10-21':{weight:null,bodyFat:null}});
+  assert.deepEqual(plain(summary),{count:2,since:'2026-10-03'});
 });

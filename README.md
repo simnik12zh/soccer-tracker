@@ -114,7 +114,11 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   before expiry or after status 343, and the rotated refresh token is always saved. The callback
   answers a plain request with 200 (URL check). `GET /api/withings?from&to` (max 400 days,
   first sync 180 days, then from three days before the last sync, at most every 10 minutes)
-  returns one reading per Zurich day: the earliest weigh-in, with body fat from the same or
+  returns one reading per Zurich day and a hashed account id. The app syncs incrementally only
+  after a full 180-day load succeeded for the same account (`withingsWindow`, stored as
+  `withingsSync.fullFor`); otherwise — first sync, account switch, or a failed reload — it loads
+  the full window again and removes scale values Withings no longer returns. Settings show how
+  many scale values are stored and since when. Each reading is the earliest weigh-in, with body fat from the same or
   another group that day (types 1 and 6, category 1, plausibility-checked). `applyWithingsImport`
   never overwrites values entered by hand (`bodySource: "manual"` or older values without a
   source); scale values are marked `bodySource: "withings"` and shown as such in Körper.
