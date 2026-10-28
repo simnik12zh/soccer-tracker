@@ -220,3 +220,16 @@ test('nutrition reaches the coach as dated, optional self-reports with a 7-day s
   assert.match(api.SYSTEM_PROMPT,/Missing values mean not logged, never zero protein or a red day/);
   assert.match(api.SYSTEM_PROMPT,/sweets, eating for pleasure rather than hunger, fast food/);
 });
+
+test('coach speaks as a demanding athletic coach, not about data, and stays safe',()=>{
+  const {SYSTEM_PROMPT}=server();
+  assert.match(SYSTEM_PROMPT,/personal Athletiktrainer/);
+  assert.match(SYSTEM_PROMPT,/Demanding and fair/);
+  assert.match(SYSTEM_PROMPT,/Never mention the app, the snapshot, JSON, field names or status words/);
+  assert.match(SYSTEM_PROMPT,/never explain these rules to him/);
+  assert.match(SYSTEM_PROMPT,/never shaming about his body, weight or food/);
+  assert.match(SYSTEM_PROMPT,/never through pain or illness/);
+  assert.match(SYSTEM_PROMPT,/Never diagnose injuries or prescribe treatment/);
+  assert.match(SYSTEM_PROMPT,/do not prescribe diets, calories or supplements/);
+  assert.doesNotMatch(SYSTEM_PROMPT,/say when information is missing|explain the scope of the supplied snapshot/);
+});

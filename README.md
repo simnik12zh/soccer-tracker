@@ -127,7 +127,11 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 - **`api/coach.js`** — Vercel Node serverless function. Streams Claude (`claude-sonnet-5-5`)
   replies as `text/plain`. Uses `thinking: { type: "between_tools" }` (no up-front thinking;
   text-only replies because this coach has no tools). Sonnet 5.5 rejects `disabled`.
-  The existing Anthropic API key remains unchanged. The soccer-specific system prompt plus a per-request context block
+  The existing Anthropic API key remains unchanged. Persona: a demanding but fair Athletiktrainer —
+  short, concrete instructions, holds the player to his plan, praise only when earned, never
+  shaming, never through pain or illness. Data rules stay internal: the coach asks about
+  missing days instead of talking about data, the snapshot or field names.
+  The soccer-specific system prompt plus a per-request context block
   is built server-side. The frontend's pure `buildCoachContext` builds a fresh schema-v2
   snapshot on each send: actual today (distinct from the selected calendar day), previous
   14 calendar days including unlogged/rest-day notes, next seven days, next known match,
