@@ -28,6 +28,14 @@ function reminderText(slot, status, today) {
   const title = slot === "evening" ? "Tagesabschluss" : slot === "midday" ? "Zwischenstand" : "Test: Erinnerung aktiv";
   const day = status && status.days && status.days[today];
   if (!day || !Array.isArray(day.open)) return { title, body: "Trag Training, Protein und Ernährung ein." };
+  // Social match day: the three rules at noon, a reminder of them in the evening.
+  const match = day.social && !day.social.friendly && Array.isArray(day.social.rules) ? day.social : null;
+  if (match && slot === "midday") return { title: `Matchtag · Anpfiff ${match.kickoff}`, body: match.rules.join(" · ") + (day.evaluate ? " · Gestern noch auswerten." : "") };
+  if (match && slot === "evening") return { title: "Social Match läuft", body: `${match.rules.join(" · ")}. Zu Hause auswerten.` };
+  if (day.evaluate && slot === "midday") {
+    const rest = day.open.filter((item) => item !== "Ernährung bewerten");
+    return { title, body: "Social Match auswerten." + (rest.length ? " Noch offen: " + rest.join(" · ") : "") };
+  }
   const open = slot === "midday" ? day.open.filter((item) => item !== "Ernährung bewerten") : day.open;
   if (open.length) return { title, body: "Noch offen: " + open.join(" · ") };
   if (day.open.length) return { title, body: "Gut unterwegs. Am Abend noch die Ernährung bewerten." };

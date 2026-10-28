@@ -214,6 +214,24 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   after 7 days or when it gets worse, and never to diagnose; the plan proposal gets them as
   `complaints` (enforced rule above); the weekly report lists complaints active that week with
   their worst level. Stored top-level as `complaints` in the `soccer-v3` blob (no key bump).
+- **Social matches** — his game against losing control at restaurants, bars, parties and family
+  dinners. Before the event: "Social Match planen" (link at the bottom of the nutrition card, or
+  under Körper) with day, kick-off (default 19:00), occasion and exactly three yes/no rules; his
+  standard rules are preselected and can be saved as new standard. Rules can change only before
+  kick-off; planning after kick-off is refused; one match per day. A Testspiel is a free evening
+  declared beforehand that never counts: at most one per week (Mon–Sun), during holidays one
+  every three days (`friendlyAllowed`). After kick-off Heute shows the rules ("Match läuft",
+  "Zu Hause? Jetzt auswerten"); from the next day the evaluation: ✓/✗ per rule → Sieg 3,
+  Unentschieden 1, Niederlage 0 (`evaluateSocialMatch`), or "Fand nicht statt". Körper shows the
+  table: Ø points vs. goal 2.0, record, form of the last five, most broken rule, recent matches,
+  and holiday tournaments: holidays are entered under "Ferien eintragen" (name, from, to); during
+  a holiday Heute asks each day whether the evening is a match (or Testspiel, or "Heute nicht").
+  Push: on match day the midday push lists the three rules, the evening push reminds of them and
+  to score at home; an unscored match shows up in the next midday push (no extra push slot: web
+  push must always show something). Coach context gets `social` (season table, upcoming,
+  awaiting result, recent with broken rules, current/next holiday); the weekly report shows the
+  week's record and average. Stored top-level as `socialMatches`, `socialRules` and
+  `socialHolidays` in the `soccer-v3` blob (no key bump).
 - **Access code** — `APP_ACCESS_CODE` (Vercel env) is required for `/api/garmin` and, when set,
   for `/api/coach`. The app sends it as `Authorization: Bearer`; it is entered under Saison →
   Einstellungen → Garmin and stored in its own localStorage key, so exports never contain it.

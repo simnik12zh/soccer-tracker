@@ -475,9 +475,13 @@ function dayChecklist(entry,dk,today=todayStr(),target=DEFAULT_PROTEIN_TARGET) {
 
 // Snapshot for reminder notifications: what is open on each day from yesterday to
 // two weeks ahead, so a push is accurate even when the app was not opened that day.
-function reminderStatus(plan,today=todayStr(),target=DEFAULT_PROTEIN_TARGET) {
-  const days={};
-  for(let i=-1;i<=14;i++){const dk=daysBeforeStr(today,-i);days[dk]={open:dayChecklist(plan[dk],dk,dk,target).open};}
+function reminderStatus(plan,today=todayStr(),target=DEFAULT_PROTEIN_TARGET,social=null) {
+  const days={},matches=socialMatches(social?.matches);
+  for(let i=-1;i<=14;i++){
+    const dk=daysBeforeStr(today,-i),m=matches.find(x=>x.date===dk&&!x.result);
+    const evaluate=matches.filter(x=>!x.friendly&&!x.result&&x.date<dk&&x.date>=daysBeforeStr(dk,7)).length;
+    days[dk]={open:dayChecklist(plan[dk],dk,dk,target).open,...(m?{social:{kickoff:m.kickoff,friendly:!!m.friendly,rules:m.rules}}:{}),...(evaluate?{evaluate}:{})};
+  }
   return {version:1,written:today,days};
 }
 
@@ -616,6 +620,104 @@ function complaintsForCoach(list,today=todayStr()) {
   return {active:activeComplaints(all,today).map(c=>({area:complaintLabel(c),level:COMPLAINT_LEVELS[c.level-1].label,lowerBody:complaintArea(c.area).lower,
       since:c.since,daysActive:complaintDays(c,today),lastUpdate:c.updated,trend:complaintTrend(c)})),
     recentlyResolved:all.filter(c=>c.resolved&&c.resolved>=daysBeforeStr(today,14)).map(c=>({area:complaintLabel(c),since:c.since,resolved:c.resolved}))};
+}
+
+// ─── Social matches ──────────────────────────────────────────────────────────────
+// Restaurant, bar or dinner with friends: three yes/no rules fixed before kick-off, scored after.
+// Sieg 3 (all kept), Unentschieden 1 (two), Niederlage 0. Testspiele are planned free evenings
+// and never count. Stored top-level: socialMatches [{id,date,kickoff,occasion,rules,friendly,
+// result:{kept,outcome,points,at}|null,created}], socialRules (his three standard rules) and
+// socialHolidays [{id,name,start,end}] for holiday tournaments.
+const SOCIAL_OCCASIONS=[{key:'restaurant',label:'Restaurant'},{key:'bar',label:'Bar'},{key:'home',label:'Freunde/Familie'},{key:'other',label:'Anderes'}];
+const DEFAULT_SOCIAL_RULES=['Maximal zwei Drinks','Ein Extra: Brot, Vorspeise oder Dessert','Ein Teller, kein Nachschöpfen'];
+const SOCIAL_RULE_OPTIONS=[...DEFAULT_SOCIAL_RULES,'Kein Snack danach','Kein Dessert','Wasser zwischen den Drinks','Kein Alkohol','Nach 22 Uhr nichts mehr essen'];
+const SOCIAL_OUTCOMES={win:{label:'Sieg',short:'S',points:3},draw:{label:'Unentschieden',short:'U',points:1},loss:{label:'Niederlage',short:'N',points:0}};
+const SOCIAL_GOAL=2;
+const socialText=v=>typeof v==='string'?v.trim().replace(/\s+/g,' ').replace(/ß/g,'ss').slice(0,60):'';
+const dayNumber=dk=>{const [y,m,d]=dk.split('-').map(Number);return Date.UTC(y,m-1,d)/86400000;};
+function occasionLabel(key) { return (SOCIAL_OCCASIONS.find(o=>o.key===key)||SOCIAL_OCCASIONS.at(-1)).label; }
+function validSocialMatch(m) {
+  return !!m&&typeof m.id==='string'&&validCoachDate(m.date)&&/^\d{2}:\d{2}$/.test(m.kickoff||'')&&Array.isArray(m.rules)&&(m.friendly||m.rules.length===3);
+}
+function socialMatches(list) { return (Array.isArray(list)?list:[]).filter(validSocialMatch).sort((a,b)=>(a.date+a.kickoff).localeCompare(b.date+b.kickoff)); }
+function socialRules(stored) { const r=Array.isArray(stored)?stored.map(socialText).filter(Boolean):[]; return r.length===3&&new Set(r).size===3?r:[...DEFAULT_SOCIAL_RULES]; }
+function socialOutcome(kept) { const n=(kept||[]).filter(Boolean).length; return n===3?'win':n===2?'draw':'loss'; }
+// Kick-off in local time: from then on the rules are fixed.
+function socialStarted(m,now=new Date()) {
+  const [y,mo,d]=m.date.split('-').map(Number),[h,mi]=m.kickoff.split(':').map(Number);
+  return now.getTime()>=new Date(y,mo-1,d,h,mi).getTime();
+}
+function holidayPeriods(list) {
+  return (Array.isArray(list)?list:[]).filter(h=>h&&typeof h.id==='string'&&validCoachDate(h.start)&&validCoachDate(h.end)&&h.start<=h.end)
+    .sort((a,b)=>a.start.localeCompare(b.start));
+}
+function holidayFor(list,dk) { return holidayPeriods(list).find(h=>dk>=h.start&&dk<=h.end)||null; }
+function addHoliday(list,{name,start,end}) {
+  const all=holidayPeriods(list);
+  if(!validCoachDate(start)||!validCoachDate(end)||start>end||dayNumber(end)-dayNumber(start)>60)return {list:all,error:'Bitte gültige Daten wählen (höchstens 60 Tage).'};
+  if(all.some(h=>start<=h.end&&end>=h.start))return {list:all,error:'Überschneidet sich mit eingetragenen Ferien.'};
+  const h={id:`hol-${start}-${Math.random().toString(36).slice(2,6)}`,name:socialText(name)||'Ferien',start,end};
+  return {list:holidayPeriods([...all,h]).slice(-20)};
+}
+function removeHoliday(list,id) { return holidayPeriods(list).filter(h=>h.id!==id); }
+// Testspiele: one per week (Mon–Sun); during holidays one every three days.
+function friendlyAllowed(list,date,holidays=[],excludeId=null) {
+  const others=socialMatches(list).filter(m=>m.friendly&&m.id!==excludeId);
+  if(holidayFor(holidays,date)){
+    const near=others.find(m=>Math.abs(dayNumber(m.date)-dayNumber(date))<=2);
+    return near?{ok:false,reason:`Testspiel schon am ${shortDate(near.date)}. In den Ferien eins alle drei Tage.`}:{ok:true};
+  }
+  const week=weekAround(date),hit=others.find(m=>m.date>=week[0]&&m.date<=week[6]&&!holidayFor(holidays,m.date));
+  return hit?{ok:false,reason:`Diese Woche ist schon ein Testspiel geplant (${shortDate(hit.date)}). Höchstens eins pro Woche.`}:{ok:true};
+}
+// One match per day. Planning and changes only before kick-off.
+function planSocialMatch(list,input,holidays=[],now=new Date()) {
+  const all=socialMatches(list),today=dateKey(now),date=input?.date;
+  const existing=input?.id?all.find(m=>m.id===input.id):null;
+  if(existing&&socialStarted(existing,now))return {list:all,error:'Das Match läuft schon. Die Regeln sind fix.'};
+  if(!validCoachDate(date)||date<today)return {list:all,error:'Wähle heute oder einen späteren Tag.'};
+  if(all.some(m=>m.date===date&&m.id!==existing?.id))return {list:all,error:'An diesem Tag ist schon ein Social Match geplant.'};
+  const friendly=!!input.friendly;
+  if(friendly){const f=friendlyAllowed(all,date,holidays,existing?.id);if(!f.ok)return {list:all,error:f.reason};}
+  const rules=friendly?[]:(Array.isArray(input.rules)?input.rules.map(socialText).filter(Boolean):[]);
+  if(!friendly&&(rules.length!==3||new Set(rules).size!==3))return {list:all,error:'Wähle genau drei verschiedene Regeln.'};
+  const m={id:existing?.id||`sm-${date}-${Math.random().toString(36).slice(2,6)}`,date,
+    kickoff:/^([01]\d|2[0-3]):[0-5]\d$/.test(input.kickoff||'')?input.kickoff:'19:00',
+    occasion:SOCIAL_OCCASIONS.some(o=>o.key===input.occasion)?input.occasion:'other',rules,friendly,result:null,created:existing?.created||today};
+  if(socialStarted(m,now))return {list:all,error:'Der Anpfiff muss noch vor dir liegen. Regeln gelten nur, wenn sie vorher feststehen.'};
+  return {list:socialMatches([...all.filter(x=>x.id!==m.id),m]).slice(-300),match:m};
+}
+// Cancelled or did not happen: allowed as long as there is no result.
+function cancelSocialMatch(list,id) { return socialMatches(list).filter(m=>!(m.id===id&&!m.result)); }
+function evaluateSocialMatch(list,id,kept,now=new Date()) {
+  const all=socialMatches(list),m=all.find(x=>x.id===id);
+  if(!m||m.friendly||!socialStarted(m,now)||!Array.isArray(kept)||kept.length!==3||kept.some(k=>typeof k!=='boolean'))return all;
+  const outcome=socialOutcome(kept);
+  return all.map(x=>x===m?{...x,result:{kept:[...kept],outcome,points:SOCIAL_OUTCOMES[outcome].points,at:dateKey(now)}}:x);
+}
+function socialPending(list,now=new Date()) { return socialMatches(list).filter(m=>!m.friendly&&!m.result&&socialStarted(m,now)); }
+function socialTable(list,from=null,to=null,today=todayStr()) {
+  const all=socialMatches(list).filter(m=>(!from||m.date>=from)&&(!to||m.date<=to));
+  const played=all.filter(m=>!m.friendly&&m.result),count=o=>played.filter(m=>m.result.outcome===o).length;
+  const points=played.reduce((n,m)=>n+m.result.points,0),broken={};
+  for(const m of played)m.rules.forEach((r,i)=>{if(!m.result.kept[i])broken[r]=(broken[r]||0)+1;});
+  return {played:played.length,wins:count('win'),draws:count('draw'),losses:count('loss'),points,
+    avg:played.length?Math.round(points/played.length*10)/10:null,form:played.slice(-5).map(m=>m.result.outcome),
+    friendlies:all.filter(m=>m.friendly&&m.date<=today).length,
+    brokenRules:Object.entries(broken).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([rule,times])=>({rule,times}))};
+}
+function holidayTournaments(list,holidays) { return holidayPeriods(holidays).map(h=>({...h,table:socialTable(list,h.start,h.end)})); }
+function socialForCoach(list,holidays,today=todayStr(),now=new Date()) {
+  const all=socialMatches(list),holiday=holidayFor(holidays,today),next=holidayPeriods(holidays).find(h=>h.start>today);
+  const brief=m=>({date:m.date,kickoff:m.kickoff,occasion:occasionLabel(m.occasion),friendly:!!m.friendly,...(m.friendly?{}:{rules:m.rules})});
+  return {goalAvgPoints:SOCIAL_GOAL,season:socialTable(all),
+    upcoming:all.filter(m=>!m.result&&!socialStarted(m,now)).slice(0,5).map(brief),
+    awaitingResult:socialPending(all,now).map(brief),
+    recent:all.filter(m=>m.result||(m.friendly&&socialStarted(m,now))).slice(-6).map(m=>({...brief(m),
+      ...(m.result?{outcome:SOCIAL_OUTCOMES[m.result.outcome].label,points:m.result.points,brokenRules:m.rules.filter((r,i)=>!m.result.kept[i])}:{})})),
+    holiday:holiday?{name:holiday.name,start:holiday.start,end:holiday.end,table:socialTable(all,holiday.start,holiday.end)}:null,
+    nextHoliday:next?{name:next.name,start:next.start,end:next.end}:null,
+    friendlyAvailableToday:friendlyAllowed(all,today,holidays).ok};
 }
 
 // ─── Training load ───────────────────────────────────────────────────────────────
@@ -854,7 +956,7 @@ function coachText(value,max=1200) {
 function validCoachDate(dk) {
   return /^\d{4}-\d{2}-\d{2}$/.test(dk)&&dateKey(new Date(dk+'T12:00:00'))===dk;
 }
-function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),proteinTarget=DEFAULT_PROTEIN_TARGET,complaints=[]) {
+function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),proteinTarget=DEFAULT_PROTEIN_TARGET,complaints=[],social=null) {
   const dates=Object.keys(plan).filter(dk=>validCoachDate(dk)&&plan[dk]&&typeof plan[dk]==='object').sort();
   const types=dk=>[...new Set(getSessions(plan[dk]))];
   const logged=dk=>dk<=referenceDate&&plan[dk]?.completed===true&&types(dk).length>0;
@@ -935,6 +1037,7 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
         plannedTodayLoad:planned.load||null,typicalLoadBySession:Object.fromEntries(Object.entries(typical).map(([k,v])=>[GARMIN_LABELS[k]||k,v])),
         last6Weeks:weeklyLoads(plan,referenceDate,6),appAdvice:loadAdvice(plan,referenceDate,st,recoveryStatus(plan,referenceDate),complaints)};})(),
     complaints:complaintsForCoach(complaints,referenceDate),
+    social:socialForCoach(social?.matches,social?.holidays,referenceDate),
     nutrition:{proteinTargetGrams:target,last7Days:eatingStats(daysBeforeStr(referenceDate,6),referenceDate),
       previous7Days:eatingStats(daysBeforeStr(referenceDate,13),daysBeforeStr(referenceDate,7))},
     tactical:tacticalFor(referenceDate)};
@@ -988,6 +1091,8 @@ function Icon({name,size=22,...props}) {
     send:<path d="M12 19V5M6 11l6-6 6 6"/>,
     image:<><rect x="3" y="4.5" width="18" height="15" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="m21 15.5-4.5-4.5L8 19.5"/></>,
     chevron:<path d="m6 9 6 6 6-6"/>,
+    check:<path d="m5 12.5 4.5 4.5L19 7.5"/>,
+    glass:<><path d="M7 3h10l-.6 6.2a4.4 4.4 0 0 1-8.8 0z"/><path d="M12 13.6V20M8.5 20.5h7"/></>,
     star:<path d="m12 3.6 2.55 5.17 5.7.83-4.13 4.02.98 5.68L12 16.62 6.9 19.3l.98-5.68-4.13-4.02 5.7-.83z"/>,
     alert:<><path d="M12 3.5 2.8 19.5h18.4z"/><path d="M12 10v4.2M12 17h.01"/></>,
     camera:<><path d="M3.5 8.5h3.2L8.5 6h7l1.8 2.5h3.2V19h-17z"/><circle cx="12" cy="13" r="3.4"/></>,
@@ -1282,6 +1387,46 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .fav-chip.remove{flex-direction:row;align-items:center;gap:8px;border-color:#8E4E46;min-height:44px}.fav-chip.remove svg{flex-shrink:0;color:var(--bad)}
 .fav-form{margin-top:8px;padding:12px;border:1px solid var(--line);border-radius:var(--r-m)}.fav-form .secondary{width:100%;margin-top:10px}
 .meal-pending{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line-soft);font-size:12px;color:var(--accent-ink)}.meal-pending img{width:44px;height:44px;object-fit:cover;border-radius:10px;flex-shrink:0}.meal-pending span{flex:1}
+/* Social matches */
+:root{--social:#B9B4E6}
+.social-card{padding:14px 18px 16px;margin-bottom:12px;border-color:#4A4870}
+.social-block+.social-block{border-top:1px solid var(--line-soft);margin-top:12px;padding-top:12px}
+.social-card .card-head small{font-size:12px;color:var(--muted);white-space:nowrap}
+.social-eyebrow{display:inline-flex;align-items:center;gap:6px;color:var(--social)}
+.social-rules{margin:10px 0 6px;padding-left:22px;font-size:14px;line-height:1.5;color:var(--text)}.social-rules li+li{margin-top:4px}.social-rules li::marker{color:var(--social);font-weight:600}
+.social-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:var(--faint)}.social-foot .text-btn{color:var(--accent-ink);font-size:13px;padding:0}
+.social-wide{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px}
+.social-eval{margin-top:4px}.social-rule{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-soft)}
+.social-rule>span{flex:1;min-width:0;display:flex;gap:8px;font-size:14px;line-height:1.4}.social-rule>span b{color:var(--social)}
+.kept-toggle{display:flex;gap:6px;flex-shrink:0}.kept-toggle button{width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:var(--r-s);background:var(--surface);color:var(--faint)}
+.kept-toggle .kept[aria-pressed=true]{color:var(--good)}.kept-toggle .broken[aria-pressed=true]{color:var(--bad)}
+.social-skip{width:100%;justify-content:center;color:var(--muted);font-size:13px}
+.social-card .card-head{gap:8px}.social-card .card-head small{overflow:hidden;text-overflow:ellipsis}
+.kept-toggle .kept[aria-pressed=true]{border-color:var(--good);background:rgba(143,209,158,.12);color:var(--text)}.kept-toggle .broken[aria-pressed=true]{border-color:var(--bad);background:rgba(229,138,126,.12);color:var(--text)}
+.social-preview,.social-score{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:500;margin:12px 0 4px}
+.social-score{font-size:20px;margin-top:8px}
+.outcome-chip{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;flex-shrink:0;border-radius:50%;font-size:12px;font-weight:700;color:var(--bg)}
+.outcome-chip.win{background:var(--good)}.outcome-chip.draw{background:var(--warn)}.outcome-chip.loss{background:var(--bad)}
+.social-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}.social-actions .primary,.social-actions .secondary{flex:1;min-width:120px}.social-actions .text-btn{color:var(--muted);padding:0 4px}
+.social-link{color:var(--social)!important;font-size:13px;margin-top:6px}
+.social-sheet .field-label{margin-top:14px}.social-mode{margin:8px 0 4px}.social-days,.social-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.social-days .chip,.social-chips .chip{padding:0 12px;font-size:13px;border-radius:var(--r-pill)}.social-chips.rules .chip{display:inline-flex;align-items:center;gap:8px;text-align:left;border-radius:var(--r-s);padding:8px 12px;line-height:1.35}
+.social-chips.rules .chip b{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--social);color:var(--bg);font-size:11px;flex-shrink:0}
+.social-row{display:flex;gap:12px;align-items:flex-start}.social-row>label{flex:0 0 110px}.social-row .modal-input{margin:8px 0 0}.social-occasions{flex:1;min-width:0}
+.rule-count{float:right;color:var(--social)}.social-custom{margin-top:10px}.check-row{display:flex;align-items:center;gap:10px;min-height:44px;font-size:13px;color:var(--muted)}
+.check-row input{width:20px;height:20px;accent-color:var(--accent)}.warn-text{color:var(--warn)!important}
+.social-table{padding:18px}.social-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+.social-head strong{display:block;font-size:40px;font-weight:500;letter-spacing:-.05em;line-height:1;font-variant-numeric:tabular-nums}.social-head strong.good{color:var(--good-soft)}.social-head strong.short{color:var(--warn)}
+.social-head div>span{display:block;font-size:12px;color:var(--muted);margin-top:6px}
+.social-record{display:flex;gap:12px;font-size:12px;color:var(--muted)}.social-record b{font-size:18px;font-weight:500;color:var(--text);font-variant-numeric:tabular-nums}
+.social-form{display:flex;align-items:center;gap:6px;margin:14px 0 4px;font-size:12px;color:var(--muted)}.social-form>span{margin-right:4px}
+.social-list{list-style:none;margin:14px 0 0;padding:0}.social-list li{display:flex;align-items:center;gap:10px;min-height:44px;border-top:1px solid var(--line-soft);font-size:13px}
+.social-list li>span:first-child{flex:1;min-width:0}.social-list small{font-size:12px;color:var(--muted)}
+.social-subhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:18px 0 8px}.social-subhead .text-btn{color:var(--accent-ink);font-size:13px;padding:0}
+.social-holiday-form{padding:16px;margin-bottom:10px}.social-holiday-form .field-label{margin-top:0}
+.tour-row{display:flex;align-items:center;gap:10px;min-height:56px;border-top:1px solid var(--line-soft)}.tour-row:first-child{border-top:0}
+.tour-row>span:first-child{flex:1;min-width:0}.tour-row strong{display:block;font-size:14px;font-weight:500}.tour-row small{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+.tour-score{font-size:13px;color:var(--accent-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
 /* Coach */
 @keyframes coachBlink{0%,80%,100%{opacity:.25}40%{opacity:1}}
 .coach-screen{position:fixed;inset:0;max-width:560px;margin:0 auto;z-index:60;display:flex;flex-direction:column;background:radial-gradient(ellipse 100% 420px at 80% 0%,#223B50 0%,var(--bg) 80%)}
@@ -1721,6 +1866,161 @@ function DayRings({plan,viewKey,target,onOpenPlan,children}) {
   </section>;
 }
 
+// ─── Social matches (Today, Körper) ─────────────────────────────────────────────
+function useSheetFocus(onClose) {
+  const dialog=useRef(null),closeRef=useRef(onClose);closeRef.current=onClose;
+  useEffect(()=>{
+    const previous=document.activeElement,overflow=document.body.style.overflow;
+    document.body.style.overflow="hidden";dialog.current?.focus();
+    const key=ev=>{if(ev.key==="Escape"){ev.preventDefault();closeRef.current();}};
+    document.addEventListener("keydown",key);
+    return ()=>{document.body.style.overflow=overflow;document.removeEventListener("keydown",key);previous?.focus();};
+  },[]);
+  return dialog;
+}
+const socialWhen=(m,today=todayStr())=>`${m.date===today?"Heute":m.date===daysBeforeStr(today,-1)?"Morgen":m.date===daysBeforeStr(today,1)?"Gestern":shortDate(m.date)} ${m.kickoff}`;
+function OutcomeChip({outcome}) {
+  const o=SOCIAL_OUTCOMES[outcome];
+  return <span className={"outcome-chip "+outcome} title={o.label} aria-label={o.label}>{o.short}</span>;
+}
+// Plan or change a match: day, kick-off, occasion, match or Testspiel, three rules.
+function SocialSheet({social,match,initialDate,initialFriendly,onSave,onCancel,onClose}) {
+  const today=todayStr(),defaults=socialRules(social.rules);
+  const days=Array.from({length:8},(_,i)=>daysBeforeStr(today,-i)),taken=new Set(socialMatches(social.matches).map(m=>m.date));
+  const [date,setDate]=useState(match?.date||initialDate||days.find(dk=>!taken.has(dk))||today),[kickoff,setKickoff]=useState(match?.kickoff||"19:00");
+  const [occasion,setOccasion]=useState(match?.occasion||"restaurant"),[friendly,setFriendly]=useState(match?match.friendly:!!initialFriendly);
+  const [rules,setRules]=useState(match&&!match.friendly?match.rules:defaults),[custom,setCustom]=useState("");
+  const [asDefault,setAsDefault]=useState(false),[error,setError]=useState("");
+  const dialog=useSheetFocus(onClose);
+  const options=[...new Set([...rules,...defaults,...SOCIAL_RULE_OPTIONS])];
+  const toggle=r=>{setError("");setRules(rs=>rs.includes(r)?rs.filter(x=>x!==r):rs.length<3?[...rs,r]:rs);};
+  const addCustom=()=>{const t=socialText(custom);if(!t||rules.includes(t)||rules.length>=3)return;setRules([...rules,t]);setCustom("");};
+  const fa=friendlyAllowed(social.matches,date,social.holidays,match?.id);
+  const ready=friendly?fa.ok:rules.length===3;
+  const save=()=>{const err=onSave({id:match?.id,date,kickoff,occasion,friendly,rules},asDefault&&!friendly);if(err)setError(err);};
+  return <>
+    <div className="sheet-backdrop" onClick={onClose}/>
+    <section className="sheet social-sheet" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="social-title" tabIndex={-1}>
+      <div className="sheet-handle"/>
+      <div className="sheet-heading"><div><div className="eyebrow">Social Match</div><h2 id="social-title">{match?"Match ändern":"Vor dem Anpfiff"}</h2></div>
+        <button className="icon-btn" onClick={onClose} aria-label="Schliessen"><Icon name="close"/></button></div>
+      <div className="segmented social-mode" role="group" aria-label="Art">
+        <button aria-pressed={!friendly} onClick={()=>{setFriendly(false);setError("");}}>Match · zählt</button>
+        <button aria-pressed={friendly} onClick={()=>{setFriendly(true);setError("");}}>Testspiel · frei</button></div>
+      <div className="field-label">Wann</div>
+      <div className="social-days">{days.map((dk,i)=><button key={dk} className="chip" aria-pressed={date===dk} onClick={()=>{setDate(dk);setError("");}}>
+        {i===0?"Heute":i===1?"Morgen":`${DN[dow0(new Date(dk+"T12:00:00"))]} ${Number(dk.slice(-2))}.`}</button>)}</div>
+      <div className="social-row">
+        <label className="field-label">Anpfiff<input className="modal-input" type="time" value={kickoff} onChange={e=>{setKickoff(e.target.value);setError("");}}/></label>
+        <div className="social-occasions"><div className="field-label">Anlass</div><div className="social-chips">{SOCIAL_OCCASIONS.map(o=>
+          <button key={o.key} className="chip" aria-pressed={occasion===o.key} onClick={()=>setOccasion(o.key)}>{o.label}</button>)}</div></div>
+      </div>
+      {friendly?<p className={"helper-text"+(fa.ok?"":" warn-text")}>{fa.ok?"Ein geplanter freier Abend. Zählt nicht für die Tabelle, muss aber vorher feststehen. Höchstens eins pro Woche, in den Ferien eins alle drei Tage.":fa.reason}</p>
+      :<>
+        <div className="field-label">Deine drei Regeln <span className="rule-count">{rules.length} von 3</span></div>
+        <div className="social-chips rules">{options.map(r=><button key={r} className="chip" aria-pressed={rules.includes(r)}
+          disabled={!rules.includes(r)&&rules.length>=3} onClick={()=>toggle(r)}>{rules.includes(r)&&<b>{rules.indexOf(r)+1}</b>}{r}</button>)}</div>
+        {rules.length<3&&<div className="protein-edit social-custom"><input className="modal-input" maxLength={60} placeholder="Eigene Regel, z. B. Kein Bier nach dem Essen" value={custom}
+          onChange={e=>setCustom(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addCustom();}}/><button className="secondary" disabled={!socialText(custom)} onClick={addCustom}>Hinzufügen</button></div>}
+        <label className="check-row"><input type="checkbox" checked={asDefault} onChange={e=>setAsDefault(e.target.checked)}/> Als meine Standard-Regeln merken</label>
+      </>}
+      {error&&<p role="alert" className="helper-text warn-text">{error}</p>}
+      <button className="primary" style={{width:"100%",marginTop:8}} disabled={!ready} onClick={save}>
+        {match?"Speichern":friendly?"Testspiel festlegen":"Match planen"}</button>
+      {match&&<button className="text-btn" style={{width:"100%",justifyContent:"center"}} onClick={()=>onCancel(match.id)}>Absagen</button>}
+    </section>
+  </>;
+}
+// Today: pending results first, then the next match (today or the next two days), the
+// result of a match scored today, and during holidays a nudge to plan the evening.
+function SocialCard({social,onPlan,onEdit,onEvaluate,onCancel}) {
+  const today=todayStr(),now=new Date(),all=socialMatches(social.matches);
+  const pending=socialPending(all,now),soon=all.filter(m=>!m.result&&!socialStarted(m,now)&&m.date<=daysBeforeStr(today,-2));
+  const scored=all.filter(m=>m.result&&m.result.at===today).at(-1),holiday=holidayFor(social.holidays,today);
+  const [kept,setKept]=useState({}),[openId,setOpenId]=useState(null);
+  const [skip,setSkip]=useState(()=>{try{return localStorage.getItem("social-skip")===today;}catch{return false;}});
+  const nudge=holiday&&!skip&&!all.some(m=>m.date===today)&&new Date().getHours()<22;
+  if(!pending.length&&!soon.length&&!scored&&!nudge)return null;
+  const season=socialTable(all);
+  const evaluate=m=>{const k=kept[m.id]||[];return <div className="social-eval" key={m.id}>
+    {m.rules.map((r,i)=><div className="social-rule" key={i}><span><b>{i+1}</b>{r}</span>
+      <div className="kept-toggle" role="group" aria-label={r}>
+        <button aria-pressed={k[i]===true} className="kept" aria-label="Gehalten" onClick={()=>setKept({...kept,[m.id]:Object.assign([...k],{[i]:true})})}><Icon name="check" size={20}/></button>
+        <button aria-pressed={k[i]===false} className="broken" aria-label="Gebrochen" onClick={()=>setKept({...kept,[m.id]:Object.assign([...k],{[i]:false})})}><Icon name="close" size={18}/></button></div></div>)}
+    {[0,1,2].every(i=>typeof k[i]==="boolean")?<p className="social-preview"><OutcomeChip outcome={socialOutcome(k)}/>{SOCIAL_OUTCOMES[socialOutcome(k)].label} · {SOCIAL_OUTCOMES[socialOutcome(k)].points} {SOCIAL_OUTCOMES[socialOutcome(k)].points===1?"Punkt":"Punkte"}</p>
+      :<p className="protein-hint">✓ gehalten, ✗ gebrochen. Eine gebrochene Regel ist ein Gegentor, kein verlorenes Spiel.</p>}
+    <button className="primary social-wide" disabled={![0,1,2].every(i=>typeof k[i]==="boolean")} onClick={()=>onEvaluate(m.id,[0,1,2].map(i=>k[i]))}>Abpfiff: Ergebnis speichern</button>
+    <button className="text-btn social-skip" onClick={()=>onCancel(m.id)}>Fand nicht statt</button>
+  </div>;};
+  return <section className="panel social-card" aria-label="Social Match">
+    {pending.map(m=>{const live=m.date===today&&openId!==m.id;
+      return <div key={m.id} className="social-block">
+        <div className="card-head"><span className="eyebrow social-eyebrow"><Icon name="glass" size={14}/>{live?"Match läuft":"Auswerten"}</span><small>{socialWhen(m,today)} · {occasionLabel(m.occasion)}</small></div>
+        {live?<><ol className="social-rules">{m.rules.map(r=><li key={r}>{r}</li>)}</ol>
+          <button className="secondary social-wide" onClick={()=>setOpenId(m.id)}>Zu Hause? Jetzt auswerten</button></>:evaluate(m)}
+      </div>;})}
+    {soon.map(m=><div key={m.id} className="social-block">
+      <div className="card-head"><span className="eyebrow social-eyebrow"><Icon name="glass" size={14}/>{m.friendly?"Testspiel":"Social Match"}</span><small>{socialWhen(m,today)} · {occasionLabel(m.occasion)}</small></div>
+      {m.friendly?<p className="helper-text">Geplanter freier Abend: zählt nicht für die Tabelle. Geniess ihn bewusst.</p>
+        :<ol className="social-rules">{m.rules.map(r=><li key={r}>{r}</li>)}</ol>}
+      <div className="social-foot"><span>Bis zum Anpfiff änderbar</span><button className="text-btn" onClick={()=>onEdit(m)}><Icon name="edit" size={15}/> Ändern</button></div>
+    </div>)}
+    {scored&&!pending.length&&<div className="social-block social-result">
+      <div className="card-head"><span className="eyebrow social-eyebrow"><Icon name="glass" size={14}/>Abpfiff</span><small>{socialWhen(scored,today)}</small></div>
+      <p className="social-score"><OutcomeChip outcome={scored.result.outcome}/>{SOCIAL_OUTCOMES[scored.result.outcome].label} · {scored.result.points} {scored.result.points===1?"Punkt":"Punkte"}</p>
+      {scored.result.outcome!=="win"&&<p className="helper-text">Gegentor: {scored.rules.filter((r,i)=>!scored.result.kept[i]).join(" · ")}. Abhaken, nächstes Spiel.</p>}
+      <p className="protein-hint">Saison: Ø {season.avg?.toFixed(1)} Punkte aus {season.played} {season.played===1?"Match":"Matches"} · Ziel Ø {SOCIAL_GOAL.toFixed(1)}</p>
+    </div>}
+    {nudge&&!pending.length&&<div className="social-block">
+      <div className="card-head"><span className="eyebrow social-eyebrow"><Icon name="glass" size={14}/>{holiday.name}</span>
+        <small>Turnier · Tag {dayNumber(today)-dayNumber(holiday.start)+1}/{dayNumber(holiday.end)-dayNumber(holiday.start)+1}</small></div>
+      <p className="helper-text">Heute Abend auswärts essen oder trinken? Dann ist es ein Match, mit drei Regeln vorher.</p>
+      <div className="social-actions"><button className="primary" onClick={()=>onPlan(today,false)}>Match planen</button>
+        <button className="secondary" onClick={()=>onPlan(today,true)}>Testspiel</button>
+        <button className="text-btn" onClick={()=>{try{localStorage.setItem("social-skip",today);}catch{}setSkip(true);}}>Heute nicht</button></div>
+    </div>}
+  </section>;
+}
+// Körper: the league table, recent matches and holiday tournaments.
+function SocialSection({social,onPlan,onAddHoliday,onRemoveHoliday}) {
+  const all=socialMatches(social.matches),t=socialTable(all),today=todayStr();
+  const recent=all.filter(m=>m.result||(m.friendly&&m.date<=today)).slice(-5).reverse();
+  const tours=holidayTournaments(all,social.holidays).filter(h=>h.end>=daysBeforeStr(today,365));
+  const [form,setForm]=useState(null),[error,setError]=useState("");
+  const addHoliday=()=>{const err=onAddHoliday(form);if(err)setError(err);else{setForm(null);setError("");}};
+  return <section aria-label="Social Matches">
+    <div className="section-heading"><h2>Social Matches</h2><span>Ziel Ø {SOCIAL_GOAL.toFixed(1)} Punkte</span></div>
+    <div className="panel social-table">
+      {t.played?<><div className="social-head">
+          <div><strong className={t.avg>=SOCIAL_GOAL?"good":"short"}>{t.avg.toFixed(1)}</strong><span>Ø Punkte pro Match</span></div>
+          <div className="social-record"><span><b>{t.wins}</b> S</span><span><b>{t.draws}</b> U</span><span><b>{t.losses}</b> N</span></div></div>
+        <div className="social-form"><span>Form</span>{t.form.map((o,i)=><OutcomeChip key={i} outcome={o}/>)}</div>
+        {t.brokenRules[0]&&<p className="protein-hint">Häufigstes Gegentor: {t.brokenRules[0].rule} ({t.brokenRules[0].times}×)</p>}</>
+        :<p className="helper-text">Noch keine gewerteten Matches. Restaurant, Bar oder Essen bei Freunden: vorher drei Regeln festlegen, danach zählen.</p>}
+      <p className="chart-caption">{t.played} {t.played===1?"Match":"Matches"} · {t.friendlies} {t.friendlies===1?"Testspiel":"Testspiele"} · Sieg 3, Unentschieden 1, Niederlage 0</p>
+      <button className="secondary social-wide" onClick={()=>onPlan()}><Icon name="glass" size={18}/> Social Match planen</button>
+      {recent.length>0&&<ul className="social-list">{recent.map(m=><li key={m.id}>
+        <span>{shortDate(m.date)} · {occasionLabel(m.occasion)}</span>
+        {m.friendly?<small>Testspiel</small>:<><small>{m.result.points} {m.result.points===1?"Pkt":"Pkt"}</small><OutcomeChip outcome={m.result.outcome}/></>}</li>)}</ul>}
+    </div>
+    <div className="social-subhead"><span className="eyebrow">Ferien-Turniere</span>
+      {!form&&<button className="text-btn" onClick={()=>setForm({name:"",start:today,end:daysBeforeStr(today,-6)})}><Icon name="plus" size={15}/> Ferien eintragen</button>}</div>
+    {form&&<div className="panel social-holiday-form">
+      <label className="field-label">Name<input className="modal-input" maxLength={40} placeholder="z. B. Skiferien" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label>
+      <div className="body-fields"><label>Von<input className="modal-input" type="date" value={form.start} onChange={e=>setForm({...form,start:e.target.value})}/></label>
+        <label>Bis<input className="modal-input" type="date" value={form.end} onChange={e=>setForm({...form,end:e.target.value})}/></label></div>
+      {error&&<p role="alert" className="helper-text warn-text">{error}</p>}
+      <div className="sheet-footer"><button className="primary" onClick={addHoliday}>Speichern</button><button className="secondary" onClick={()=>{setForm(null);setError("");}}>Abbrechen</button></div>
+    </div>}
+    {tours.length?<div className="panel measure-list">{tours.map(h=><div key={h.id} className="tour-row">
+      <span><strong>{h.name}</strong><small>{shortDate(h.start)} – {shortDate(h.end)}</small></span>
+      <span className="tour-score">{h.table.played?<>{h.table.wins}-{h.table.draws}-{h.table.losses} · Ø {h.table.avg.toFixed(1)}</>:h.start>today?"steht an":"keine Matches"}</span>
+      {!h.table.played&&!h.table.friendlies&&<button className="icon-btn" aria-label={h.name+" entfernen"} onClick={()=>onRemoveHoliday(h.id)}><Icon name="close" size={16}/></button>}
+    </div>)}</div>
+    :!form&&<p className="protein-hint">In den Ferien zählt jeder Abend auswärts als eigenes Match. Trag deine nächsten Ferien ein, dann wird daraus ein Turnier mit eigener Bilanz.</p>}
+  </section>;
+}
+
 // ─── Complaints (Today) ──────────────────────────────────────────────────────────
 // Two taps: body area, then severity (saves). Side is optional.
 function ComplaintSheet({onReport,onClose}) {
@@ -1881,7 +2181,7 @@ function FavoriteMeals({favorites,onUse,onSave,onRemove,quick}) {
     </div>}
   </div>;
 }
-function NutritionCard({entry,dateKey:dk,updDay,target,onAddMeal,onUpdateMeal,onRemoveMeal,favorites,onSaveFavorite,onRemoveFavorite,onUseFavorite}) {
+function NutritionCard({entry,dateKey:dk,updDay,target,onAddMeal,onUpdateMeal,onRemoveMeal,favorites,onSaveFavorite,onRemoveFavorite,onUseFavorite,onPlanSocial}) {
   const today=todayStr(),future=dk>today;
   const quick=validProtein(entry.protein)?entry.protein:null,meals=dayMeals(entry);
   const protein=dayProtein(entry),kcal=dayKcal(entry),mealProtein=meals.reduce((n,m)=>n+m.protein,0),level=nutritionLevel(entry.nutrition);
@@ -1965,7 +2265,8 @@ function NutritionCard({entry,dateKey:dk,updDay,target,onAddMeal,onUpdateMeal,on
             onClick={()=>updDay(dk,{nutrition:entry.nutrition===l.key?null:l.key})}>
             <span className={"ampel-dot "+l.key} aria-hidden="true">{l.mark}</span>{l.label}</button>)}</div>
         <p className="rating-hint">{level?level.hint:"Rot heisst: viel Süsses, Essen aus Lust statt Hunger, Fast Food."}</p>
-      </div></>}
+      </div>
+      {onPlanSocial&&<button className="text-btn social-link" onClick={onPlanSocial}><Icon name="glass" size={16}/> Auswärts essen oder trinken? Social Match planen</button>}</>}
   </section>;
 }
 
@@ -1985,7 +2286,7 @@ function UpNextCard({plan,from,onSelect}) {
 }
 
 // ─── Today view ──────────────────────────────────────────────────────────────────
-function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,onOpenReport,complaints,onReportComplaint,onResolveComplaint}) {
+function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,onOpenReport,complaints,onReportComplaint,onResolveComplaint,socialProps}) {
   const viewKey=offsetDate(dayOff), e=plan[viewKey]||{};
   const [sheetOpen,setSheetOpen]=useState(false);
   const [notesOpen,setNotesOpen]=useState(false);
@@ -2018,6 +2319,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
     <DayRings plan={plan} viewKey={viewKey} target={proteinTarget} onOpenPlan={onOpenPlan}>
       {dayOff===0&&activeComplaints(complaints,viewKey).length>0&&<ComplaintStrip complaints={complaints} onReport={onReportComplaint} onResolve={onResolveComplaint}/>}
     </DayRings>
+    {dayOff===0&&socialProps&&<SocialCard {...socialProps}/>}
     <section key={"session-"+viewKey} id="today-session" className={"panel session-card"+(isMatchDay(e)?" match-card":"")} aria-label="Training"
       style={{animation:direction>0?"slideLeft .22s ease-out":"slideRight .22s ease-out"}}>
       <div className="session-top"><span className="eyebrow">{e.completed?"Training erledigt":sessions.length?"Dein Training":"Zeit zum Auftanken"}</span>
@@ -2044,7 +2346,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
         {guidance.text.length>110&&<button className="text-btn more-btn" aria-expanded={guideOpen} onClick={()=>setGuideOpen(o=>!o)}>{guideOpen?"Weniger":"Mehr lesen"}</button>}</aside>}
       <div className="session-actions">
         <div><button className="text-btn" onClick={()=>setSheetOpen(true)}><Icon name="edit" size={16}/> Ändern</button>
-          <button className="text-btn" onClick={()=>setNotesOpen(o=>!o)} aria-expanded={notesOpen}><Icon name="note" size={16}/> {e.notes?"Notiz":<>Notiz<span className="wide-only"> hinzufügen</span></>}</button>
+          <button className="text-btn" onClick={()=>setNotesOpen(o=>!o)} aria-expanded={notesOpen}><Icon name="note" size={16}/> {e.notes?"Notiz":<span>Notiz<span className="wide-only"> hinzufügen</span></span>}</button>
           {dayOff===0&&<button className="text-btn" onClick={()=>setComplaintOpen(true)}><Icon name="alert" size={16}/> Beschwerde</button>}</div>
       </div>
       {confirmUnlog&&<div className="inline-confirm"><p>Diesen Trainingseintrag entfernen?</p>
@@ -2062,7 +2364,8 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
         {sessions.map(s=><TipCard key={s} workout={s}/>)}</details>}
     </section>
     {dayOff===0&&<LoadCard plan={plan} dk={viewKey} complaints={complaints}/>}
-    <NutritionCard key={"nutrition-"+viewKey} entry={e} dateKey={viewKey} updDay={updDay} target={proteinTarget} {...meals}/>
+    <NutritionCard key={"nutrition-"+viewKey} entry={e} dateKey={viewKey} updDay={updDay} target={proteinTarget} {...meals}
+      onPlanSocial={dayOff===0&&socialProps?()=>socialProps.onPlan():null}/>
     <UpNextCard plan={plan} from={viewKey} onSelect={go}/>
     {sheetOpen&&<WorkoutSheet dateKey={viewKey} entry={e} updDay={updDay} onClose={()=>setSheetOpen(false)}
       onReportComplaint={dayOff===0?()=>setComplaintOpen(true):null}/>}
@@ -2243,7 +2546,7 @@ function bodySnapshot(plan,today=todayStr()) {
 // Numbers for one completed week (Mon–Sun), computed in the app so they are exact;
 // the coach only writes the assessment around them.
 function lastCompletedWeek(today=todayStr()) { return daysBeforeStr(weekAround(today)[0],7); }
-function weeklyReportFacts(plan,weekStart,target=DEFAULT_PROTEIN_TARGET,complaints=[]) {
+function weeklyReportFacts(plan,weekStart,target=DEFAULT_PROTEIN_TARGET,complaints=[],social=null) {
   const days=Array.from({length:7},(_,i)=>daysBeforeStr(weekStart,-i)),weekEnd=days[6],prevDays=days.map(d=>daysBeforeStr(d,7));
   const types=dk=>[...new Set(getSessions(plan[dk]))],logged=dk=>plan[dk]?.completed===true&&types(dk).length>0;
   const sessions={};
@@ -2274,7 +2577,8 @@ function weeklyReportFacts(plan,weekStart,target=DEFAULT_PROTEIN_TARGET,complain
     recovery:{nights:rec.length,avgSleepMin:avg(rec,'sleepMin'),avgHrv:avg(rec,'hrv'),avgRestingHr:avg(rec,'restingHr'),prevAvgRestingHr:avg(prevRec,'restingHr'),
       cautionDays:levels.filter(l=>l==='caution').length,lowDays:levels.filter(l=>l==='low').length},
     steps:{avg:steps.length?Math.round(steps.reduce((a,b)=>a+b,0)/steps.length):null,days:steps.length},
-    complaints:complaintsInRange(complaints,weekStart,weekEnd)};
+    complaints:complaintsInRange(complaints,weekStart,weekEnd),
+    social:(({form,...rest})=>rest)(socialTable(social?.matches,weekStart,weekEnd))};
 }
 
 // Minimal responsive SVG line chart: rolling-average line (gap-aware), raw
@@ -2374,7 +2678,7 @@ function MeasurementEditor({plan,initialDate,updDay,onClose}) {
     <div className="sheet-footer"><button className="primary" disabled={!valid} onClick={save}>Speichern</button><button className="secondary" onClick={onClose}>Abbrechen</button></div>
   </section>;
 }
-function BodyView({plan,updDay,proteinTarget}) {
+function BodyView({plan,updDay,proteinTarget,socialProps}) {
   const today=todayStr(),snap=bodySnapshot(plan,today);
   const [editor,setEditor]=useState(null),[metric,setMetric]=useState("bodyFat"),[range,setRange]=useState("3m");
   const editorRef=useRef(null);
@@ -2439,6 +2743,7 @@ function BodyView({plan,updDay,proteinTarget}) {
         {nut.kcalDays>0&&<p className="chart-caption">Ø {nut.avgKcal.toLocaleString("de-CH")} kcal an {nut.kcalDays} {nut.kcalDays===1?"Tag":"Tagen"} mit erfassten Mahlzeiten · Schätzung, zählt nur Erfasstes</p>}
       </div>
     </section>
+    {socialProps&&<SocialSection {...socialProps}/>}
     {stepDays.some(d=>d.steps!=null)&&<section aria-label="Schritte der letzten sieben Tage">
       <div className="section-heading"><h2>Schritte</h2><span>Ø {stepAvg.toLocaleString("de-CH")} · letzte 7 Tage</span></div>
       <div className="panel steps-week">{stepDays.map(d=><div key={d.date} className="steps-day" role="img"
@@ -2503,7 +2808,7 @@ function JourneyView({plan,today,onGoToDay,onOpenSettings,onOpenReport}) {
 }
 
 // ─── Coach screen (full-screen chat) ─────────────────────────────────────────────
-function CoachScreen({viewKey,plan,playerName,proteinTarget,complaints,onBack}) {
+function CoachScreen({viewKey,plan,playerName,proteinTarget,complaints,social,onBack}) {
   const [messages,setMessages]=useState([]);
   const [input,setInput]=useState("");
   const [sending,setSending]=useState(false);
@@ -2526,7 +2831,7 @@ function CoachScreen({viewKey,plan,playerName,proteinTarget,complaints,onBack}) 
     setMessages([...base,{role:"assistant",content:""}]);
     try {
       const resp=await fetch("/api/coach",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json",...authHeaders()},
-        body:JSON.stringify({...buildCoachContext(plan,playerName,viewKey,todayStr(),proteinTarget,complaints),messages:base.slice(-20)})});
+        body:JSON.stringify({...buildCoachContext(plan,playerName,viewKey,todayStr(),proteinTarget,complaints,social),messages:base.slice(-20)})});
       if (resp.status===401) throw Object.assign(new Error("access"),{auth:true});
       if (!resp.ok||!resp.body) throw new Error("bad response");
       const reader=resp.body.getReader(), decoder=new TextDecoder();
@@ -2594,7 +2899,7 @@ function writeProposal(weekStart,data) { try { data?localStorage.setItem(proposa
 const PLAN_ERRORS={access_denied:"Der Zugangscode stimmt nicht.",access_code_not_configured:"In Vercel fehlt noch APP_ACCESS_CODE.",
   model_not_configured:"Auf dem Server fehlt der Anthropic-Schlüssel.",plan_busy:"Gerade viele Anfragen. Gleich erneut versuchen.",
   plan_refused:"Für diese Woche gibt es keinen Vorschlag.",invalid_week:"Diese Woche kann nicht geplant werden."};
-function PlanProposal({plan,weekStart,playerName,proteinTarget,complaints,onApply,onUndo}) {
+function PlanProposal({plan,weekStart,playerName,proteinTarget,complaints,social,onApply,onUndo}) {
   const [record,setRecord]=useState(()=>readProposal(weekStart)),[busy,setBusy]=useState(false),[error,setError]=useState("");
   useEffect(()=>{setRecord(readProposal(weekStart));setError("");},[weekStart]);
   const save=r=>{writeProposal(weekStart,r);setRecord(r);};
@@ -2604,7 +2909,7 @@ function PlanProposal({plan,weekStart,playerName,proteinTarget,complaints,onAppl
     setBusy(true);setError("");
     try{
       const res=await fetch("/api/plan",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},
-        body:JSON.stringify({...planWeekInput(plan,weekStart,today,complaints),context:buildCoachContext(plan,playerName,today,today,proteinTarget,complaints)})});
+        body:JSON.stringify({...planWeekInput(plan,weekStart,today,complaints),context:buildCoachContext(plan,playerName,today,today,proteinTarget,complaints,social)})});
       const body=await res.json().catch(()=>({}));
       if(!res.ok||!body.proposal){setError(PLAN_ERRORS[body.error]||"Der Vorschlag hat nicht geklappt. Versuch es erneut.");return;}
       save({proposal:body.proposal,createdAt:new Date().toISOString(),applied:null});
@@ -2672,11 +2977,16 @@ function factGroups(f) {
     r.avgSleepMin||r.avgHrv?{value:limited,label:`${plural(limited,"Tag","Tage")} eingeschränkt`}:null,
     f.steps.avg?{value:f.steps.avg.toLocaleString("de-CH"),label:"Ø Schritte"}:null].filter(Boolean);
   if(rec.length)groups.push({title:"Erholung & Bewegung",tiles:rec});
+  const sm=f.social;
+  if(sm&&(sm.played||sm.friendlies))groups.push({title:"Social Matches",tiles:[
+    sm.played?{value:`${sm.wins}-${sm.draws}-${sm.losses}`,label:"Sieg · Unent. · Niederl."}:null,
+    sm.played?{value:sm.avg.toFixed(1),label:`Ø Punkte (Ziel ${SOCIAL_GOAL.toFixed(1)})`,good:sm.avg>=SOCIAL_GOAL}:null,
+    sm.friendlies?{value:sm.friendlies,label:sm.friendlies===1?"Testspiel":"Testspiele"}:null].filter(Boolean)});
   if(f.complaints?.length)groups.push({title:"Beschwerden",lines:f.complaints.map(c=>`${c.area}${c.level?` · ${c.level}`:""}${c.resolved?" · wieder gut":""}`)});
   return groups;
 }
 function ReportScreen({plan,weekStart,playerName,proteinTarget,onBack,planner}) {
-  const facts=weeklyReportFacts(plan,weekStart,proteinTarget,planner?.complaints),latest=weekStart===lastCompletedWeek();
+  const facts=weeklyReportFacts(plan,weekStart,proteinTarget,planner?.complaints,planner?.social),latest=weekStart===lastCompletedWeek();
   const [text,setText]=useState(()=>readReport(weekStart)?.text||""),[busy,setBusy]=useState(false),[error,setError]=useState("");
   const requestRef=useRef(null);
   useEffect(()=>()=>requestRef.current?.abort(),[]);
@@ -2685,7 +2995,7 @@ function ReportScreen({plan,weekStart,playerName,proteinTarget,onBack,planner}) 
     const controller=new AbortController();requestRef.current=controller;
     try{
       const resp=await fetch("/api/coach",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json",...authHeaders()},
-        body:JSON.stringify({...buildCoachContext(plan,playerName,todayStr(),todayStr(),proteinTarget,planner?.complaints),weeklyReport:{...facts,isLatest:latest},
+        body:JSON.stringify({...buildCoachContext(plan,playerName,todayStr(),todayStr(),proteinTarget,planner?.complaints,planner?.social),weeklyReport:{...facts,isLatest:latest},
           messages:[{role:"user",content:`Wochenreport für die Woche ${weekLabel(weekStart)}`}]})});
       if(resp.status===401)throw Object.assign(new Error("access"),{auth:true});
       // Only the coach's plain-text stream counts (never an HTML error page).
@@ -2739,6 +3049,7 @@ export default function App() {
   const [garmin,setGarmin]=useState(()=>({state:readAccessCode()?"idle":"off"})),[syncToast,setSyncToast]=useState("");
   const [withings,setWithings]=useState(()=>({state:readAccessCode()?"idle":"off"}));
   const [reportWeek,setReportWeek]=useState(null),[complaints,setComplaints]=useState([]),[favorites,setFavorites]=useState([]);
+  const [social,setSocial]=useState({matches:[],rules:null,holidays:[]}),[socialSheet,setSocialSheet]=useState(null);
   const openReport=week=>{setReportWeek(week||lastCompletedWeek());setScreen("report");window.scrollTo(0,0);};
   useEffect(()=>{
     (async()=>{
@@ -2752,6 +3063,7 @@ export default function App() {
           storedExtras.current=extras;
           setComplaints(Array.isArray(extras.complaints)?extras.complaints:[]);
           setFavorites(favoriteList(extras.mealFavorites));
+          setSocial({matches:socialMatches(extras.socialMatches),rules:extras.socialRules||null,holidays:holidayPeriods(extras.socialHolidays)});
           const target=validProteinTarget(storedTarget)?storedTarget:null;
           setPlayerName(typeof name==="string"?name:"");setPlan(savedPlan);setProteinSetting(target);setScreen(name?"main":"setup");
           if(previous||updated!==d)localStorage.setItem(SK,JSON.stringify({...extras,playerName:name||"",...(target!=null?{proteinTarget:target}:{}),plan:savedPlan}));
@@ -2770,7 +3082,7 @@ export default function App() {
       try{window.history.replaceState(null,"",window.location.pathname);}catch{}
     }
   },[]);
-  useEffect(()=>{if(!loading&&!loadError)writeReminderStatus(reminderStatus(plan,todayStr(),proteinTarget));},[plan,proteinTarget,loading,loadError]);
+  useEffect(()=>{if(!loading&&!loadError)writeReminderStatus(reminderStatus(plan,todayStr(),proteinTarget,social));},[plan,proteinTarget,social,loading,loadError]);
   const syncRef=useRef(null);
   useEffect(()=>{
     if(loading||loadError)return;
@@ -2882,7 +3194,18 @@ export default function App() {
   const saveComplaints=list=>{storedExtras.current={...storedExtras.current,complaints:list};setComplaints(list);save(planRef.current);};
   const reportComplaintNow=c=>saveComplaints(reportComplaint(storedExtras.current.complaints,c,todayStr()));
   const resolveComplaintNow=id=>saveComplaints(resolveComplaint(storedExtras.current.complaints,id,todayStr()));
-  const planner={playerName,proteinTarget,complaints,onApply:applyProposal,onUndo:undoProposal};
+  // Social matches: stored top-level like complaints; every change goes through storedExtras.
+  const saveSocial=patch=>{storedExtras.current={...storedExtras.current,...patch};const x=storedExtras.current;
+    setSocial({matches:socialMatches(x.socialMatches),rules:x.socialRules||null,holidays:holidayPeriods(x.socialHolidays)});save(planRef.current);};
+  const saveSocialMatch=(input,asDefault)=>{const r=planSocialMatch(storedExtras.current.socialMatches,input,storedExtras.current.socialHolidays);
+    if(r.error)return r.error;saveSocial({socialMatches:r.list,...(asDefault?{socialRules:r.match.rules}:{})});setSocialSheet(null);return null;};
+  const socialProps={social,
+    onPlan:(date,friendly)=>setSocialSheet({date,friendly}),onEdit:m=>setSocialSheet({match:m}),
+    onEvaluate:(id,kept)=>saveSocial({socialMatches:evaluateSocialMatch(storedExtras.current.socialMatches,id,kept)}),
+    onCancel:id=>{saveSocial({socialMatches:cancelSocialMatch(storedExtras.current.socialMatches,id)});setSocialSheet(null);},
+    onAddHoliday:form=>{const r=addHoliday(storedExtras.current.socialHolidays,form||{});if(r.error)return r.error;saveSocial({socialHolidays:r.list});return null;},
+    onRemoveHoliday:id=>saveSocial({socialHolidays:removeHoliday(storedExtras.current.socialHolidays,id)})};
+  const planner={playerName,proteinTarget,complaints,social,onApply:applyProposal,onUndo:undoProposal};
   const saveFavorites=list=>{storedExtras.current={...storedExtras.current,mealFavorites:list};setFavorites(list);save(planRef.current);};
   const addMeal=(dk,meal)=>updDayWith(dk,e=>({meals:[...(Array.isArray(e.meals)?e.meals:[]),meal]}));
   const mealHandlers={
@@ -2914,7 +3237,7 @@ export default function App() {
     connections={{garmin,withings,scale:scaleSummary(plan),onSync:syncSources,onWithingsConnect:connectWithings,onWithingsDisconnect:disconnectWithings}}
     onSave={(n,target)=>{const pt=target===DEFAULT_PROTEIN_TARGET&&proteinSetting==null?null:target;setPlayerName(n);setProteinSetting(pt);save(plan,n,pt);setScreen("main");}}/>;
   else if(screen==="report")content=<ReportScreen plan={plan} weekStart={reportWeek||lastCompletedWeek()} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")} planner={planner}/>;
-  else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} complaints={complaints} onBack={()=>setScreen("main")}/>;
+  else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} complaints={complaints} social={social} onBack={()=>setScreen("main")}/>;
   else content=<main className="app-shell">
     <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Soccer Tracker</span>
       <div className="head-actions"><button className="icon-btn head-settings" aria-label="Einstellungen" onClick={()=>{setScreen("setup");window.scrollTo(0,0);}}><Icon name="settings" size={20}/></button>
@@ -2922,16 +3245,18 @@ export default function App() {
       <h1>{headings[view]}</h1>
       <p className="subtitle">{playerName} <span style={{color:C.borderSt}}> / </span> {phase?phaseLabel(phase.name):today<SEASON_START?"Deine Saison beginnt bald":"Saison abgeschlossen"}</p>
     </header>
-    {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} proteinTarget={proteinTarget} meals={mealHandlers} onOpenReport={openReport} complaints={complaints} onReportComplaint={reportComplaintNow} onResolveComplaint={resolveComplaintNow}
+    {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} proteinTarget={proteinTarget} meals={mealHandlers} onOpenReport={openReport} complaints={complaints} onReportComplaint={reportComplaintNow} onResolveComplaint={resolveComplaintNow} socialProps={socialProps}
       onOpenPlan={()=>{setWkOff(Math.floor((dow0(new Date())+dayOff)/7));setPlanMode("week");setView("plan");window.scrollTo(0,0);}}/>}
     {view==="plan"&&<PlanView mode={planMode} setMode={setPlanMode} today={today} plan={plan} wkOff={wkOff} setWkOff={setWkOff}
       moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays} planner={planner}/>}
-    {view==="body"&&<BodyView plan={plan} updDay={updDay} proteinTarget={proteinTarget}/>}
+    {view==="body"&&<BodyView plan={plan} updDay={updDay} proteinTarget={proteinTarget} socialProps={socialProps}/>}
     {view==="season"&&<JourneyView today={today} plan={plan} onGoToDay={goToDay} onOpenSettings={()=>setScreen("setup")} onOpenReport={openReport}/>}
     <nav className="nav" aria-label="Hauptnavigation">{tabs.map(([key,label,icon])=><button key={key} aria-label={label} aria-current={view===key?"page":undefined}
       onClick={()=>{setView(key);if(key==="today")setDayOff(0);window.scrollTo(0,0);}}><TabIcon name={icon}/><span>{label}</span></button>)}</nav>
   </main>;
   return <><style>{UI_CSS}</style>{content}
+    {socialSheet&&<SocialSheet social={social} match={socialSheet.match} initialDate={socialSheet.date} initialFriendly={socialSheet.friendly}
+      onSave={saveSocialMatch} onCancel={socialProps.onCancel} onClose={()=>setSocialSheet(null)}/>}
     {restoredToast&&<div className="toast" role="status">✓ Sicherung wiederhergestellt</div>}
     {syncToast&&!restoredToast&&!storageError&&<div className="toast" role="status">{syncToast}</div>}
     {storageError&&<div className="toast" role="alert"><p>{storageError}</p><button className="text-btn" onClick={()=>save()}>Erneut speichern</button></div>}

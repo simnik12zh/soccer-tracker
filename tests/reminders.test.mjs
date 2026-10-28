@@ -156,7 +156,7 @@ test('app writes a two-week reminder snapshot using the open-items logic',()=>{
   assert.deepEqual(plain(status.days['2026-10-26'].open),['Training','36 g Protein']);
   assert.deepEqual(plain(status.days['2026-10-27'].open),[],'future days are evaluated as of that day');
   assert.deepEqual(plain(status.days['2026-10-28'].open),['Protein','Ernährung bewerten']);
-  assert.match(source,/writeReminderStatus\(reminderStatus\(plan,todayStr\(\),proteinTarget\)\)/);
+  assert.match(source,/writeReminderStatus\(reminderStatus\(plan,todayStr\(\),proteinTarget,social\)\)/);
   const sw=readFileSync(new URL('../public/sw.js',import.meta.url),'utf8');
   for(const name of ['soccer-status','/__reminder-status'])assert.ok(source.includes(name)&&sw.includes(name),name+' shared by app and worker');
 });
