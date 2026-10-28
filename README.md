@@ -173,8 +173,13 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   the app rebuilds them from each activity's Garmin training load (`activityTrainingLoad`):
   acute = last 7 days; normal range = 0.8–1.3 × his average week over the last 4 weeks
   (`loadStatus`, needs 21 days of watch data). `typicalLoads` = his own median per session type
-  over 60 days; `plannedLoad` adds today's planned, not yet done sessions; `loadAdvice` gives one
-  sentence (low recovery always wins over spare load). Heute shows a load card for today (value,
+  over 60 days; `plannedLoad` adds planned, not yet done sessions. `loadOutlook` looks ahead:
+  the rolling 7-day load for today and the next 4 days with planned sessions at his typical load
+  (peak = highest window). `loadAdvice` gives one sentence: low recovery always wins over spare
+  load; nothing extra the day before a game, only walking/mobility the day after; an extra session
+  only if the projected peak plus the extra stays at most ~1.1 × his average week
+  (`LOAD_EXTRA_TARGET`), otherwise it names the planned sessions that fill the week. The expanded
+  card shows the projected peak as a hollow marker. Heute shows a load card for today (value,
   range bar with the planned part, advice); Plan → Woche shows six weekly totals with the range.
   The coach gets the whole block (`load`, whitelisted server-side). The Garmin endpoint now
   accepts up to 60 days: activities for the full window (paged by 99), steps/sleep/HRV/daily

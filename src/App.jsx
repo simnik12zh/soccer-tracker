@@ -755,6 +755,24 @@ function plannedLoad(plan,dk,typical) {
   const sessions=getSessions(e).filter(s=>LOAD_TYPE_FOR_SESSION[s]&&typical[LOAD_TYPE_FOR_SESSION[s]]);
   return {sessions,load:sessions.reduce((n,s)=>n+typical[LOAD_TYPE_FOR_SESSION[s]],0)};
 }
+// Forward view: the rolling 7-day load for today and the next LOAD_HORIZON days, from what is
+// done plus the planned, not yet done sessions at his own typical load. An extra session today
+// counts in every one of these windows, so it fits only if the highest one stays near his
+// average week (LOAD_EXTRA_TARGET × weekly): planning up to the top of the range is not the goal.
+const LOAD_HORIZON=4,LOAD_EXTRA_TARGET=1.1;
+function loadOutlook(plan,dk=todayStr(),typical=typicalLoads(plan,dk),horizon=LOAD_HORIZON) {
+  const loadOn=x=>dayLoad(plan[x])+(x<dk?0:plannedLoad(plan,x,typical).load);
+  const days=Array.from({length:horizon+1},(_,i)=>daysBeforeStr(dk,-i));
+  const windowLoad=d=>{let n=0;for(let i=0;i<7;i++)n+=loadOn(daysBeforeStr(d,i));return Math.round(n);};
+  const projected=days.map(date=>({date,load:windowLoad(date)}));
+  const upcoming=days.slice(1).map(date=>({date,...plannedLoad(plan,date,typical)})).filter(u=>u.load>0);
+  return {projected,peak:projected.reduce((a,b)=>b.load>a.load?b:a),upcoming};
+}
+// "Mannschaftstraining (Do), Spiel (Fr) und Spiel (So)"; light days (walks, mobility) count but are not named.
+function outlookLabel(upcoming) {
+  const parts=upcoming.filter(u=>u.load>=30).map(u=>`${u.sessions.map(displayName).join(' + ')} (${DN[dow0(new Date(u.date+'T12:00:00'))]})`);
+  return parts.length>1?parts.slice(0,-1).join(', ')+' und '+parts.at(-1):parts[0]||'';
+}
 function loadAdvice(plan,dk=todayStr(),status=loadStatus(plan,dk),recovery=recoveryStatus(plan,dk),complaints=[]) {
   // A complaint from "Mittel" upwards counts even without enough watch data.
   const hurting=activeComplaints(complaints,dk).filter(c=>c.level>=2).sort((a,b)=>b.level-a.level)[0];
@@ -767,14 +785,26 @@ function loadAdvice(plan,dk=todayStr(),status=loadStatus(plan,dk),recovery=recov
   if(status.status==='high'||status.status==='veryHigh')
     return planned.load?`Du liegst schon über deinem Bereich. ${label} (≈ ${planned.load}) heute kürzer oder lockerer halten.`
       :'Du liegst über deinem Bereich. Heute keine Zusatzeinheit, höchstens Mobilität oder Spazieren.';
+  const outlook=loadOutlook(plan,dk,typical),peak=outlook.peak.load,ahead=outlookLabel(outlook.upcoming),over=peak>status.high;
   if(planned.load){
     const after=status.acute+planned.load;
-    return after<=status.high?`Mit ${label} (≈ ${planned.load}) bleibst du im Bereich.`
-      :`Mit ${label} (≈ ${planned.load}) kommst du auf ${after}, knapp über deinem Bereich. Kontrolliert halten.`;
+    if(after>status.high)return `Mit ${label} (≈ ${planned.load}) kommst du auf ${after}, knapp über deinem Bereich. Kontrolliert halten.`;
+    return over&&ahead?`Mit ${label} (≈ ${planned.load}) bleibst du heute im Bereich, aber mit ${ahead} kommst du danach auf ≈ ${peak}. Heute kontrolliert halten.`
+      :`Mit ${label} (≈ ${planned.load}) bleibst du im Bereich.`;
   }
-  const run=typical['Easy run'];
-  if(status.status==='low')return run&&status.headroom>=run?`Du liegst unter deinem Bereich. Ein lockerer Lauf (≈ ${run}) passt gut.`:'Du liegst unter deinem Bereich. Eine zusätzliche Einheit passt.';
-  if(run&&status.headroom>=run)return `Spielraum ca. ${status.headroom}: Ein lockerer Lauf (≈ ${run}) liegt noch drin.`;
+  // Football rules as in the weekly plan: nothing extra the day before a game, recovery the day after.
+  if(isMatchDay(plan[daysBeforeStr(dk,-1)]))return 'Morgen ist Spiel. Heute keine Zusatzeinheit, höchstens Mobilität oder Spazieren.';
+  if(isMatchDay(plan[daysBeforeStr(dk,1)]))return 'Gestern war Spiel. Heute nur Spazieren oder Mobilität.';
+  const run=typical['Easy run'],extra=run||typical.Gym||50,target=Math.round(status.weekly*LOAD_EXTRA_TARGET);
+  if(peak+extra<=target){
+    const also=ahead?', auch mit dem, was noch geplant ist':'';
+    if(status.status==='low')return run?`Du liegst unter deinem Bereich${also}. Ein lockerer Lauf (≈ ${run}) passt gut.`:`Du liegst unter deinem Bereich${also}. Eine zusätzliche Einheit passt.`;
+    if(run)return `Spielraum ca. ${target-peak}${ahead?' trotz deines Plans':''}: Ein lockerer Lauf (≈ ${run}) liegt noch drin.`;
+  }
+  if(ahead)return status.status==='low'
+    ?`Du liegst noch unter deinem Bereich, aber mit ${ahead} kommst du auf ≈ ${peak}${over?', über deinem Bereich':''}. Heute keine Zusatzeinheit.`
+    :over?`Mit ${ahead} kommst du auf ≈ ${peak}, über deinem Bereich. Heute nichts extra.`
+    :`Du bist im Bereich, und mit ${ahead} kommt genug dazu. Heute nichts extra.`;
   return 'Du bist im Bereich. Mehr braucht es heute nicht.';
 }
 // Weekly totals (Mon–Sun) for the n weeks up to the week of dk.
@@ -1035,7 +1065,10 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
       const typical=typicalLoads(plan,referenceDate),planned=plannedLoad(plan,referenceDate,typical);
       return {ready:true,acute7Days:st.acute,averageWeek4Weeks:st.weekly,optimalRange:[st.low,st.high],ratio:st.ratio,status:st.status,headroomToday:st.headroom,
         plannedTodayLoad:planned.load||null,typicalLoadBySession:Object.fromEntries(Object.entries(typical).map(([k,v])=>[GARMIN_LABELS[k]||k,v])),
-        last6Weeks:weeklyLoads(plan,referenceDate,6),appAdvice:loadAdvice(plan,referenceDate,st,recoveryStatus(plan,referenceDate),complaints)};})(),
+        last6Weeks:weeklyLoads(plan,referenceDate,6),
+        outlook:(o=>({plannedNextDays:o.upcoming.map(u=>({date:u.date,sessions:u.sessions.map(displayName),typicalLoad:u.load})),
+          projected7Days:o.projected,projectedPeak:o.peak}))(loadOutlook(plan,referenceDate,typical)),
+        appAdvice:loadAdvice(plan,referenceDate,st,recoveryStatus(plan,referenceDate),complaints)};})(),
     complaints:complaintsForCoach(complaints,referenceDate),
     social:socialForCoach(social?.matches,social?.holidays,referenceDate),
     nutrition:{proteinTargetGrams:target,last7Days:eatingStats(daysBeforeStr(referenceDate,6),referenceDate),
@@ -1324,6 +1357,7 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .load-bar{position:relative;height:12px;border-radius:var(--r-pill);background:var(--track);margin:12px 0 10px;overflow:visible}
 .load-bar .zone{position:absolute;top:0;bottom:0}.load-bar .optimal{background:rgba(143,209,158,.35)}.load-bar .high{background:rgba(233,196,106,.3)}.load-bar .very{background:rgba(229,138,126,.28);border-radius:0 99px 99px 0}
 .load-bar .planned{position:absolute;top:3px;bottom:3px;background:repeating-linear-gradient(90deg,var(--accent) 0 4px,transparent 4px 7px);opacity:.8}
+.load-bar .marker.peak{background:transparent;border:2px solid var(--text);box-shadow:none;width:8px}
 .load-bar .marker{position:absolute;top:-5px;width:4px;height:22px;border-radius:4px;background:var(--text);transform:translateX(-50%);box-shadow:0 0 0 3px #1B2935}
 .load-advice{font-size:13px;line-height:1.5;color:var(--text)}
 .load-weeks{padding:18px 14px 14px}
@@ -2098,7 +2132,8 @@ function LoadCard({plan,dk,complaints}) {
   const status=loadStatus(plan,dk),advice=loadAdvice(plan,dk,status,recoveryStatus(plan,dk),complaints),[open,setOpen]=useState(false);
   if(!status.ready&&!status.historyDays)return null;
   const typical=status.ready?typicalLoads(plan,dk):{},planned=status.ready?plannedLoad(plan,dk,typical):{load:0};
-  const scaleMax=status.ready?Math.max(status.veryHigh*1.15,status.acute+planned.load)*1.05:1;
+  const outlook=status.ready?loadOutlook(plan,dk,typical):null,peak=outlook?.peak;
+  const scaleMax=status.ready?Math.max(status.veryHigh*1.15,status.acute+planned.load,peak.load)*1.05:1;
   const pos=v=>Math.max(0,Math.min(100,v/scaleMax*100))+"%";
   return <section className="panel load-card" aria-label="Trainingsbelastung">
     {status.ready?<button className="load-summary" aria-expanded={open} onClick={()=>setOpen(o=>!o)}>
@@ -2113,10 +2148,12 @@ function LoadCard({plan,dk,complaints}) {
         <span className="zone high" style={{left:pos(status.high),width:`calc(${pos(status.veryHigh)} - ${pos(status.high)})`}}/>
         <span className="zone very" style={{left:pos(status.veryHigh),right:0}}/>
         {planned.load>0&&<span className="planned" style={{left:pos(status.acute),width:`calc(${pos(status.acute+planned.load)} - ${pos(status.acute)})`}}/>}
+        {peak.load>status.acute+planned.load&&<span className="marker peak" style={{left:pos(peak.load)}} title="Vorschau"/>}
         <span className="marker" style={{left:pos(status.acute)}}/>
       </div>
       <p className="load-range">Dein Bereich {status.low}–{status.high}{planned.load>0?` · heute geplant ≈ ${planned.load}`:""}</p>
-      <p className="chart-caption">Garmin-Trainingsbelastung der letzten 7 Tage. Bereich: dein Wochenschnitt der letzten 4 Wochen × 0.8–1.3. Zählt nur, was die Uhr aufzeichnet.</p>
+      {outlook.upcoming.length>0&&<p className="load-range">Mit deinem Plan: bis ≈ {peak.load} ({DN[dow0(new Date(peak.date+"T12:00:00"))]})</p>}
+      <p className="chart-caption">Garmin-Trainingsbelastung der letzten 7 Tage. Bereich: dein Wochenschnitt der letzten 4 Wochen × 0.8–1.3. Zählt nur, was die Uhr aufzeichnet. Vorschau (Rahmen): geplante Einheiten der nächsten {LOAD_HORIZON} Tage mit deiner üblichen Belastung. Eine Zusatzeinheit gibt es nur, wenn du damit höchstens etwa 10 % über deinem Wochenschnitt landest.</p>
     </div>}
   </section>;
 }
