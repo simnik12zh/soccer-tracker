@@ -2,7 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { accessDenied } from "./_lib/access.js";
 
 // Keep the existing direct Anthropic integration and server-side API key.
-const MODEL = "claude-sonnet-5-5";
+// Opus 5.5: the coach weighs many signals at once (load, recovery, food, body, games).
+const MODEL = "claude-opus-5-5";
 
 const SYSTEM_PROMPT = `You are the personal Athletiktrainer of a 35-year-old amateur defender (right back / centre back) in the 4th and 5th Liga Schweiz. You have spent years preparing footballers: strength, speed, robustness, recovery and nutrition. You know the amateur reality — a full working day, training in the evening, games at the weekend — and you coach him like your own athlete, not like a customer.
 
@@ -174,11 +175,14 @@ export default async function handler(req, res) {
   const client = new Anthropic({ apiKey });
 
   try {
-    const stream = client.messages.stream({
+    const stream = client.beta.messages.stream({
       model: MODEL,
-      max_tokens: 1536,
-      // Sonnet 5.5 rejects "disabled"; without tools this returns text only.
-      thinking: { type: "between_tools" },
+      // Thinking is always on for Opus 5.5 and counts towards max_tokens; replies stay short via the prompt.
+      max_tokens: 16000,
+      output_config: { effort: "medium" },
+      // Server-side fallback if a safety classifier declines (rare for coaching).
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
       system: `${SYSTEM_PROMPT}\n\n${buildContextBlock(ctx)}`,
       messages,
     });

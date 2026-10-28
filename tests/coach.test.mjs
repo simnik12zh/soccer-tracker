@@ -15,7 +15,7 @@ const makeContext=(plan=app.buildDefaultPlan(),view='2026-09-30',today='2026-09-
 function server(Client,env={}){
   const requests=[];
   class FakeAnthropic {
-    messages={stream:params=>{requests.push(params);return {on:(event,cb)=>{if(event==='text')cb('Testantwort');},finalMessage:async()=>({})};}};
+    beta={messages:{stream:params=>{requests.push(params);return {on:(event,cb)=>{if(event==='text')cb('Testantwort');},finalMessage:async()=>({})};}}};
   }
   const code=backend.replace(/^import [^\n]*\n/gm,'').replace('export default async function handler','async function handler');
   const api=vm.runInNewContext(code+'\n({handler,buildContextBlock,sanitizeMessages,SYSTEM_PROMPT,MODEL})',{
@@ -146,13 +146,17 @@ test('messages and notes are bounded without changing stored text',()=>{
   assert.match(ctx.today.notes,/gekürzt/);
 });
 
-test('server handler sends briefing data to Sonnet 5.5 with compatible thinking and streams text (mock)',async()=>{
+test('server handler sends briefing data to Opus 5.5 (thinking on, medium effort, fallback) and streams text (mock)',async()=>{
   const api=server(),res={headers:{},body:'',code:200,setHeader(k,v){this.headers[k]=v;},write(s){this.body+=s;},end(){this.ended=true;},status(n){this.code=n;return this;},json(obj){this.body=JSON.stringify(obj);}};
   await api.handler({method:'POST',body:{...makeContext(),messages:[{role:'user',content:'daily briefing'}]}},res);
   assert.equal(api.requests.length,1);
-  assert.equal(api.requests[0].model,'claude-sonnet-5-5');
-  assert.deepEqual(plain(api.requests[0].thinking),{type:'between_tools'});
-  assert.equal(api.requests[0].max_tokens,1536);
+  assert.equal(api.requests[0].model,'claude-opus-5-5');
+  assert.equal(api.requests[0].thinking,undefined,'Opus 5.5 always thinks; disabling it would be a 400');
+  assert.deepEqual(plain(api.requests[0].output_config),{effort:'medium'});
+  assert.deepEqual(plain(api.requests[0].betas),['server-side-fallback-2026-07-01']);
+  assert.equal(api.requests[0].fallbacks,'default');
+  assert.equal(api.requests[0].temperature,undefined);
+  assert.equal(api.requests[0].max_tokens,16000);
   assert.equal(api.requests[0].tools,undefined,'text-only coach does not use tools');
   assert.match(api.requests[0].system,/FC UBS 1 AG/);
   assert.match(api.requests[0].system,/2026-09-30/);
@@ -165,20 +169,24 @@ test('server handler sends briefing data to Sonnet 5.5 with compatible thinking 
   assert.equal(api.requests.length,1,'oversized request never calls provider');
 });
 
-test('installed Anthropic SDK serializes Sonnet 5.5 settings and forwards streamed text (mock transport)',async()=>{
-  let sent;
+test('installed Anthropic SDK serializes Opus 5.5 settings and forwards streamed text (mock transport)',async()=>{
+  let sent,sentHeaders;
+  // Opus 5.5 first streams a thinking block (empty text by default), then the answer.
   const events=[
-    {type:'message_start',message:{id:'msg_test',type:'message',role:'assistant',model:'claude-sonnet-5-5',content:[],stop_reason:null,stop_sequence:null,usage:{input_tokens:10,output_tokens:0}}},
-    {type:'content_block_start',index:0,content_block:{type:'text',text:''}},
-    {type:'content_block_delta',index:0,delta:{type:'text_delta',text:'Guten Morgen. '}},
-    {type:'content_block_delta',index:0,delta:{type:'text_delta',text:'Heute locker bleiben.'}},
+    {type:'message_start',message:{id:'msg_test',type:'message',role:'assistant',model:'claude-opus-5-5',content:[],stop_reason:null,stop_sequence:null,usage:{input_tokens:10,output_tokens:0}}},
+    {type:'content_block_start',index:0,content_block:{type:'thinking',thinking:'',signature:''}},
+    {type:'content_block_delta',index:0,delta:{type:'signature_delta',signature:'sig'}},
     {type:'content_block_stop',index:0},
+    {type:'content_block_start',index:1,content_block:{type:'text',text:''}},
+    {type:'content_block_delta',index:1,delta:{type:'text_delta',text:'Guten Morgen. '}},
+    {type:'content_block_delta',index:1,delta:{type:'text_delta',text:'Heute locker bleiben.'}},
+    {type:'content_block_stop',index:1},
     {type:'message_delta',delta:{stop_reason:'end_turn',stop_sequence:null},usage:{output_tokens:12}},
     {type:'message_stop'},
   ];
   class LocalAnthropic extends Anthropic {
     constructor(options){super({...options,maxRetries:0,fetch:async(_url,init)=>{
-      sent=JSON.parse(init.body);
+      sent=JSON.parse(init.body);sentHeaders=Object.fromEntries(new Headers(init.headers));
       return new Response(events.map(event=>`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''),{
         headers:{'Content-Type':'text/event-stream'},
       });
@@ -188,10 +196,14 @@ test('installed Anthropic SDK serializes Sonnet 5.5 settings and forwards stream
   const res={setHeader(){},write(text){chunks.push(text);},end(){this.ended=true;},
     status(code){assert.fail(`Unexpected HTTP ${code}`);}};
   await api.handler({method:'POST',body:{...makeContext(),messages:[{role:'user',content:'daily briefing'}]}},res);
-  assert.equal(sent.model,'claude-sonnet-5-5');
-  assert.deepEqual(sent.thinking,{type:'between_tools'});
+  assert.equal(sent.model,'claude-opus-5-5');
+  assert.equal(sent.thinking,undefined);
+  assert.deepEqual(sent.output_config,{effort:'medium'});
+  assert.equal(sent.fallbacks,'default');
+  assert.equal(sent.betas,undefined,'betas travel as a header, not in the body');
+  assert.match(sentHeaders['anthropic-beta']||'',/server-side-fallback-2026-07-01/);
   assert.equal(sent.stream,true);
-  assert.equal(sent.max_tokens,1536);
+  assert.equal(sent.max_tokens,16000);
   assert.deepEqual(chunks,['Guten Morgen. ','Heute locker bleiben.']);
   assert.equal(res.ended,true);
 });

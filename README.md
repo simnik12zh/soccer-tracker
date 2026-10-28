@@ -196,9 +196,12 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   endpoints are accepted; expired devices (404/410) are removed. Optional env vars:
   `CRON_SECRET` (cron requests must then carry it) and `VAPID_SUBJECT` (defaults to the site URL).
   Without Redis the app shows that reminders are not set up and cron runs are skipped.
-- **`api/coach.js`** — Vercel Node serverless function. Streams Claude (`claude-sonnet-5-5`)
-  replies as `text/plain`. Uses `thinking: { type: "between_tools" }` (no up-front thinking;
-  text-only replies because this coach has no tools). Sonnet 5.5 rejects `disabled`.
+- **`api/coach.js`** — Vercel Node serverless function. Streams Claude Opus 5.5 (`claude-opus-5-5`)
+  replies as `text/plain` via `client.beta.messages.stream`. Opus 5.5 always thinks (thinking
+  cannot be disabled, so the parameter is omitted); `output_config.effort: "medium"`,
+  `max_tokens: 16000` because thinking counts towards it, and server-side `fallbacks: "default"`
+  (beta `server-side-fallback-2026-07-01`). Replies start a few seconds later than with Sonnet;
+  a typical request is ~9k input tokens (system prompt plus snapshot).
   The existing Anthropic API key remains unchanged. Persona: a demanding but fair Athletiktrainer —
   short, concrete instructions, holds the player to his plan, praise only when earned, never
   shaming, never through pain or illness. Data rules stay internal: the coach asks about
