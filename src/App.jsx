@@ -1417,9 +1417,15 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .social-sheet .field-label{margin-top:14px}.social-mode{margin:8px 0 4px}.social-days,.social-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .social-days .chip,.social-chips .chip{padding:0 12px;font-size:13px;border-radius:var(--r-pill)}.social-chips.rules .chip{display:inline-flex;align-items:center;gap:8px;text-align:left;border-radius:var(--r-s);padding:8px 12px;line-height:1.35}
 .social-chips.rules .chip b{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--social);color:var(--bg);font-size:11px;flex-shrink:0}
-.social-row{display:flex;gap:12px;align-items:flex-start}.social-row>label{flex:0 0 110px}.social-row .modal-input{margin:8px 0 0}.social-occasions{flex:1;min-width:0}
+.kickoff-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;font-size:12px;color:var(--muted)}
+.kickoff-input{flex:0 0 112px;width:112px;min-width:0;min-height:48px;margin:0;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--r-s);background:var(--bg);color:var(--text);text-align:center;-webkit-appearance:none;appearance:none}
+.kickoff-input::-webkit-date-and-time-value{text-align:center}.kickoff-input::-webkit-calendar-picker-indicator{filter:invert(.8)}
+.rule-slot{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:8px 12px;border:1px dashed var(--social);border-radius:var(--r-s);font-size:13px;color:var(--social)}
+.rule-slot b{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;border:1px solid var(--social);font-size:11px}
+.social-chips.options{margin-top:10px}.social-chips.options .chip{background:transparent;border-color:var(--line);color:var(--muted)}
 .rule-count{float:right;color:var(--social)}.social-custom{margin-top:10px}.social-custom .social-add{flex:0 0 52px;padding:0;display:flex;align-items:center;justify-content:center}.check-row{display:flex;align-items:center;gap:10px;min-height:44px;font-size:13px;color:var(--muted)}
-.check-row input{width:20px;height:20px;accent-color:var(--accent)}.warn-text{color:var(--warn)!important}
+.check-row input{-webkit-appearance:none;appearance:none;flex:0 0 22px;width:22px;height:22px;margin:0;border:1.5px solid var(--line-strong);border-radius:6px;background:var(--surface);display:grid;place-content:center}
+.check-row input:checked{background:var(--accent);border-color:var(--accent)}.check-row input:checked::after{content:"";width:10px;height:5px;border:2px solid var(--bg);border-top:0;border-right:0;transform:translateY(-1px) rotate(-45deg)}.warn-text{color:var(--warn)!important}
 .social-table{padding:18px}.social-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
 .social-head strong{display:block;font-size:40px;font-weight:500;letter-spacing:-.05em;line-height:1;font-variant-numeric:tabular-nums}.social-head strong.good{color:var(--good-soft)}.social-head strong.short{color:var(--warn)}
 .social-head div>span{display:block;font-size:12px;color:var(--muted);margin-top:6px}
@@ -1894,15 +1900,19 @@ function SocialSheet({social,match,initialDate,initialFriendly,onSave,onCancel,o
   const days=Array.from({length:8},(_,i)=>daysBeforeStr(today,-i)),taken=new Set(socialMatches(social.matches).map(m=>m.date));
   const [date,setDate]=useState(match?.date||initialDate||days.find(dk=>!taken.has(dk))||today),[kickoff,setKickoff]=useState(match?.kickoff||"19:00");
   const [occasion,setOccasion]=useState(match?.occasion||"restaurant"),[friendly,setFriendly]=useState(match?match.friendly:!!initialFriendly);
-  const [rules,setRules]=useState(match&&!match.friendly?match.rules:defaults),[custom,setCustom]=useState("");
+  // Three slots; tapping a chosen rule empties its slot, the next rule picked fills that same slot.
+  const [slots,setSlots]=useState(()=>[...(match&&!match.friendly?match.rules:defaults)]),[custom,setCustom]=useState("");
   const [asDefault,setAsDefault]=useState(false),[error,setError]=useState("");
   const dialog=useSheetFocus(onClose);
-  const options=[...new Set([...rules,...defaults,...SOCIAL_RULE_OPTIONS])];
-  const toggle=r=>{setError("");setRules(rs=>rs.includes(r)?rs.filter(x=>x!==r):rs.length<3?[...rs,r]:rs);};
-  const addCustom=()=>{const t=socialText(custom);if(!t||rules.includes(t)||rules.length>=3)return;setRules([...rules,t]);setCustom("");};
+  const rules=slots.filter(Boolean),full=rules.length===3;
+  const options=[...new Set([...defaults,...SOCIAL_RULE_OPTIONS])].filter(r=>!rules.includes(r));
+  const put=r=>setSlots(sl=>{const i=sl.findIndex(x=>!x);return i>=0?sl.map((x,j)=>j===i?r:x):sl.length<3?[...sl,r]:sl;});
+  const pick=r=>{setError("");if(rules.includes(r))setSlots(sl=>sl.map(x=>x===r?null:x));else if(!full)put(r);};
+  const addCustom=()=>{const t=socialText(custom);if(!t||rules.includes(t)||full)return;put(t);setCustom("");};
+  const differs=full&&rules.join("|")!==defaults.join("|");
   const fa=friendlyAllowed(social.matches,date,social.holidays,match?.id);
-  const ready=friendly?fa.ok:rules.length===3;
-  const save=()=>{const err=onSave({id:match?.id,date,kickoff,occasion,friendly,rules},asDefault&&!friendly);if(err)setError(err);};
+  const ready=friendly?fa.ok:full;
+  const save=()=>{const err=onSave({id:match?.id,date,kickoff,occasion,friendly,rules},asDefault&&differs&&!friendly);if(err)setError(err);};
   return <>
     <div className="sheet-backdrop" onClick={onClose}/>
     <section className="sheet social-sheet" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="social-title" tabIndex={-1}>
@@ -1916,26 +1926,29 @@ function SocialSheet({social,match,initialDate,initialFriendly,onSave,onCancel,o
       <div className="field-label">Wann</div>
       <div className="social-days">{days.map((dk,i)=><button key={dk} className="chip" aria-pressed={date===dk} onClick={()=>{setDate(dk);setError("");}}>
         {i===0?"Heute":i===1?"Morgen":`${DN[dow0(new Date(dk+"T12:00:00"))]} ${Number(dk.slice(-2))}.`}</button>)}</div>
-      <div className="social-row">
-        <label className="field-label">Anpfiff<input className="modal-input" type="time" value={kickoff} onChange={e=>{setKickoff(e.target.value);setError("");}}/></label>
-        <div className="social-occasions"><div className="field-label">Anlass</div><div className="social-chips">{SOCIAL_OCCASIONS.map(o=>
-          <button key={o.key} className="chip" aria-pressed={occasion===o.key} onClick={()=>setOccasion(o.key)}>{o.label}</button>)}</div></div>
-      </div>
+      <div className="field-label">Anlass</div>
+      <div className="social-chips">{SOCIAL_OCCASIONS.map(o=>
+        <button key={o.key} className="chip" aria-pressed={occasion===o.key} onClick={()=>setOccasion(o.key)}>{o.label}</button>)}</div>
+      <label className="kickoff-row"><span>Anpfiff</span>
+        <input className="kickoff-input" type="time" value={kickoff} onChange={e=>{setKickoff(e.target.value);setError("");}}/></label>
       {friendly?<p className={"helper-text"+(fa.ok?"":" warn-text")}>{fa.ok?"Ein geplanter freier Abend. Zählt nicht für die Tabelle, muss aber vorher feststehen. Höchstens eins pro Woche, in den Ferien eins alle drei Tage.":fa.reason}</p>
       :<>
         <div className="field-label">Deine drei Regeln <span className="rule-count">{rules.length} von 3</span></div>
-        {rules.length===3&&<p className="protein-hint rule-hint">Tauschen: erst eine gewählte Regel antippen, dann eine neue.</p>}
-        <div className="social-chips rules">{options.map(r=><button key={r} className="chip" aria-pressed={rules.includes(r)}
-          disabled={!rules.includes(r)&&rules.length>=3} onClick={()=>toggle(r)}>{rules.includes(r)&&<b>{rules.indexOf(r)+1}</b>}{r}</button>)}</div>
-        {rules.length<3&&<div className="protein-edit social-custom"><input className="modal-input" maxLength={60} placeholder="Eigene Regel, z. B. Kein Bier nach dem Essen" value={custom}
-          onChange={e=>setCustom(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addCustom();}}/><button className="secondary social-add" aria-label="Regel hinzufügen" disabled={!socialText(custom)} onClick={addCustom}><Icon name="plus" size={20}/></button></div>}
-        <label className="check-row"><input type="checkbox" checked={asDefault} onChange={e=>setAsDefault(e.target.checked)}/> Als meine Standard-Regeln merken</label>
+        <div className="social-chips rules">{slots.map((r,i)=>r?<button key={"s"+i} className="chip" aria-pressed="true"
+            aria-label={`Regel ${i+1}: ${r}. Antippen, um sie zu ersetzen`} onClick={()=>pick(r)}><b>{i+1}</b>{r}</button>
+          :<span key={"s"+i} className="rule-slot"><b>{i+1}</b>Neue Regel wählen</span>)}</div>
+        {full?<p className="protein-hint rule-hint">Regel antippen, um sie zu ersetzen.</p>:<>
+          <div className="social-chips rules options">{options.map(r=><button key={r} className="chip" onClick={()=>pick(r)}>{r}</button>)}</div>
+          <div className="protein-edit social-custom"><input className="modal-input" maxLength={60} placeholder="Eigene Regel" value={custom}
+            onChange={e=>setCustom(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addCustom();}}/>
+            <button className="secondary social-add" aria-label="Regel hinzufügen" disabled={!socialText(custom)} onClick={addCustom}><Icon name="plus" size={20}/></button></div></>}
+        {differs&&<label className="check-row"><input type="checkbox" checked={asDefault} onChange={e=>setAsDefault(e.target.checked)}/> Als meine Standard-Regeln merken</label>}
       </>}
       </div>
       <div className="sheet-actions">
         {error&&<p role="alert" className="helper-text warn-text">{error}</p>}
         <button className="primary" style={{width:"100%"}} disabled={!ready} onClick={save}>
-          {match?"Speichern":friendly?"Testspiel festlegen":"Match planen"}{!friendly&&rules.length<3?` (${rules.length}/3 Regeln)`:""}</button>
+          {match?"Speichern":friendly?"Testspiel festlegen":"Match planen"}{!friendly&&!full?` (${rules.length}/3 Regeln)`:""}</button>
         {match&&<button className="text-btn" style={{width:"100%",justifyContent:"center"}} onClick={()=>onCancel(match.id)}>Absagen</button>}
       </div>
     </section>
