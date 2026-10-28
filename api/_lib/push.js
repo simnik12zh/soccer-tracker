@@ -17,13 +17,17 @@ const PUSH_HOSTS = /^(web\.push\.apple\.com|fcm\.googleapis\.com|updates\.push\.
 
 export function zurichNow(date = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23",
+    timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23", weekday: "short",
   }).formatToParts(date).map((p) => [p.type, p.value]));
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) };
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour), weekday: parts.weekday };
 }
 
+// Monday 7 Uhr: the weekly report is ready.
+export const WEEKLY_SLOT = { weekday: "Mon", hour: 7 };
 export function reminderSlot(date = new Date()) {
-  const now = zurichNow(date), slot = REMINDER_SLOTS[now.hour];
+  const { weekday, ...now } = zurichNow(date);
+  if (weekday === WEEKLY_SLOT.weekday && now.hour === WEEKLY_SLOT.hour) return { ...now, slot: "weekly" };
+  const slot = REMINDER_SLOTS[now.hour];
   return slot ? { ...now, slot } : null;
 }
 

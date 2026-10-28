@@ -81,7 +81,7 @@ test('weekly totals and coach context',()=>{
   assert.equal(ctx.load.last6Weeks.length,6);
   assert.equal(typeof ctx.load.appAdvice,'string');
   const coach=readFileSync(new URL('../api/coach.js',import.meta.url),'utf8');
-  assert.match(coach,/'nutrition','load','tactical'/,'server accepts the load block');
+  assert.match(coach,/'nutrition','load',/,'server accepts the load block');
   assert.match(coach,/always let low recovery overrule spare load/);
   assert.match(source,/if\(!gLast\|\|gLast\.v!==4\)gFrom=daysBeforeStr\(today,41\)/,'six weeks of activities are loaded once');
 });

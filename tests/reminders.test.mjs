@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {reminderSlot,validSubscription,redisConfig,pushHandler,remindHandler,REMINDER_SLOTS} from '../api/_lib/push.js';
+import {reminderSlot,validSubscription,redisConfig,pushHandler,remindHandler,REMINDER_SLOTS,WEEKLY_SLOT} from '../api/_lib/push.js';
 
 const plain=value=>JSON.parse(JSON.stringify(value));
 const APPLE='https://web.push.apple.com/QGZ-device-token';
@@ -49,9 +49,15 @@ test('reminder slots hit 12 and 21 Uhr Zurich time in summer and winter',()=>{
   assert.equal(reminderSlot(new Date('2026-07-01T19:59:00Z')).slot,'evening');
   assert.equal(reminderSlot(new Date('2026-07-01T20:30:00Z')),null,'22:30 is skipped');
   const crons=JSON.parse(readFileSync(new URL('../vercel.json',import.meta.url),'utf8')).crons;
-  const hours=crons.map(c=>{assert.equal(c.path,'/api/remind');const [m,h,...rest]=c.schedule.split(' ');assert.deepEqual(rest,['*','*','*'],'daily only (Hobby plan)');return Number(h);});
+  const parsed=crons.map(c=>{assert.equal(c.path,'/api/remind');const [m,h,dom,mon,dow]=c.schedule.split(' ');
+    assert.deepEqual([m,dom,mon],['0','*','*']);assert.ok(dow==='*'||dow==='1','at most once a day (Hobby plan)');return {hour:Number(h),dow};});
+  const daily=parsed.filter(c=>c.dow==='*').map(c=>c.hour),weekly=parsed.filter(c=>c.dow==='1').map(c=>c.hour);
   for(const target of Object.keys(REMINDER_SLOTS).map(Number))
-    for(const offset of [1,2])assert.ok(hours.includes(target-offset),`hour ${target} reachable at UTC+${offset}`);
+    for(const offset of [1,2])assert.ok(daily.includes(target-offset),`hour ${target} reachable at UTC+${offset}`);
+  for(const offset of [1,2])assert.ok(weekly.includes(WEEKLY_SLOT.hour-offset),`Monday ${WEEKLY_SLOT.hour} Uhr reachable at UTC+${offset}`);
+  assert.equal(reminderSlot(new Date('2026-11-02T06:20:00Z')).slot,'weekly','Monday 07:20 in winter');
+  assert.equal(reminderSlot(new Date('2026-06-29T05:20:00Z')).slot,'weekly','Monday 07:20 in summer');
+  assert.equal(reminderSlot(new Date('2026-11-03T06:20:00Z')),null,'Tuesday 07:20 is not a slot');
 });
 
 test('only real push services are accepted as endpoints',()=>{
@@ -134,6 +140,7 @@ test('service worker text names what is open and is gentler at midday',()=>{
   assert.equal(text('evening',[]).body,'Alles eingetragen. Stark.');
   assert.equal(text('evening',null).body,'Trag Training, Protein und Ernährung ein.','no snapshot yet');
   assert.match(text('test',[]).title,/Test/);
+  assert.deepEqual(plain(ctx.reminderText('weekly',null,'2026-11-02')),{title:'Dein Wochenreport ist da',body:'Was lief, was fehlt und der Fokus für die neue Woche.',url:'/?report=latest'});
   assert.ok(listeners.push&&listeners.notificationclick);
   assert.equal(listeners.fetch,undefined,'no fetch handler: the app is never served from a stale cache');
 });

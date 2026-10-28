@@ -24,6 +24,7 @@ async function readStatus() {
 
 // Midday skips the eating rating: the day is not over yet.
 function reminderText(slot, status, today) {
+  if (slot === "weekly") return { title: "Dein Wochenreport ist da", body: "Was lief, was fehlt und der Fokus für die neue Woche.", url: "/?report=latest" };
   const title = slot === "evening" ? "Tagesabschluss" : slot === "midday" ? "Zwischenstand" : "Test: Erinnerung aktiv";
   const day = status && status.days && status.days[today];
   if (!day || !Array.isArray(day.open)) return { title, body: "Trag Training, Protein und Ernährung ein." };
@@ -39,15 +40,21 @@ self.addEventListener("push", (event) => {
   event.waitUntil(readStatus().then((status) => {
     const text = reminderText(data.slot, status, localDateKey(new Date()));
     return self.registration.showNotification(text.title, {
-      body: text.body, icon: "/icon-192.png?v=2", tag: "soccer-reminder", data: { url: "/" },
+      body: text.body, icon: "/icon-192.png?v=2", tag: data.slot === "weekly" ? "soccer-weekly" : "soccer-reminder", data: { url: text.url || "/" },
     });
   }));
 });
 
+// An open app is focused (and told to show the report); otherwise the app opens at the URL.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+  const url = event.notification.data?.url || "/";
   event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
-    for (const win of windows) if ("focus" in win) return win.focus();
-    return self.clients.openWindow("/");
+    for (const win of windows) {
+      if (!("focus" in win)) continue;
+      if (url.includes("report=")) win.postMessage({ type: "open-report" });
+      return win.focus();
+    }
+    return self.clients.openWindow(url);
   }));
 });

@@ -155,6 +155,17 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   The coach gets the whole block (`load`, whitelisted server-side). The Garmin endpoint now
   accepts up to 60 days: activities for the full window (paged by 99), steps/sleep/HRV/daily
   summaries for the last 28 days. Sync version 4 loads six weeks of activities once.
+- **Weekly report** — on Monday 7–8 Uhr (Zurich) the cron sends a "weekly" push ("Dein
+  Wochenreport ist da", crons `0 5 * * 1` and `0 6 * * 1`, deduplicated like the daily slots);
+  tapping it opens `/?report=latest` (or messages an open app). `weeklyReportFacts` computes the
+  last completed Monday–Sunday week in the app: training days, goals, games, watch minutes,
+  football km and top speed, weekly load against the range, body-fat and weight 7-day means
+  versus the week before, nutrition (protein hits, average, traffic lights, kcal on photo days),
+  recovery (sleep, HRV, resting HR versus the previous week, caution/low days) and steps.
+  The coach (`/api/coach`, `weeklyReport` whitelisted) writes Bilanz / Gut / Besser / Ausblick /
+  Fokus around those numbers; Ausblick only for the latest week. Reports are stored under
+  `coach-report-<weekStart>` (included in backups). Heute shows a banner on Monday and Tuesday
+  until it is read; Saison lists the last six weeks.
 - **Access code** — `APP_ACCESS_CODE` (Vercel env) is required for `/api/garmin` and, when set,
   for `/api/coach`. The app sends it as `Authorization: Bearer`; it is entered under Saison →
   Einstellungen → Garmin and stored in its own localStorage key, so exports never contain it.

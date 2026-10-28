@@ -1072,6 +1072,12 @@ progress::-webkit-progress-bar{background:#344858}progress::-webkit-progress-val
 .load-advice{font-size:13px;line-height:1.5;color:#EDF2F5}
 .load-weeks .steps-bar{position:relative}.load-weeks .band{position:absolute;left:0;right:0;background:rgba(143,209,158,.3)}
 .load-fill{position:relative;z-index:1;background:#647F93!important}.load-fill.current{background:#9CCBD3!important}
+.report-banner{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:14px 16px;margin-bottom:12px;color:#B3DCE2;border-color:#648694}
+.report-banner span{flex:1}.report-banner strong{display:block;font-size:14px;font-weight:500;color:#EDF2F5}.report-banner small{display:block;font-size:11px;color:#A5B8C8;margin-top:2px}
+.report-facts{padding:6px 18px}.report-line{display:grid;grid-template-columns:86px 1fr;gap:12px;padding:12px 0;border-top:1px solid #2D4151}.report-line:first-child{border-top:0}
+.report-line>span{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#B3DCE2;padding-top:2px}.report-line p{font-size:13px;line-height:1.55;color:#EDF2F5}
+.report-coach{padding:20px;margin-top:14px}.report-text{white-space:pre-wrap;font-size:15px;line-height:1.65;color:#EDF2F5;margin-top:12px}
+.report-row{grid-template-columns:1fr auto 0 18px}.report-row>span:nth-child(2){font-size:11px;color:#B3DCE2}
 .kcal-line{font-size:12px;color:#B3DCE2;margin:-6px 0 12px}
 .meal-photo{display:flex;flex-direction:column;align-items:stretch;margin-bottom:8px}.meal-photo .secondary{display:flex;align-items:center;justify-content:center;gap:8px;border-color:#9CCBD3;white-space:nowrap}
 .meal-photo .text-btn{align-self:center;min-height:36px;font-size:12px;color:#B3DCE2}
@@ -1667,7 +1673,7 @@ function UpNextCard({plan,from,onSelect}) {
 }
 
 // ─── Today view ──────────────────────────────────────────────────────────────────
-function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals}) {
+function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,onOpenReport}) {
   const viewKey=offsetDate(dayOff), e=plan[viewKey]||{};
   const [sheetOpen,setSheetOpen]=useState(false);
   const [notesOpen,setNotesOpen]=useState(false);
@@ -1694,6 +1700,9 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals}
       </div>
       <button className="week-step" aria-label="Nächste Woche" onClick={()=>navDay(7)}>›</button>
     </div>
+    {dayOff===0&&[1,2].includes(new Date().getDay())&&!readReport(lastCompletedWeek())?.read&&
+      <button className="panel report-banner" onClick={()=>onOpenReport(lastCompletedWeek())}><Icon name="note" size={20}/>
+        <span><strong>Dein Wochenreport ist da</strong><small>{weekLabel(lastCompletedWeek())}</small></span><Icon name="arrow" size={18}/></button>}
     <DayRings plan={plan} viewKey={viewKey} target={proteinTarget} onOpenPlan={onOpenPlan}/>
     <section key={"session-"+viewKey} id="today-session" className={"panel session-card"+(isMatchDay(e)?" match-card":"")} aria-label="Training"
       style={{animation:direction>0?"slideLeft .22s ease-out":"slideRight .22s ease-out"}}>
@@ -1907,6 +1916,43 @@ function bodySnapshot(plan,today=todayStr()) {
     mass:anchor?{anchor,current:mass(anchor),previous:mass(daysBeforeStr(anchor,7))}:null};
 }
 
+// ─── Weekly report facts ─────────────────────────────────────────────────────────
+// Numbers for one completed week (Mon–Sun), computed in the app so they are exact;
+// the coach only writes the assessment around them.
+function lastCompletedWeek(today=todayStr()) { return daysBeforeStr(weekAround(today)[0],7); }
+function weeklyReportFacts(plan,weekStart,target=DEFAULT_PROTEIN_TARGET) {
+  const days=Array.from({length:7},(_,i)=>daysBeforeStr(weekStart,-i)),weekEnd=days[6],prevDays=days.map(d=>daysBeforeStr(d,7));
+  const types=dk=>[...new Set(getSessions(plan[dk]))],logged=dk=>plan[dk]?.completed===true&&types(dk).length>0;
+  const sessions={};
+  days.filter(logged).forEach(dk=>types(dk).forEach(t=>{const l=displayName(t);sessions[l]=(sessions[l]||0)+1;}));
+  const phase=phaseForDate(weekStart),goals=isHoliday(weekStart)?{rows:[]}:weekTargetProgress(plan,days,phase?.name);
+  const acts=days.flatMap(dk=>plan[dk]?.garmin||[]),football=acts.filter(g=>garminSessionType(g.type)==='soccer');
+  const total=(arr,k)=>arr.reduce((n,x)=>n+(Number.isFinite(x[k])?x[k]:0),0);
+  const speeds=football.map(g=>g.maxSpeedKmh).filter(Number.isFinite);
+  const load=loadStatus(plan,weekEnd);
+  const metric=field=>{
+    const r=bodyCompReadings(plan,field).filter(x=>x.date<=weekEnd&&(field==='weight'?x.value<=500:x.value<100));
+    const now=bodyMean(r,weekEnd),prev=bodyMean(r,daysBeforeStr(weekEnd,7));
+    return now?{value:Math.round(now.value*10)/10,readings:now.count,deltaVsPrevWeek:prev?Math.round((now.value-prev.value)*10)/10:null}:null;
+  };
+  const nut=nutritionSummary(plan,days,target);
+  const rec=days.map(dk=>plan[dk]?.recovery).filter(Boolean),prevRec=prevDays.map(dk=>plan[dk]?.recovery).filter(Boolean);
+  const avg=(arr,k)=>{const v=arr.map(x=>x[k]).filter(Number.isFinite);return v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length):null;};
+  const levels=days.map(dk=>recoveryStatus(plan,dk)?.level).filter(Boolean);
+  const steps=days.map(dk=>plan[dk]?.steps).filter(Number.isInteger);
+  return {from:weekStart,to:weekEnd,
+    training:{plannedDays:days.filter(dk=>types(dk).length).length,loggedDays:days.filter(logged).length,sessions,
+      goals:goals.rows.map(r=>({type:displayName(r.type),done:r.done,goal:r.goal})),
+      games:days.filter(dk=>plan[dk]?.match).map(dk=>({date:dk,opponent:plan[dk].match.opponent,venue:matchVenue(plan[dk].match),played:logged(dk)&&types(dk).includes('Match')})),
+      watch:{activities:acts.length,minutes:Math.round(total(acts,'minutes')),footballKm:football.length?Math.round(total(football,'distanceKm')*10)/10:null,topSpeedKmh:speeds.length?Math.max(...speeds):null}},
+    load:{week:Math.round(days.reduce((n,dk)=>n+dayLoad(plan[dk]),0)),...(load.ready?{range:[load.low,load.high],status:load.status}:{})},
+    body:{bodyFat:metric('bodyFat'),weight:metric('weight')},
+    nutrition:{proteinTarget:target,proteinHitDays:nut.hits,proteinDays:nut.proteinDays,avgProtein:nut.avgProtein,ratings:nut.counts,avgKcal:nut.avgKcal,kcalDays:nut.kcalDays},
+    recovery:{nights:rec.length,avgSleepMin:avg(rec,'sleepMin'),avgHrv:avg(rec,'hrv'),avgRestingHr:avg(rec,'restingHr'),prevAvgRestingHr:avg(prevRec,'restingHr'),
+      cautionDays:levels.filter(l=>l==='caution').length,lowDays:levels.filter(l=>l==='low').length},
+    steps:{avg:steps.length?Math.round(steps.reduce((a,b)=>a+b,0)/steps.length):null,days:steps.length}};
+}
+
 // Minimal responsive SVG line chart: rolling-average line (gap-aware), raw
 // readings as de-emphasized dots, optional dashed horizontal target.
 function TrendChart({readings, series, target}) {
@@ -2097,7 +2143,7 @@ function BodyView({plan,updDay,proteinTarget}) {
 }
 
 // ─── Saison view ─────────────────────────────────────────────────────────────────
-function JourneyView({plan,today,onGoToDay,onOpenSettings}) {
+function JourneyView({plan,today,onGoToDay,onOpenSettings,onOpenReport}) {
   const entries=Object.values(plan), planned=entries.filter(e=>getSessions(e).length).length;
   const done=entries.filter(e=>e.completed&&getSessions(e).length).length;
   const current=phaseForDate(today), idx=PHASES.indexOf(current), next=PHASES[idx+1];
@@ -2107,6 +2153,10 @@ function JourneyView({plan,today,onGoToDay,onOpenSettings}) {
       <progress aria-label="Saisonfortschritt" max={Math.max(planned,1)} value={done}/>
       <p>{current?(next?daysUntil(next.start)+" Tage bis "+phaseLabel(next.name):daysUntil(current.end)+" Tage bis Saisonende"):today<SEASON_START?"Deine Saison startet am "+shortDate(SEASON_START):"Saison abgeschlossen."}</p>
     </section>
+    <div className="section-heading"><h2>Wochenreports</h2><span>Montags neu</span></div>
+    <div className="panel measure-list">{Array.from({length:6},(_,i)=>daysBeforeStr(lastCompletedWeek(today),7*i)).map((w,i)=>{const stored=readReport(w);
+      return <button key={w} className="measure-row report-row" onClick={()=>onOpenReport(w)}><span>{weekLabel(w)}</span>
+        <span>{stored?.text?"Gelesen":i===0?"Neu":""}</span><span/><Icon name="arrow" size={15}/></button>;})}</div>
     <div className="section-heading"><h2>Deine Saisonphasen</h2><span>Der lange Blick</span></div>
     <div className="phase-timeline">{PHASES.map((p,i)=>{
       const days=Object.entries(plan).filter(([dk])=>dk>=p.start&&dk<=p.end);
@@ -2245,6 +2295,74 @@ function CoachScreen({viewKey,plan,playerName,proteinTarget,onBack}) {
 
 
 
+// ─── Weekly report screen ────────────────────────────────────────────────────────
+// Stored under coach-report-<weekStart> so backups (coach-*) include it.
+const reportKey=weekStart=>`coach-report-${weekStart}`;
+function readReport(weekStart) { try { return JSON.parse(localStorage.getItem(reportKey(weekStart))||"null"); } catch { return null; } }
+function writeReport(weekStart,data) { try { localStorage.setItem(reportKey(weekStart),JSON.stringify(data)); } catch {} }
+const weekLabel=from=>`${shortDate(from)} – ${shortDate(daysBeforeStr(from,-6))}`;
+function factLines(f) {
+  const t=f.training,n=f.nutrition,r=f.recovery,sign=v=>v>0?`+${v}`:v<0?`−${Math.abs(v)}`:"±0",lines=[];
+  lines.push(["Training",[`${t.loggedDays} von ${t.plannedDays} Trainingstagen`,...t.goals.map(g=>`${g.type} ${g.done}/${g.goal}`),
+    t.games.length?`${t.games.length} ${t.games.length===1?"Spiel":"Spiele"}`:null,t.watch.footballKm?`${t.watch.footballKm} km Fussball`:null].filter(Boolean).join(" · ")]);
+  if(f.load.week)lines.push(["Belastung",`${f.load.week}${f.load.range?` · Bereich ${f.load.range[0]}–${f.load.range[1]} · ${LOAD_LABELS[f.load.status]}`:""}`]);
+  const body=[f.body.bodyFat&&`Körperfett ${f.body.bodyFat.value.toFixed(1)} %${f.body.bodyFat.deltaVsPrevWeek!=null?` (${sign(f.body.bodyFat.deltaVsPrevWeek)})`:""}`,
+    f.body.weight&&`Gewicht ${f.body.weight.value.toFixed(1)} kg${f.body.weight.deltaVsPrevWeek!=null?` (${sign(f.body.weight.deltaVsPrevWeek)})`:""}`].filter(Boolean);
+  if(body.length)lines.push(["Körper",body.join(" · ")]);
+  const food=[n.proteinDays?`Protein-Ziel ${n.proteinHitDays}/7 Tage · Ø ${n.avgProtein} g`:null,
+    n.ratings.green+n.ratings.amber+n.ratings.red?`Ampel ${n.ratings.green} grün · ${n.ratings.amber} gelb · ${n.ratings.red} rot`:null,
+    n.avgKcal?`Ø ${n.avgKcal.toLocaleString("de-CH")} kcal (${n.kcalDays} Tage mit Fotos)`:null].filter(Boolean);
+  if(food.length)lines.push(["Ernährung",food.join(" · ")]);
+  const rec=[r.avgSleepMin?`Ø Schlaf ${fmtHM(r.avgSleepMin)}`:null,r.avgHrv?`Ø HRV ${r.avgHrv}`:null,
+    r.avgRestingHr?`Ø Ruhepuls ${r.avgRestingHr}${r.prevAvgRestingHr?` (${sign(r.avgRestingHr-r.prevAvgRestingHr)})`:""}`:null,
+    r.cautionDays+r.lowDays?`${r.cautionDays+r.lowDays} Tage eingeschränkt`:null].filter(Boolean);
+  if(rec.length)lines.push(["Erholung",rec.join(" · ")]);
+  if(f.steps.avg)lines.push(["Bewegung",`Ø ${f.steps.avg.toLocaleString("de-CH")} Schritte`]);
+  return lines;
+}
+function ReportScreen({plan,weekStart,playerName,proteinTarget,onBack}) {
+  const facts=weeklyReportFacts(plan,weekStart,proteinTarget),latest=weekStart===lastCompletedWeek();
+  const [text,setText]=useState(()=>readReport(weekStart)?.text||""),[busy,setBusy]=useState(false),[error,setError]=useState("");
+  const requestRef=useRef(null);
+  useEffect(()=>()=>requestRef.current?.abort(),[]);
+  const generate=async()=>{
+    setBusy(true);setError("");setText("");
+    const controller=new AbortController();requestRef.current=controller;
+    try{
+      const resp=await fetch("/api/coach",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json",...authHeaders()},
+        body:JSON.stringify({...buildCoachContext(plan,playerName,todayStr(),todayStr(),proteinTarget),weeklyReport:{...facts,isLatest:latest},
+          messages:[{role:"user",content:`Wochenreport für die Woche ${weekLabel(weekStart)}`}]})});
+      if(resp.status===401)throw Object.assign(new Error("access"),{auth:true});
+      // Only the coach's plain-text stream counts (never an HTML error page).
+      if(!resp.ok||!resp.body||!(resp.headers.get("content-type")||"").startsWith("text/plain"))throw new Error("bad response");
+      const reader=resp.body.getReader(),decoder=new TextDecoder();let acc="";
+      for(;;){const {done,value}=await reader.read();if(done)break;acc+=decoder.decode(value,{stream:true});setText(acc);}
+      if(!acc.trim())throw new Error("empty");
+      writeReport(weekStart,{weekStart,facts,text:acc,createdAt:new Date().toISOString(),read:true});
+    }catch(err){if(err.name!=="AbortError")setError(err.auth?"Der Zugangscode fehlt oder stimmt nicht (Saison → Einstellungen).":"Der Trainer ist gerade nicht erreichbar. Versuch es erneut.");}
+    finally{setBusy(false);}
+  };
+  useEffect(()=>{
+    const stored=readReport(weekStart);
+    if(stored?.text){if(!stored.read)writeReport(weekStart,{...stored,read:true});return;}
+    if(readAccessCode())generate();
+  },[weekStart]);
+  return <main className="app-shell report-screen">
+    <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Wochenreport</span>
+      <button className="icon-btn" aria-label="Zurück" onClick={onBack}><Icon name="close"/></button></div>
+      <h1>{weekLabel(weekStart)}</h1><p className="subtitle">{playerName}{latest?" · letzte Woche":""}</p></header>
+    <div className="view">
+      <section className="panel report-facts" aria-label="Zahlen der Woche">{factLines(facts).map(([k,v])=><div key={k} className="report-line"><span>{k}</span><p>{v}</p></div>)}</section>
+      <section className="panel report-coach" aria-label="Einschätzung vom Trainer"><div className="eyebrow">Einschätzung vom Trainer</div>
+        {text?<p className="report-text">{text}</p>:busy?<p className="helper-text">Der Trainer schreibt …</p>:null}
+        {!text&&!busy&&!error&&!readAccessCode()&&<p className="helper-text">Für die Einschätzung zuerst den Zugangscode unter Saison → Einstellungen speichern.</p>}
+        {error&&<p role="alert" className="helper-text">{error}</p>}
+        {!busy&&readAccessCode()&&<button className="text-btn" onClick={generate}>{text?"Neu erstellen":"Einschätzung erstellen"}</button>}
+      </section>
+    </div>
+  </main>;
+}
+
 export default function App() {
   const [loading,setLoading]=useState(true),[playerName,setPlayerName]=useState(""),[plan,setPlan]=useState({});
   const [view,setView]=useState("today"),[screen,setScreen]=useState("main"),[planMode,setPlanMode]=useState("week");
@@ -2259,6 +2377,8 @@ export default function App() {
   const planRef=useRef(plan);planRef.current=plan;
   const [garmin,setGarmin]=useState(()=>({state:readAccessCode()?"idle":"off"})),[syncToast,setSyncToast]=useState("");
   const [withings,setWithings]=useState(()=>({state:readAccessCode()?"idle":"off"}));
+  const [reportWeek,setReportWeek]=useState(null);
+  const openReport=week=>{setReportWeek(week||lastCompletedWeek());setScreen("report");window.scrollTo(0,0);};
   useEffect(()=>{
     (async()=>{
       try{
@@ -2277,6 +2397,10 @@ export default function App() {
       setLoading(false);
     })();
     try{if(sessionStorage.getItem("justRestored")){sessionStorage.removeItem("justRestored");setRestoredToast(true);}}catch{}
+    if(new URLSearchParams(window.location.search).get("report")){
+      setReportWeek(lastCompletedWeek());setScreen(s=>s==="setup"?s:"report");
+      try{window.history.replaceState(null,"",window.location.pathname);}catch{}
+    }
     const withingsResult=new URLSearchParams(window.location.search).get("withings");
     if(withingsResult){
       setSyncToast(withingsResult==="connected"?"Withings verbunden":withingsResult==="denied"?"Withings-Verbindung abgebrochen":"Withings-Verbindung hat nicht geklappt");
@@ -2292,6 +2416,12 @@ export default function App() {
     document.addEventListener("visibilitychange",onVisible);
     return ()=>document.removeEventListener("visibilitychange",onVisible);
   },[loading,loadError]);
+  useEffect(()=>{
+    if(!("serviceWorker" in navigator))return;
+    const onMessage=ev=>{if(ev.data?.type==="open-report"){setReportWeek(lastCompletedWeek());setScreen("report");}};
+    navigator.serviceWorker.addEventListener("message",onMessage);
+    return ()=>navigator.serviceWorker.removeEventListener("message",onMessage);
+  },[]);
   useEffect(()=>{if(!syncToast)return;const t=setTimeout(()=>setSyncToast(""),4500);return ()=>clearTimeout(t);},[syncToast]);
   useEffect(()=>{if(!restoredToast)return;const t=setTimeout(()=>setRestoredToast(false),3200);return ()=>clearTimeout(t);},[restoredToast]);
   useEffect(()=>{if(!celebration)return;const t=setTimeout(()=>setCelebration(null),5000);return ()=>clearTimeout(t);},[celebration]);
@@ -2406,6 +2536,7 @@ export default function App() {
   else if(screen==="setup")content=<SetupScreen initName={playerName} initProteinTarget={proteinTarget} isEdit={!!playerName} onBack={playerName?()=>setScreen("main"):null}
     connections={{garmin,withings,scale:scaleSummary(plan),onSync:syncSources,onWithingsConnect:connectWithings,onWithingsDisconnect:disconnectWithings}}
     onSave={(n,target)=>{const pt=target===DEFAULT_PROTEIN_TARGET&&proteinSetting==null?null:target;setPlayerName(n);setProteinSetting(pt);save(plan,n,pt);setScreen("main");}}/>;
+  else if(screen==="report")content=<ReportScreen plan={plan} weekStart={reportWeek||lastCompletedWeek()} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")}/>;
   else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")}/>;
   else content=<main className="app-shell">
     <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Soccer Tracker</span>
@@ -2413,12 +2544,12 @@ export default function App() {
       <h1>{headings[view]}</h1>
       <p className="subtitle">{playerName} <span style={{color:C.borderSt}}> / </span> {phase?phaseLabel(phase.name):today<SEASON_START?"Deine Saison beginnt bald":"Saison abgeschlossen"}</p>
     </header>
-    {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} proteinTarget={proteinTarget} meals={mealHandlers}
+    {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} proteinTarget={proteinTarget} meals={mealHandlers} onOpenReport={openReport}
       onOpenPlan={()=>{setWkOff(Math.floor((dow0(new Date())+dayOff)/7));setPlanMode("week");setView("plan");window.scrollTo(0,0);}}/>}
     {view==="plan"&&<PlanView mode={planMode} setMode={setPlanMode} today={today} plan={plan} wkOff={wkOff} setWkOff={setWkOff}
       moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays}/>}
     {view==="body"&&<BodyView plan={plan} updDay={updDay} proteinTarget={proteinTarget}/>}
-    {view==="season"&&<JourneyView today={today} plan={plan} onGoToDay={goToDay} onOpenSettings={()=>setScreen("setup")}/>}
+    {view==="season"&&<JourneyView today={today} plan={plan} onGoToDay={goToDay} onOpenSettings={()=>setScreen("setup")} onOpenReport={openReport}/>}
     <nav className="nav" aria-label="Hauptnavigation">{tabs.map(([key,label,icon])=><button key={key} aria-label={label} aria-current={view===key?"page":undefined}
       onClick={()=>{setView(key);if(key==="today")setDayOff(0);window.scrollTo(0,0);}}><TabIcon name={icon}/><span>{label}</span></button>)}</nav>
   </main>;
