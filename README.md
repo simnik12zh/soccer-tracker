@@ -166,6 +166,18 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   Fokus around those numbers; Ausblick only for the latest week. Reports are stored under
   `coach-report-<weekStart>` (included in backups). Heute shows a banner on Monday and Tuesday
   until it is read; Saison lists the last six weeks.
+- **Weekly plan proposal** — "Plan vorschlagen" under Plan → Woche (current and next week) and at
+  the end of the latest weekly report. `planWeekInput` marks fixed days (games, team training,
+  sick days, own custom sessions, finished or past days); `POST /api/plan` (access code required)
+  asks Claude Opus 5.5 (structured output, server-side fallback) to plan the open days from the
+  coach context (goals, load, recovery, recent weeks). `enforcePlanRules` then applies the hard
+  rules in code: fixed days keep their sessions, only known session ids, at most two per day, no
+  added games or team training, only Walking/Mobility the day after a game (also after a Sunday
+  game), no run or futsal the day before, no Gym on consecutive days. The card shows each day
+  (fixed / changed with "bisher"), "Übernehmen" writes sessions and guidance (`coaching`, shown
+  in Heute) for open days and guidance for fixed days ahead; "Rückgängig" restores the previous
+  sessions and guidance only, so later logs, notes and food entries stay. Proposals are stored
+  under `coach-plan-<weekStart>`.
 - **Access code** — `APP_ACCESS_CODE` (Vercel env) is required for `/api/garmin` and, when set,
   for `/api/coach`. The app sends it as `Authorization: Bearer`; it is entered under Saison →
   Einstellungen → Garmin and stored in its own localStorage key, so exports never contain it.

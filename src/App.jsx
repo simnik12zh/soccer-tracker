@@ -595,6 +595,45 @@ function weeklyLoads(plan,dk=todayStr(),n=6) {
     let total=0;for(let d=0;d<7;d++)total+=dayLoad(plan[daysBeforeStr(from,-d)]);return {from,load:Math.round(total)};});
 }
 
+// ─── Weekly plan proposal ────────────────────────────────────────────────────────
+// Fixed: games, team training, sick days, own custom sessions, finished or past days.
+// Applying changes only open days (and guidance on fixed days still ahead); the previous
+// sessions/guidance are kept so the whole proposal can be undone.
+const PLAN_SESSIONS=['Match','Team Training','Futsal','Gym','Pilates','Mobility','Walking','Easy run'];
+function planWeekInput(plan,weekStart,today=todayStr()) {
+  const days=Array.from({length:7},(_,i)=>daysBeforeStr(weekStart,-i));
+  return {weekStart,matchDayBefore:isMatchDay(plan[daysBeforeStr(weekStart,1)]),
+    days:days.map(date=>{
+      const e=plan[date]||{},sessions=getSessions(e),locked=date<today||!!e.completed;
+      const fixed=locked||isMatchDay(e)||sessions.some(x=>x==='Team Training'||x==='Sick/Injured'||!PLAN_SESSIONS.includes(x));
+      return {date,sessions,fixed,locked,completed:!!e.completed,match:e.match?{opponent:e.match.opponent,kickoff:e.match.kickoff}:null,currentTitle:coachingFor(e)?.title||''};
+    })};
+}
+function applyWeekProposal(plan,proposal,today=todayStr()) {
+  const next={...plan},previous={};
+  for(const d of Array.isArray(proposal?.days)?proposal.days:[]){
+    const e=plan[d?.date];
+    if(!d||!validCoachDate(d.date)||d.date<today||e?.completed)continue;
+    const current=getSessions(e),open=!d.fixed;
+    const sessions=open?(Array.isArray(d.sessions)?d.sessions:[]).filter(x=>PLAN_SESSIONS.includes(x)).slice(0,2):current;
+    const title=typeof d.title==='string'?d.title.slice(0,60):'',text=typeof d.guidance==='string'?d.guidance.slice(0,220):'';
+    if(!open&&!title&&!text)continue;
+    previous[d.date]={sessions:current,workout:e?.workout??'',coaching:e?.coaching??null};
+    next[d.date]={...(e||{}),sessions,workout:'',coaching:title||text?{sessions,title:title||sessionsLabel({sessions})||'Ruhetag',text}:null};
+  }
+  return {plan:next,previous};
+}
+// Restores sessions and guidance only; notes, food, body values and logs stay as they are now.
+function undoWeekProposal(plan,previous) {
+  const next={...plan};
+  for(const [date,prev] of Object.entries(previous||{})){
+    const e=next[date];
+    if(!e||e.completed)continue;
+    next[date]={...e,sessions:prev.sessions||[],workout:prev.workout||'',coaching:prev.coaching||null};
+  }
+  return next;
+}
+
 // ─── Withings import ─────────────────────────────────────────────────────────────
 const WITHINGS_FULL_DAYS=180;
 // Incremental sync only after a full 180-day load succeeded for the same account;
@@ -1078,6 +1117,13 @@ progress::-webkit-progress-bar{background:#344858}progress::-webkit-progress-val
 .report-line>span{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#B3DCE2;padding-top:2px}.report-line p{font-size:13px;line-height:1.55;color:#EDF2F5}
 .report-coach{padding:20px;margin-top:14px}.report-text{white-space:pre-wrap;font-size:15px;line-height:1.65;color:#EDF2F5;margin-top:12px}
 .report-row{grid-template-columns:1fr auto 0 18px}.report-row>span:nth-child(2){font-size:11px;color:#B3DCE2}
+.plan-proposal{padding:18px}.proposal-summary{font-size:13px;line-height:1.55;color:#EDF2F5;margin:10px 0 4px}
+.proposal-days{list-style:none;margin:10px 0 12px;padding:0}.proposal-days li{display:flex;gap:12px;padding:9px 0;border-top:1px solid #2D4151}
+.proposal-date{width:44px;flex-shrink:0;font-size:12px;color:#A5B8C8;padding-top:1px}.proposal-body{flex:1;min-width:0}
+.proposal-body strong{display:block;font-size:13px;font-weight:500;color:#EDF2F5}.proposal-body small{display:block;font-size:11px;color:#A5B8C8;line-height:1.45;margin-top:2px}
+.proposal-days li.fixed .proposal-body strong{color:#B3DCE2}.proposal-days li.changed{background:linear-gradient(90deg,rgba(156,203,211,.08),transparent)}
+.proposal-days li.changed .proposal-date{color:#B3DCE2}.proposal-was{color:#E9C46A!important}
+.proposal-body strong small{display:inline;font-size:11px;font-weight:400;color:#A5B8C8}.plan-proposal .sheet-footer .primary{flex:2;white-space:nowrap}
 .kcal-line{font-size:12px;color:#B3DCE2;margin:-6px 0 12px}
 .meal-photo{display:flex;flex-direction:column;align-items:stretch;margin-bottom:8px}.meal-photo .secondary{display:flex;align-items:center;justify-content:center;gap:8px;border-color:#9CCBD3;white-space:nowrap}
 .meal-photo .text-btn{align-self:center;min-height:36px;font-size:12px;color:#B3DCE2}
@@ -1754,7 +1800,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
 }
 
 // ─── Week view ───────────────────────────────────────────────────────────────────
-function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
+function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays,planner}) {
   const days=weekOf(wkOff);
   const planned=days.filter(d=>getSessions(plan[d]).length).length;
   const done=days.filter(d=>plan[d]?.completed&&getSessions(plan[d]).length).length;
@@ -1798,6 +1844,7 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
       </div>;})}
     </div>
     <p className="helper-text">Tag öffnen, um Training einzutragen. Über ⇅ kannst du zwei Trainingstage tauschen. Eingetragene Spieltermine bleiben fix.</p>
+    {planner&&wkOff>=0&&wkOff<=1&&<div style={{marginTop:18}}><PlanProposal plan={plan} weekStart={days[0]} {...planner}/></div>}
     <WeeklyTargets plan={plan} date={days[0]}/>
     <WeeklyLoad plan={plan} dk={days[6]<today?days[6]:today}/>
     <div style={{marginTop:14}}><TacticalCard dk={days[0]}/></div>
@@ -2295,6 +2342,58 @@ function CoachScreen({viewKey,plan,playerName,proteinTarget,onBack}) {
 
 
 
+// ─── Weekly plan proposal card ───────────────────────────────────────────────────
+const proposalKey=weekStart=>`coach-plan-${weekStart}`;
+function readProposal(weekStart) { try { return JSON.parse(localStorage.getItem(proposalKey(weekStart))||"null"); } catch { return null; } }
+function writeProposal(weekStart,data) { try { data?localStorage.setItem(proposalKey(weekStart),JSON.stringify(data)):localStorage.removeItem(proposalKey(weekStart)); } catch {} }
+const PLAN_ERRORS={access_denied:"Der Zugangscode stimmt nicht.",access_code_not_configured:"In Vercel fehlt noch APP_ACCESS_CODE.",
+  model_not_configured:"Auf dem Server fehlt der Anthropic-Schlüssel.",plan_busy:"Gerade viele Anfragen. Gleich erneut versuchen.",
+  plan_refused:"Für diese Woche gibt es keinen Vorschlag.",invalid_week:"Diese Woche kann nicht geplant werden."};
+function PlanProposal({plan,weekStart,playerName,proteinTarget,onApply,onUndo}) {
+  const [record,setRecord]=useState(()=>readProposal(weekStart)),[busy,setBusy]=useState(false),[error,setError]=useState("");
+  useEffect(()=>{setRecord(readProposal(weekStart));setError("");},[weekStart]);
+  const save=r=>{writeProposal(weekStart,r);setRecord(r);};
+  const today=todayStr(),weekEnd=daysBeforeStr(weekStart,-6);
+  if(weekEnd<today)return null;
+  const generate=async()=>{
+    setBusy(true);setError("");
+    try{
+      const res=await fetch("/api/plan",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},
+        body:JSON.stringify({...planWeekInput(plan,weekStart,today),context:buildCoachContext(plan,playerName,today,today,proteinTarget)})});
+      const body=await res.json().catch(()=>({}));
+      if(!res.ok||!body.proposal){setError(PLAN_ERRORS[body.error]||"Der Vorschlag hat nicht geklappt. Versuch es erneut.");return;}
+      save({proposal:body.proposal,createdAt:new Date().toISOString(),applied:null});
+    }catch{setError("Keine Verbindung.");}
+    finally{setBusy(false);}
+  };
+  const p=record?.proposal,applied=record?.applied;
+  const changed=p?p.days.filter(d=>!d.fixed&&d.date>=today&&!plan[d.date]?.completed&&JSON.stringify(d.sessions)!==JSON.stringify(getSessions(plan[d.date]))).length:0;
+  return <section className="panel plan-proposal" aria-label="Wochenplan-Vorschlag">
+    <div className="card-head"><span className="eyebrow">Plan-Vorschlag · {weekLabel(weekStart)}</span>{applied&&<span className="load-tag optimal">Übernommen</span>}</div>
+    {!p&&<>
+      <p className="helper-text">Der Trainer plant die offenen Tage passend zu deinen Zielen, deiner Belastung und Erholung. Spiele und Mannschaftstrainings bleiben fix.</p>
+      {readAccessCode()?<button className="secondary" disabled={busy} onClick={generate}>{busy?"Der Trainer plant …":"Plan vorschlagen"}</button>
+        :<p className="protein-hint">Zuerst den Zugangscode unter Saison → Einstellungen speichern.</p>}
+    </>}
+    {p&&<>
+      {p.summary&&<p className="proposal-summary">{p.summary}</p>}
+      <ul className="proposal-days">{p.days.map(d=>{const now=getSessions(plan[d.date]),label=x=>x.length?x.map(displayName).join(" + "):"Ruhetag";
+        const diff=!d.fixed&&JSON.stringify(d.sessions)!==JSON.stringify(applied?applied.previous?.[d.date]?.sessions??now:now);
+        return <li key={d.date} className={(d.fixed?"fixed ":"")+(diff?"changed":"")}>
+          <span className="proposal-date">{DN[dow0(new Date(d.date+"T12:00:00"))]} {Number(d.date.slice(-2))}.</span>
+          <span className="proposal-body"><strong>{label(d.sessions)}{d.fixed&&<small> · fix</small>}</strong>
+            {diff&&<small className="proposal-was">bisher: {label(applied?applied.previous?.[d.date]?.sessions??[]:now)}</small>}
+            {d.title&&<small>{d.title}{d.guidance?` – ${d.guidance}`:""}</small>}</span></li>;})}</ul>
+      {applied?<div className="sheet-footer"><button className="secondary" onClick={()=>{onUndo(applied.previous);save({...record,applied:null});}}>Rückgängig</button>
+          <button className="text-btn" onClick={generate} disabled={busy}>{busy?"Plant …":"Neu vorschlagen"}</button></div>
+        :<div className="sheet-footer"><button className="primary" onClick={()=>{const previous=onApply(p);save({...record,applied:{at:new Date().toISOString(),previous}});}}>
+            Übernehmen{changed?` (${changed} ${changed===1?"Tag":"Tage"})`:""}</button>
+          <button className="secondary" disabled={busy} onClick={()=>save(null)}>Verwerfen</button></div>}
+    </>}
+    {error&&<p role="alert" className="helper-text">{error}</p>}
+  </section>;
+}
+
 // ─── Weekly report screen ────────────────────────────────────────────────────────
 // Stored under coach-report-<weekStart> so backups (coach-*) include it.
 const reportKey=weekStart=>`coach-report-${weekStart}`;
@@ -2320,7 +2419,7 @@ function factLines(f) {
   if(f.steps.avg)lines.push(["Bewegung",`Ø ${f.steps.avg.toLocaleString("de-CH")} Schritte`]);
   return lines;
 }
-function ReportScreen({plan,weekStart,playerName,proteinTarget,onBack}) {
+function ReportScreen({plan,weekStart,playerName,proteinTarget,onBack,planner}) {
   const facts=weeklyReportFacts(plan,weekStart,proteinTarget),latest=weekStart===lastCompletedWeek();
   const [text,setText]=useState(()=>readReport(weekStart)?.text||""),[busy,setBusy]=useState(false),[error,setError]=useState("");
   const requestRef=useRef(null);
@@ -2359,6 +2458,7 @@ function ReportScreen({plan,weekStart,playerName,proteinTarget,onBack}) {
         {error&&<p role="alert" className="helper-text">{error}</p>}
         {!busy&&readAccessCode()&&<button className="text-btn" onClick={generate}>{text?"Neu erstellen":"Einschätzung erstellen"}</button>}
       </section>
+      {latest&&planner&&<div style={{marginTop:14}}><PlanProposal plan={plan} weekStart={weekAround(todayStr())[0]} playerName={playerName} proteinTarget={proteinTarget} {...planner}/></div>}
     </div>
   </main>;
 }
@@ -2513,6 +2613,9 @@ export default function App() {
     if(patch.completed===true&&getSessions(np[dk]).length)checkMilestones(dk,np);
   };
   const updDayWith=(dk,fn)=>{const cur=planRef.current,e=cur[dk]||{},np={...cur,[dk]:{...e,...fn(e)}};planRef.current=np;setPlan(np);save(np);};
+  const applyProposal=proposal=>{const {plan:np,previous}=applyWeekProposal(planRef.current,proposal,todayStr());planRef.current=np;setPlan(np);save(np);return previous;};
+  const undoProposal=previous=>{const np=undoWeekProposal(planRef.current,previous);planRef.current=np;setPlan(np);save(np);};
+  const planner={playerName,proteinTarget,onApply:applyProposal,onUndo:undoProposal};
   const mealHandlers={
     onAddMeal:(dk,meal)=>updDayWith(dk,e=>({meals:[...(Array.isArray(e.meals)?e.meals:[]),meal]})),
     onUpdateMeal:(dk,id,patch)=>updDayWith(dk,e=>({meals:(Array.isArray(e.meals)?e.meals:[]).map(m=>m.id===id?{...m,...patch}:m)})),
@@ -2536,7 +2639,7 @@ export default function App() {
   else if(screen==="setup")content=<SetupScreen initName={playerName} initProteinTarget={proteinTarget} isEdit={!!playerName} onBack={playerName?()=>setScreen("main"):null}
     connections={{garmin,withings,scale:scaleSummary(plan),onSync:syncSources,onWithingsConnect:connectWithings,onWithingsDisconnect:disconnectWithings}}
     onSave={(n,target)=>{const pt=target===DEFAULT_PROTEIN_TARGET&&proteinSetting==null?null:target;setPlayerName(n);setProteinSetting(pt);save(plan,n,pt);setScreen("main");}}/>;
-  else if(screen==="report")content=<ReportScreen plan={plan} weekStart={reportWeek||lastCompletedWeek()} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")}/>;
+  else if(screen==="report")content=<ReportScreen plan={plan} weekStart={reportWeek||lastCompletedWeek()} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")} planner={planner}/>;
   else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")}/>;
   else content=<main className="app-shell">
     <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Soccer Tracker</span>
@@ -2547,7 +2650,7 @@ export default function App() {
     {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} proteinTarget={proteinTarget} meals={mealHandlers} onOpenReport={openReport}
       onOpenPlan={()=>{setWkOff(Math.floor((dow0(new Date())+dayOff)/7));setPlanMode("week");setView("plan");window.scrollTo(0,0);}}/>}
     {view==="plan"&&<PlanView mode={planMode} setMode={setPlanMode} today={today} plan={plan} wkOff={wkOff} setWkOff={setWkOff}
-      moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays}/>}
+      moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays} planner={planner}/>}
     {view==="body"&&<BodyView plan={plan} updDay={updDay} proteinTarget={proteinTarget}/>}
     {view==="season"&&<JourneyView today={today} plan={plan} onGoToDay={goToDay} onOpenSettings={()=>setScreen("setup")} onOpenReport={openReport}/>}
     <nav className="nav" aria-label="Hauptnavigation">{tabs.map(([key,label,icon])=><button key={key} aria-label={label} aria-current={view===key?"page":undefined}
