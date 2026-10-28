@@ -535,6 +535,66 @@ function recoveryStatus(plan,dk) {
   return {level:lows>=2?'low':lows===1||cautions>=2?'caution':'good',signals};
 }
 
+// ─── Training load ───────────────────────────────────────────────────────────────
+// Garmin's own Acute Load / Training Status is not in the personal API, so the app
+// rebuilds the idea from each activity's Garmin training load: acute = last 7 days,
+// normal range = 0.8–1.3 × his average week of the last 4 weeks. An orientation for
+// dosing training, not an injury predictor. Only activities recorded on the watch count.
+const LOAD_TYPE_FOR_SESSION={Gym:'Gym','Easy run':'Easy run',Walking:'Walking',Match:'soccer','Team Training':'soccer',Futsal:'soccer',Pilates:'Pilates',Mobility:'Mobility'};
+const LOAD_LABELS={low:'Unter deinem Bereich',optimal:'Im optimalen Bereich',high:'Über deinem Bereich',veryHigh:'Deutlich über deinem Bereich'};
+function dayLoad(e) { return (Array.isArray(e?.garmin)?e.garmin:[]).reduce((n,g)=>n+(Number.isFinite(g.load)&&g.load>0?g.load:0),0); }
+// Typical load per session type from his own last 60 days (median).
+function typicalLoads(plan,dk=todayStr()) {
+  const by={};
+  for(let i=0;i<60;i++)for(const g of plan[daysBeforeStr(dk,i)]?.garmin||[]){
+    const t=garminSessionType(g.type);
+    if(t&&Number.isFinite(g.load)&&g.load>0)(by[t]=by[t]||[]).push(g.load);
+  }
+  return Object.fromEntries(Object.entries(by).map(([t,v])=>{v.sort((a,b)=>a-b);const m=v.length>>1;return [t,Math.round(v.length%2?v[m]:(v[m-1]+v[m])/2)];}));
+}
+function loadStatus(plan,dk=todayStr()) {
+  const sum=(from,n)=>{let total=0;for(let i=from;i<from+n;i++)total+=dayLoad(plan[daysBeforeStr(dk,i)]);return total;};
+  const tracked=Object.keys(plan).filter(d=>d<=dk&&Array.isArray(plan[d]?.garmin)&&plan[d].garmin.length).sort();
+  const utc=x=>{const [y,m,d]=x.split('-').map(Number);return Date.UTC(y,m-1,d);};
+  const historyDays=tracked.length?Math.round((utc(dk)-utc(tracked[0]))/86400000)+1:0;
+  const acute=Math.round(sum(0,7)),weekly=sum(0,28)/4;
+  if(historyDays<21||weekly<=0)return {ready:false,historyDays,acute};
+  const ratio=acute/weekly,low=Math.round(weekly*0.8),high=Math.round(weekly*1.3);
+  return {ready:true,acute,weekly:Math.round(weekly),low,high,veryHigh:Math.round(weekly*1.5),ratio:Math.round(ratio*100)/100,
+    status:ratio<0.8?'low':ratio<=1.3?'optimal':ratio<=1.5?'high':'veryHigh',headroom:Math.max(0,high-acute)};
+}
+// Today's planned sessions that are not done yet, with their typical load (when known).
+function plannedLoad(plan,dk,typical) {
+  const e=plan[dk]||{};
+  if(e.completed||(e.garmin||[]).some(g=>g.matched))return {sessions:[],load:0};
+  const sessions=getSessions(e).filter(s=>LOAD_TYPE_FOR_SESSION[s]&&typical[LOAD_TYPE_FOR_SESSION[s]]);
+  return {sessions,load:sessions.reduce((n,s)=>n+typical[LOAD_TYPE_FOR_SESSION[s]],0)};
+}
+function loadAdvice(plan,dk=todayStr(),status=loadStatus(plan,dk),recovery=recoveryStatus(plan,dk)) {
+  if(!status.ready)return `Noch zu wenig Daten von der Uhr: ${status.historyDays} von 21 Tagen.`;
+  const typical=typicalLoads(plan,dk),planned=plannedLoad(plan,dk,typical);
+  const label=planned.sessions.map(displayName).join(' + ');
+  if(recovery?.level==='low')return 'Die Erholung ist heute niedrig. Unabhängig von der Belastung: nur locker oder Pause.';
+  if(status.status==='high'||status.status==='veryHigh')
+    return planned.load?`Du liegst schon über deinem Bereich. ${label} (≈ ${planned.load}) heute kürzer oder lockerer halten.`
+      :'Du liegst über deinem Bereich. Heute keine Zusatzeinheit, höchstens Mobilität oder Spazieren.';
+  if(planned.load){
+    const after=status.acute+planned.load;
+    return after<=status.high?`Mit ${label} (≈ ${planned.load}) bleibst du im Bereich.`
+      :`Mit ${label} (≈ ${planned.load}) kommst du auf ${after}, knapp über deinem Bereich. Kontrolliert halten.`;
+  }
+  const run=typical['Easy run'];
+  if(status.status==='low')return run&&status.headroom>=run?`Du liegst unter deinem Bereich. Ein lockerer Lauf (≈ ${run}) passt gut.`:'Du liegst unter deinem Bereich. Eine zusätzliche Einheit passt.';
+  if(run&&status.headroom>=run)return `Spielraum ca. ${status.headroom}: Ein lockerer Lauf (≈ ${run}) liegt noch drin.`;
+  return 'Du bist im Bereich. Mehr braucht es heute nicht.';
+}
+// Weekly totals (Mon–Sun) for the n weeks up to the week of dk.
+function weeklyLoads(plan,dk=todayStr(),n=6) {
+  const monday=weekAround(dk)[0];
+  return Array.from({length:n},(_,i)=>{const from=daysBeforeStr(monday,(n-1-i)*7);
+    let total=0;for(let d=0;d<7;d++)total+=dayLoad(plan[daysBeforeStr(from,-d)]);return {from,load:Math.round(total)};});
+}
+
 // ─── Withings import ─────────────────────────────────────────────────────────────
 const WITHINGS_FULL_DAYS=180;
 // Incremental sync only after a full 180-day load succeeded for the same account;
@@ -742,6 +802,11 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
     history:{allTime:stats(dates[0]&&dates[0]<referenceDate?dates[0]:referenceDate,referenceDate),
       last8Weeks:Array.from({length:8},(_,i)=>{const from=daysBeforeStr(weekDays[0],(8-i)*7);return stats(from,daysBeforeStr(from,-6));})},
     body:{weight:bodyMetric('weight'),bodyFat:bodyMetric('bodyFat')},
+    load:(()=>{const st=loadStatus(plan,referenceDate);if(!st.ready)return {ready:false,daysOfWatchData:st.historyDays,acute7Days:st.acute};
+      const typical=typicalLoads(plan,referenceDate),planned=plannedLoad(plan,referenceDate,typical);
+      return {ready:true,acute7Days:st.acute,averageWeek4Weeks:st.weekly,optimalRange:[st.low,st.high],ratio:st.ratio,status:st.status,headroomToday:st.headroom,
+        plannedTodayLoad:planned.load||null,typicalLoadBySession:Object.fromEntries(Object.entries(typical).map(([k,v])=>[GARMIN_LABELS[k]||k,v])),
+        last6Weeks:weeklyLoads(plan,referenceDate,6),appAdvice:loadAdvice(plan,referenceDate,st)};})(),
     nutrition:{proteinTargetGrams:target,last7Days:eatingStats(daysBeforeStr(referenceDate,6),referenceDate),
       previous7Days:eatingStats(daysBeforeStr(referenceDate,13),daysBeforeStr(referenceDate,7))},
     tactical:tacticalFor(referenceDate)};
@@ -997,6 +1062,16 @@ progress::-webkit-progress-bar{background:#344858}progress::-webkit-progress-val
 .recovery-signals{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:11px;color:#A5B8C8}.recovery-signals .flag{color:#E9C46A}.recovery.low .recovery-signals .flag{color:#F0A99F}
 .sleep-fill{background:#9CCBD3!important}.sleep-fill.good{background:#8FD19E!important}.sleep-fill.caution{background:#E9C46A!important}.sleep-fill.low{background:#E58A7E!important}
 .night-metric{font-size:10px;color:#A5B8C8;font-variant-numeric:tabular-nums}
+.load-card{padding:18px 20px;margin-top:12px}
+.load-tag{font-size:11px;padding:4px 9px;border-radius:99px;background:#15222F;color:#A5B8C8}.load-tag.optimal{color:#8FD19E}.load-tag.high{color:#E9C46A}.load-tag.veryHigh{color:#F0A99F}.load-tag.low{color:#B3DCE2}
+.load-value{display:flex;align-items:baseline;gap:10px;margin-top:10px}.load-value strong{font-size:30px;font-weight:500;letter-spacing:-.04em;font-variant-numeric:tabular-nums}.load-value span{font-size:12px;color:#A5B8C8}
+.load-bar{position:relative;height:12px;border-radius:99px;background:#263C4D;margin:12px 0 10px;overflow:visible}
+.load-bar .zone{position:absolute;top:0;bottom:0}.load-bar .optimal{background:rgba(143,209,158,.35)}.load-bar .high{background:rgba(233,196,106,.3)}.load-bar .very{background:rgba(229,138,126,.28);border-radius:0 99px 99px 0}
+.load-bar .planned{position:absolute;top:3px;bottom:3px;background:repeating-linear-gradient(90deg,#9CCBD3 0 4px,transparent 4px 7px);opacity:.8}
+.load-bar .marker{position:absolute;top:-5px;width:4px;height:22px;border-radius:4px;background:#EDF2F5;transform:translateX(-50%);box-shadow:0 0 0 3px #1B2935}
+.load-advice{font-size:13px;line-height:1.5;color:#EDF2F5}
+.load-weeks .steps-bar{position:relative}.load-weeks .band{position:absolute;left:0;right:0;background:rgba(143,209,158,.3)}
+.load-fill{position:relative;z-index:1;background:#647F93!important}.load-fill.current{background:#9CCBD3!important}
 .kcal-line{font-size:12px;color:#B3DCE2;margin:-6px 0 12px}
 .meal-photo{display:flex;flex-direction:column;align-items:stretch;margin-bottom:8px}.meal-photo .secondary{display:flex;align-items:center;justify-content:center;gap:8px;border-color:#9CCBD3;white-space:nowrap}
 .meal-photo .text-btn{align-self:center;min-height:36px;font-size:12px;color:#B3DCE2}
@@ -1416,6 +1491,31 @@ function DayRings({plan,viewKey,target,onOpenPlan}) {
   </section>;
 }
 
+// ─── Load card (Today) ───────────────────────────────────────────────────────────
+function LoadCard({plan,dk}) {
+  const status=loadStatus(plan,dk),advice=loadAdvice(plan,dk,status);
+  if(!status.ready&&!status.historyDays)return null;
+  const typical=status.ready?typicalLoads(plan,dk):{},planned=status.ready?plannedLoad(plan,dk,typical):{load:0};
+  const scaleMax=status.ready?Math.max(status.veryHigh*1.15,status.acute+planned.load)*1.05:1;
+  const pos=v=>Math.max(0,Math.min(100,v/scaleMax*100))+"%";
+  return <section className="panel load-card" aria-label="Trainingsbelastung">
+    <div className="card-head"><span className="eyebrow">Belastung · 7 Tage</span>
+      {status.ready&&<span className={"load-tag "+status.status}>{LOAD_LABELS[status.status]}</span>}</div>
+    {status.ready?<>
+      <div className="load-value"><strong>{status.acute}</strong><span>dein Bereich {status.low}–{status.high}</span></div>
+      <div className="load-bar" aria-hidden="true">
+        <span className="zone optimal" style={{left:pos(status.low),width:`calc(${pos(status.high)} - ${pos(status.low)})`}}/>
+        <span className="zone high" style={{left:pos(status.high),width:`calc(${pos(status.veryHigh)} - ${pos(status.high)})`}}/>
+        <span className="zone very" style={{left:pos(status.veryHigh),right:0}}/>
+        {planned.load>0&&<span className="planned" style={{left:pos(status.acute),width:`calc(${pos(status.acute+planned.load)} - ${pos(status.acute)})`}}/>}
+        <span className="marker" style={{left:pos(status.acute)}}/>
+      </div>
+    </>:null}
+    <p className="load-advice">{advice}</p>
+    {status.ready&&<p className="chart-caption">Garmin-Trainingsbelastung der letzten 7 Tage. Bereich: dein Wochenschnitt der letzten 4 Wochen × 0.8–1.3. Zählt nur, was die Uhr aufzeichnet.</p>}
+  </section>;
+}
+
 // ─── Nutrition card (Today) ──────────────────────────────────────────────────────
 // Photo a meal and the estimate is saved right away; opening a meal to correct it is
 // optional. Quick-add protein (+20/+30/+40 g) stays for shakes and snacks. Only writes
@@ -1637,6 +1737,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals}
       {sessions.length>0&&<details className="session-details"><summary>Hinweise zur Einheit</summary>
         {sessions.map(s=><TipCard key={s} workout={s}/>)}</details>}
     </section>
+    {dayOff===0&&<LoadCard plan={plan} dk={viewKey}/>}
     <NutritionCard key={"nutrition-"+viewKey} entry={e} dateKey={viewKey} updDay={updDay} target={proteinTarget} {...meals}/>
     <UpNextCard plan={plan} from={viewKey} onSelect={go}/>
     {sheetOpen&&<WorkoutSheet dateKey={viewKey} entry={e} updDay={updDay} onClose={()=>setSheetOpen(false)}/>}
@@ -1689,9 +1790,23 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays}) {
     </div>
     <p className="helper-text">Tag öffnen, um Training einzutragen. Über ⇅ kannst du zwei Trainingstage tauschen. Eingetragene Spieltermine bleiben fix.</p>
     <WeeklyTargets plan={plan} date={days[0]}/>
+    <WeeklyLoad plan={plan} dk={days[6]<today?days[6]:today}/>
     <div style={{marginTop:14}}><TacticalCard dk={days[0]}/></div>
     {sheetDk&&<WorkoutSheet dateKey={sheetDk} entry={plan[sheetDk]||{}} updDay={updDay} onClose={()=>setSheetDk(null)}/>}
   </div>;
+}
+
+function WeeklyLoad({plan,dk}) {
+  const weeks=weeklyLoads(plan,dk,6),status=loadStatus(plan,dk);
+  if(!weeks.some(w=>w.load>0))return null;
+  const max=Math.max(...weeks.map(w=>w.load),status.ready?status.high:0,1);
+  return <section aria-label="Belastung der letzten sechs Wochen">
+    <div className="section-heading"><h2>Belastung</h2><small>{status.ready?`Bereich ${status.low}–${status.high} pro Woche`:"letzte 6 Wochen"}</small></div>
+    <div className="panel steps-week load-weeks">{weeks.map((w,i)=><div key={w.from} className="steps-day" role="img" aria-label={`Woche ab ${shortDate(w.from)}: Belastung ${w.load}`}>
+      <span className="steps-bar">{status.ready&&<span className="band" style={{bottom:status.low/max*100+"%",height:(status.high-status.low)/max*100+"%"}}/>}
+        <span className={"load-fill"+(i===weeks.length-1?" current":"")} style={{height:Math.max(w.load?4:0,w.load/max*100)+"%"}}/></span>
+      <b>{w.load}</b><small>{new Date(w.from+"T12:00:00").toLocaleDateString("de-CH",{day:"numeric",month:"numeric"})}</small></div>)}</div>
+  </section>;
 }
 
 // ─── Plan view: week / month toggle ──────────────────────────────────────────────
@@ -2204,12 +2319,12 @@ export default function App() {
     const now=Date.now(),today=todayStr(),extras=storedExtras.current;
     const gLast=extras.garminSync,wLast=extras.withingsSync;
     const due=last=>force||!(last?.at&&now-last.at<10*60*1000);
-    const garminDue=due(gLast?.v===3?gLast:null),withingsDue=due(wLast);
+    const garminDue=due(gLast?.v===4?gLast:null),withingsDue=due(wLast);
     if(!garminDue&&!withingsDue)return;
     let gFrom=gLast?.through?daysBeforeStr(gLast.through,2):daysBeforeStr(today,13);
-    // Version 3 added sleep and recovery: reload the longest window once so baselines exist.
-    if(gLast&&gLast.v!==3)gFrom=daysBeforeStr(today,27);
-    if(gFrom<daysBeforeStr(today,27))gFrom=daysBeforeStr(today,27);
+    // Version 4 added training load: load six weeks of activities once (health data: last 28 days).
+    if(!gLast||gLast.v!==4)gFrom=daysBeforeStr(today,41);
+    if(gFrom<daysBeforeStr(today,59))gFrom=daysBeforeStr(today,59);
     const wWindow=withingsWindow(wLast,today),wFrom=wWindow.from;
     if(garminDue)setGarmin(g=>({...g,state:"syncing"}));
     if(withingsDue)setWithings(w=>({...w,state:"syncing"}));
@@ -2218,7 +2333,7 @@ export default function App() {
     if(g){
       if(g.res?.ok&&Array.isArray(g.body.activities)&&Array.isArray(g.body.steps)){
         const r=applyGarminImport(next,g.body,today);next=r.plan;changed=true;
-        storedExtras.current={...storedExtras.current,garminSync:{at:Date.now(),through:today,v:3}};
+        storedExtras.current={...storedExtras.current,garminSync:{at:Date.now(),through:today,v:4}};
         setGarmin({state:"ok",at:Date.now()});
         if(r.completed.length)notes.push(r.completed.length>2?`${r.completed.length} Trainings von Garmin eingetragen`
           :"Von Garmin eingetragen: "+r.completed.map(dk=>sessionsLabel(next[dk])+" ("+shortDate(dk)+")").join(", "));

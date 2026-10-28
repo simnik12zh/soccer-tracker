@@ -10,7 +10,8 @@ import { accessDenied } from "./access.js";
 const BASE_URL = "https://personal.connectapi.garmin.com";
 const TOKEN_PATH = "/personalapitoken-service/personal-api/personal-api-key/token";
 const REFRESH_WINDOW_SECONDS = 3600;
-const MAX_RANGE_DAYS = 28; // daily steps endpoint limit
+const MAX_RANGE_DAYS = 60;   // activities (load history needs ~6 weeks)
+const HEALTH_RANGE_DAYS = 28; // steps endpoint limit; sleep allows 31
 
 export class GarminError extends Error {
   constructor(code, status) { super(code); this.code = code; this.status = status; }
@@ -142,18 +143,32 @@ export function createGarminClient({ env = process.env, fetchImpl = globalThis.f
   return {
     configured: !!key,
     async fetchRange(from, to) {
-      const q = new URLSearchParams({ start: "0", limit: "99", startDate: from, endDate: to, sortOrder: "asc" });
+      // Activities page by 99 (Garmin's default page size), at most 5 pages.
+      const activityPages = async () => {
+        const all = [];
+        for (let start = 0; start < 495; start += 99) {
+          const q = new URLSearchParams({ start: String(start), limit: "99", startDate: from, endDate: to, sortOrder: "asc" });
+          const page = await get(`/activitylist-service/activities/search/activities?${q}`);
+          if (!Array.isArray(page)) break;
+          all.push(...page);
+          if (page.length < 99) break;
+        }
+        return all;
+      };
+      // Daily health data only for the last 28 days of the window (endpoint limits).
+      const back = new Date(to + "T00:00:00Z"); back.setUTCDate(back.getUTCDate() - (HEALTH_RANGE_DAYS - 1));
+      const healthFrom = from > back.toISOString().slice(0, 10) ? from : back.toISOString().slice(0, 10);
       // Recovery sources are optional: a missing one (e.g. no HRV-capable watch) never fails the sync.
       const optional = (path) => get(path).catch((err) => { if (err?.code === "garmin_key_invalid") throw err; return null; });
-      const range = new URLSearchParams({ startDate: from, endDate: to });
+      const range = new URLSearchParams({ startDate: healthFrom, endDate: to });
       const [activities, steps, sleep, hrv, summaries] = await Promise.all([
-        get(`/activitylist-service/activities/search/activities?${q}`),
-        get(`/usersummary-service/stats/steps/daily/${from}/${to}`),
+        activityPages(),
+        get(`/usersummary-service/stats/steps/daily/${healthFrom}/${to}`),
         optional(`/sleep-service/sleep/dailySleepSummariesByDate?${range}`),
-        optional(`/hrv-service/hrv/daily/${from}/${to}`),
+        optional(`/hrv-service/hrv/daily/${healthFrom}/${to}`),
         optional(`/usersummary-service/v2/dailysummaries?${range}`),
       ]);
-      return { activities: normalizeActivities(activities), steps: normalizeSteps(steps), recovery: normalizeRecovery({ sleep, hrv, summaries }, from, to) };
+      return { activities: normalizeActivities(activities), steps: normalizeSteps(steps), recovery: normalizeRecovery({ sleep, hrv, summaries }, healthFrom, to), healthFrom };
     },
   };
 }

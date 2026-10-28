@@ -93,7 +93,7 @@ test('a rejected token is renewed once; bad keys and ranges give clear errors',a
   const limited=fakeBackend({dataStatus:[429,429]});
   assert.equal((await call(garminHandler({env:ENV,fetchImpl:limited.fetchImpl,now:()=>NOW}))).body.error,'garmin_rate_limited');
   const backend=fakeBackend();
-  for(const query of [{from:'2026-09-01',to:'2026-10-28'},{from:'2026-10-28',to:'2026-10-20'},{from:'2026-02-30',to:'2026-03-01'},{}])
+  for(const query of [{from:'2026-08-01',to:'2026-10-28'},{from:'2026-10-28',to:'2026-10-20'},{from:'2026-02-30',to:'2026-03-01'},{}])
     assert.equal((await call(garminHandler({env:ENV,fetchImpl:backend.fetchImpl}),{query})).body.error,'invalid_range',JSON.stringify(query));
   assert.equal(jwtExpiry('not-a-jwt'),null);
   assert.deepEqual(normalizeActivities(null),[]);assert.deepEqual(normalizeSteps({}),[]);
@@ -170,4 +170,16 @@ test('coach sees steps and watch activities for past days only',()=>{
   assert.match(prompt,/watchActivities lists recorded activities/);
   assert.match(prompt,/maxSpeedKmh is GPS-based/);
   assert.match(prompt,/accessDenied\(req, process\.env\)/);
+});
+
+test('six weeks of activities for load history, health data only for the last 28 days',async()=>{
+  const backend=fakeBackend({activities:Array.from({length:99},(_,i)=>garminActivity(1000+i,'walking','2026-09-20 08:00:00'))});
+  const res=await call(garminHandler({env:ENV,fetchImpl:backend.fetchImpl,now:()=>NOW}),{query:{from:'2026-09-17',to:'2026-10-28'}});
+  assert.equal(res.code,200);
+  assert.equal(res.body.healthFrom,'2026-10-01');
+  assert.ok(backend.calls.some(c=>c.url.endsWith('/usersummary-service/stats/steps/daily/2026-10-01/2026-10-28')));
+  assert.ok(backend.calls.some(c=>c.url.includes('/sleep-service/')&&c.url.includes('startDate=2026-10-01')));
+  const pages=backend.calls.filter(c=>c.url.includes('/activitylist-service/'));
+  assert.ok(pages.length>=2&&pages[1].url.includes('start=99'),'a full page triggers the next one');
+  assert.ok(pages.every(c=>c.url.includes('startDate=2026-09-17')));
 });

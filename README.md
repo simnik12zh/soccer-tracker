@@ -145,6 +145,16 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   seven nights with HRV and resting HR. The coach gets the values for past days and today's
   assessment, with instructions to adapt load and not over-read one night. Sync version 3 reloads
   28 days once so baselines exist.
+- **Training load** — Garmin's own Acute Load / Training Status are not in the personal API, so
+  the app rebuilds them from each activity's Garmin training load (`activityTrainingLoad`):
+  acute = last 7 days; normal range = 0.8–1.3 × his average week over the last 4 weeks
+  (`loadStatus`, needs 21 days of watch data). `typicalLoads` = his own median per session type
+  over 60 days; `plannedLoad` adds today's planned, not yet done sessions; `loadAdvice` gives one
+  sentence (low recovery always wins over spare load). Heute shows a load card for today (value,
+  range bar with the planned part, advice); Plan → Woche shows six weekly totals with the range.
+  The coach gets the whole block (`load`, whitelisted server-side). The Garmin endpoint now
+  accepts up to 60 days: activities for the full window (paged by 99), steps/sleep/HRV/daily
+  summaries for the last 28 days. Sync version 4 loads six weeks of activities once.
 - **Access code** — `APP_ACCESS_CODE` (Vercel env) is required for `/api/garmin` and, when set,
   for `/api/coach`. The app sends it as `Authorization: Bearer`; it is entered under Saison →
   Einstellungen → Garmin and stored in its own localStorage key, so exports never contain it.

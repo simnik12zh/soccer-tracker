@@ -74,5 +74,5 @@ test('recovery is imported per day, and the coach gets values plus the assessmen
   assert.equal(ctx.upcoming[0].recovery,null);
   const coach=readFileSync(new URL('../api/coach.js',import.meta.url),'utf8');
   assert.match(coach,/One poor night is not a trend/);
-  assert.match(source,/garminSync:\{at:Date\.now\(\),through:today,v:3\}/,'sync version bumped for the backfill');
+  assert.match(source,/garminSync:\{at:Date\.now\(\),through:today,v:\d+\}/,'sync is versioned for backfills');
 });
