@@ -62,6 +62,15 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   averages, with the instruction that photo kcal are rough and cover only photographed meals.
   Day updates build on the latest plan (`planRef`) so results arriving after an await never drop
   newer edits.
+- **Describe and correct meals** — "Beschreiben" next to "Foto" takes a short text ("Chicken
+  Burrito mit Reis", several items separated by commas); `POST /api/meal` with `description`
+  estimates it like a photo (typical Swiss portions unless amounts are given; saved with
+  `source: 'text'`, shown as "beschrieben"). An opened meal offers "Stimmt nicht? Richtigstellen":
+  his words count as fact for what he ate, and the model re-estimates name, components, kcal and
+  protein (`correction` + `previous` title/items; shown as "richtiggestellt"). The downscaled
+  photo stays in memory while the app is open (`mealPhotoMemory`, never stored), so a correction
+  right after a photo sends it again; later corrections use the earlier portions instead. His text
+  is passed inside tags as a description only, never as instructions.
 - **Meal favourites** — open a meal → "Als Favorit merken" (name, kcal and protein as shown in
   the fields; the name is editable). Favourites appear as a scrollable chip row under the photo
   button, most used first; one tap adds a copy to the viewed day (`source: 'favorite'`,

@@ -996,7 +996,7 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
     const e=plan[dk]||{},protein=dayProtein(e),rating=nutritionLevel(e.nutrition)?e.nutrition:null,meals=dayMeals(e);
     if(dk>referenceDate||(protein==null&&!rating&&!meals.length))return null;
     return {proteinGrams:protein,rating,...(meals.length?{kcal:dayKcal(e),
-      meals:meals.slice(0,8).map(m=>({title:coachText(m.title,40),kcal:Math.round(m.kcal),proteinGrams:Math.round(m.protein),...(m.source==='favorite'?{fromFavorite:true}:{})}))}:{})};
+      meals:meals.slice(0,8).map(m=>({title:coachText(m.title,40),kcal:Math.round(m.kcal),proteinGrams:Math.round(m.protein),...(m.source==='favorite'?{fromFavorite:true}:{}),...(m.source==='text'?{fromDescription:true}:{})}))}:{})};
   };
   const eatingStats=(from,to)=>{
     const keys=Array.from({length:7},(_,i)=>daysBeforeStr(to,6-i)),s=nutritionSummary(plan,keys,target);
@@ -1398,7 +1398,14 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .complaint-level strong{font-size:14px;font-weight:500}.complaint-level small{font-size:12px;color:var(--muted)}.complaint-level.l1{border-color:var(--line-strong)}.complaint-level.l2{border-color:#6B5A3E}.complaint-level.l3{border-color:#8E4E46}
 .kcal-line{font-size:12px;color:var(--accent-ink);margin:-6px 0 12px}
 .meal-photo{display:flex;gap:8px;margin-bottom:10px}.meal-photo .secondary{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;border-color:var(--accent);white-space:nowrap}
-.meal-photo .photo-library{flex:0 0 52px;padding:0}
+.meal-photo .photo-library{flex:0 0 52px;padding:0}.meal-photo .secondary{min-width:0;padding-left:10px;padding-right:10px}
+@media(max-width:360px){.meal-photo{gap:6px}.meal-photo .secondary:not(.photo-library){font-size:14px;padding-left:8px;padding-right:8px}.meal-photo .secondary:not(.photo-library) svg{display:none}.meal-photo .photo-library{flex-basis:48px}}
+.meal-describe{margin:-2px 0 12px}.meal-describe textarea{margin:0;display:block;resize:none;line-height:1.4}
+.meal-describe-foot{display:flex;align-items:center;gap:12px;margin-top:8px}.meal-describe-foot .protein-hint{flex:1;margin:0}.meal-describe-foot .primary{flex-shrink:0}
+.fix-toggle{display:flex;align-items:center;gap:6px;min-height:40px;margin:2px 0 6px;padding:0;font-size:13px;color:var(--accent-ink)!important}
+.meal-fix{margin:4px 0 12px;padding:12px;border:1px solid var(--line);border-radius:var(--r-m);background:rgba(16,26,37,.5)}.meal-fix .sheet-footer{margin-top:10px}
+.meal-fix .sheet-footer .primary{flex:1.5;white-space:nowrap;padding-left:10px;padding-right:10px}
+.social-link{text-align:left;align-items:flex-start}
 .protein-head>span{display:inline-flex;align-items:center;gap:2px}.protein-fix{min-width:36px;min-height:36px;margin:-8px -8px -8px 0;color:var(--muted)}
 .protein-edit{margin-bottom:10px}
 .fav-chip.protein-chip{min-width:64px}.fav-chip.protein-chip span{font-variant-numeric:tabular-nums}
@@ -2173,7 +2180,20 @@ const MEAL_ERRORS={
   meal_unreadable:"Die Schätzung hat nicht geklappt.",
   meal_unavailable:"Die Schätzung hat nicht geklappt.",
   network:"Keine Verbindung.",
+  invalid_description:"Beschreib kurz, was du gegessen hast.",
 };
+// Photos stay in memory while the app is open, so a correction right after a photo can send it
+// again. Nothing is written to storage.
+const mealPhotoMemory=new Map();
+const rememberMealPhoto=(id,image)=>{mealPhotoMemory.set(id,image);while(mealPhotoMemory.size>12)mealPhotoMemory.delete(mealPhotoMemory.keys().next().value);};
+async function requestMeal(payload) {
+  try{
+    const res=await fetch("/api/meal",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify(payload)});
+    const body=await res.json().catch(()=>({}));
+    return res.ok&&body.meal?{meal:body.meal}:{error:MEAL_ERRORS[body.error]||MEAL_ERRORS.meal_unavailable};
+  }catch{return {error:MEAL_ERRORS.network};}
+}
+const mealFields=m=>({title:m.title,kcal:m.kcal,protein:m.protein,kcalLow:m.kcalLow,kcalHigh:m.kcalHigh,confidence:m.confidence,items:m.items});
 const nowTime=()=>new Date().toLocaleTimeString("de-CH",{hour:"2-digit",minute:"2-digit"});
 // Downscale on the phone: faster upload, cheaper analysis, nothing stored.
 async function prepareMealPhoto(file,maxSide=1280) {
@@ -2189,7 +2209,10 @@ async function prepareMealPhoto(file,maxSide=1280) {
     return {base64:dataUrl.slice(dataUrl.indexOf(",")+1),preview:dataUrl};
   }finally{URL.revokeObjectURL(url);}
 }
-function MealRow({meal,onSave,onRemove,isFavorite,onToggleFavorite}) {
+function MealRow({meal,onSave,onRemove,isFavorite,onToggleFavorite,onCorrect}) {
+  const [fixOpen,setFixOpen]=useState(false),[fixText,setFixText]=useState(""),[fixBusy,setFixBusy]=useState(false),[fixError,setFixError]=useState("");
+  const runFix=async()=>{const t=fixText.trim();if(t.length<2||fixBusy)return;setFixBusy(true);setFixError("");
+    const err=await onCorrect(meal,t);setFixBusy(false);if(err){setFixError(err);return;}setFixOpen(false);setFixText("");setOpen(false);};
   const [open,setOpen]=useState(false),[kcal,setKcal]=useState(String(meal.kcal)),[protein,setProtein]=useState(String(meal.protein)),[title,setTitle]=useState(meal.title);
   const num=v=>v.trim()===""?NaN:Number(v.replace(",","."));
   const k=num(kcal),p=num(protein),valid=Number.isFinite(k)&&k>=0&&k<=5000&&Number.isFinite(p)&&p>=0&&p<=300&&title.trim()!=="";
@@ -2202,11 +2225,20 @@ function MealRow({meal,onSave,onRemove,isFavorite,onToggleFavorite}) {
   const range=meal.kcalLow!=null&&meal.kcalHigh!=null&&meal.kcalHigh>meal.kcalLow?`${meal.kcalLow}–${meal.kcalHigh} kcal`:"";
   return <li className={"meal-row"+(open?" open":"")}>
     <button className="meal-summary" aria-expanded={open} onClick={()=>{setKcal(String(meal.kcal));setProtein(String(meal.protein));setTitle(meal.title);setOpen(o=>!o);}}>
-      <span><strong>{isFavorite&&<Icon name="star" size={12}/>}{meal.title}</strong><small>{meal.at}{meal.source==="favorite"?" · Favorit":meal.edited?" · angepasst":range?` · ${range}`:""}{meal.source!=="favorite"&&!meal.edited&&meal.confidence==="low"?" · unsicher":""}</small></span>
+      <span><strong>{isFavorite&&<Icon name="star" size={12}/>}{meal.title}</strong><small>{meal.at}{meal.source==="favorite"?" · Favorit":meal.edited?" · angepasst":meal.corrected?" · richtiggestellt":meal.source==="text"?" · beschrieben":range?` · ${range}`:""}{meal.source!=="favorite"&&!meal.edited&&meal.confidence==="low"?" · unsicher":""}</small></span>
       <b>{meal.kcal} kcal<small>{meal.protein} g Protein</small></b>
     </button>
     {open&&<div className="meal-detail">
       {Array.isArray(meal.items)&&meal.items.length>0&&<ul>{meal.items.map((i,n)=><li key={n}><span>{i.name}{i.grams?` · ${i.grams} g`:""}</span><span>{i.kcal} kcal · {Math.round(i.protein)} g</span></li>)}</ul>}
+      {onCorrect&&meal.source!=="favorite"&&(fixOpen?<div className="meal-fix">
+        <label className="meal-name">Was war es wirklich?<input className="modal-input" autoFocus maxLength={300} value={fixText} disabled={fixBusy}
+          placeholder="z. B. Chicken Burrito mit Reis, gross" onChange={e=>setFixText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")runFix();}}/></label>
+        <p className="protein-hint">Name, Bestandteile, Kalorien und Protein werden neu geschätzt.{mealPhotoMemory.has(meal.id)?" Das Foto wird mitgeschickt.":""}</p>
+        {fixError&&<p role="alert" className="helper-text warn-text">{fixError}</p>}
+        <div className="sheet-footer"><button className="primary" disabled={fixText.trim().length<2||fixBusy} onClick={runFix}>{fixBusy?"Wird neu geschätzt …":"Neu schätzen"}</button>
+          <button className="secondary" disabled={fixBusy} onClick={()=>{setFixOpen(false);setFixError("");}}>Abbrechen</button></div>
+      </div>:<button className="text-btn fix-toggle" onClick={()=>setFixOpen(true)}><Icon name="note" size={16}/> Stimmt nicht? Richtigstellen</button>)}
+      {!fixOpen&&<>
       <label className="meal-name">Name<input className="modal-input" maxLength={40} value={title} onChange={e=>setTitle(e.target.value)}/></label>
       <div className="meal-edit">
         <label>kcal<input className="modal-input" inputMode="numeric" value={kcal} onChange={e=>setKcal(e.target.value)}/></label>
@@ -2216,6 +2248,7 @@ function MealRow({meal,onSave,onRemove,isFavorite,onToggleFavorite}) {
       <button className="text-btn fav-toggle" aria-pressed={!!isFavorite} disabled={!isFavorite&&!valid} onClick={toggleFavorite}>
         <Icon name="star" size={16}/> {isFavorite?"Aus Favoriten entfernen":"Als Favorit merken"}</button>
       <div className="sheet-footer"><button className="primary" disabled={!valid} onClick={save}>Speichern</button><button className="secondary" onClick={onRemove}>Löschen</button></div>
+      </>}
     </div>}
   </li>;
 }
@@ -2259,16 +2292,25 @@ function NutritionCard({entry,dateKey:dk,updDay,target,onAddMeal,onUpdateMeal,on
   // The pencil corrects the day total; photographed meals stay, the quick-add part absorbs the difference.
   const saveDraft=()=>{if(!draftOk)return;updDay(dk,{protein:parsed==null?null:Math.max(0,Math.round(parsed-mealProtein))});setEditing(false);};
   const setItem=(key,patch)=>setPending(list=>list.map(x=>x.key===key?{...x,...patch}:x));
+  const [describing,setDescribing]=useState(false),[descText,setDescText]=useState("");
   const analyze=async item=>{
     setItem(item.key,{status:"analyzing"});
-    try{
-      const res=await fetch("/api/meal",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify({image:item.image,mediaType:"image/jpeg"})});
-      const body=await res.json().catch(()=>({}));
-      if(!res.ok||!body.meal){setItem(item.key,{status:"error",message:MEAL_ERRORS[body.error]||MEAL_ERRORS.meal_unavailable});return;}
-      const m=body.meal;
-      onAddMeal(dk,{id:item.key,at:item.at,title:m.title,kcal:m.kcal,protein:m.protein,kcalLow:m.kcalLow,kcalHigh:m.kcalHigh,confidence:m.confidence,items:m.items});
-      setPending(list=>list.filter(x=>x.key!==item.key));
-    }catch{setItem(item.key,{status:"error",message:MEAL_ERRORS.network});}
+    const r=await requestMeal(item.image?{image:item.image,mediaType:"image/jpeg"}:{description:item.description});
+    if(r.error){setItem(item.key,{status:"error",message:r.error});return;}
+    if(item.image)rememberMealPhoto(item.key,item.image);
+    onAddMeal(dk,{id:item.key,at:item.at,...mealFields(r.meal),...(item.image?{}:{source:"text"})});
+    setPending(list=>list.filter(x=>x.key!==item.key));
+  };
+  const describe=()=>{const t=descText.trim();if(t.length<2)return;
+    const item={key:Date.now().toString(36)+Math.random().toString(36).slice(2,7),at:dk===today?nowTime():"",description:t,status:"analyzing"};
+    setPending(list=>[...list,item]);setDescText("");setDescribing(false);analyze(item);};
+  // A correction re-estimates with his words (and the photo while the app still holds it).
+  const correct=async(meal,text)=>{
+    const photo=mealPhotoMemory.get(meal.id);
+    const r=await requestMeal({correction:text,previous:{title:meal.title,items:(meal.items||[]).map(i=>({name:i.name,grams:i.grams}))},
+      ...(photo?{image:photo,mediaType:"image/jpeg"}:{})});
+    if(r.error)return r.error;
+    onUpdateMeal(dk,meal.id,{...mealFields(r.meal),corrected:true,edited:false});return null;
   };
   const onPhoto=async ev=>{
     const file=ev.target.files?.[0];ev.target.value="";
@@ -2292,12 +2334,19 @@ function NutritionCard({entry,dateKey:dk,updDay,target,onAddMeal,onUpdateMeal,on
         <span style={{width:Math.min(100,(protein||0)/target*100)+"%"}}/></div>
       {kcal!=null&&<p className="kcal-line">≈ {kcal.toLocaleString("de-CH")} kcal aus {meals.length} {meals.length===1?"Mahlzeit":"Mahlzeiten"}</p>}
       <div className="meal-photo">
-        <button className="secondary" disabled={!hasCode} onClick={()=>cameraRef.current?.click()}><Icon name="camera" size={19}/> Mahlzeit fotografieren</button>
+        <button className="secondary" disabled={!hasCode} onClick={()=>cameraRef.current?.click()}><Icon name="camera" size={19}/> Foto</button>
+        <button className="secondary" disabled={!hasCode} aria-expanded={describing} onClick={()=>setDescribing(d=>!d)}><Icon name="note" size={18}/> Beschreiben</button>
         <button className="secondary photo-library" disabled={!hasCode} aria-label="Foto aus der Mediathek wählen" onClick={()=>libraryRef.current?.click()}><Icon name="image" size={20}/></button>
         <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto}/>
         <input ref={libraryRef} type="file" accept="image/*" hidden onChange={onPhoto}/>
       </div>
-      {!hasCode&&<p className="protein-hint">Für Fotos zuerst den Zugangscode in den Einstellungen speichern (Zahnrad oben rechts).</p>}
+      {describing&&<div className="meal-describe">
+        <textarea className="modal-input" rows={2} autoFocus maxLength={300} value={descText} placeholder="z. B. Chicken Burrito mit Reis und Guacamole"
+          aria-label="Was hast du gegessen?" onChange={e=>setDescText(e.target.value)}
+          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();describe();}if(e.key==="Escape")setDescribing(false);}}/>
+        <div className="meal-describe-foot"><p className="protein-hint">Ohne Menge gilt eine übliche Portion. Mehreres mit Komma trennen.</p>
+          <button className="primary" disabled={descText.trim().length<2} onClick={describe}>Schätzen</button></div></div>}
+      {!hasCode&&<p className="protein-hint">Für Fotos und Beschreibungen zuerst den Zugangscode in den Einstellungen speichern (Zahnrad oben rechts).</p>}
       {editing&&<div className="protein-edit">
         <input className="modal-input" aria-label="Protein in Gramm" inputMode="numeric" autoFocus value={draft} placeholder="z. B. 85"
           onChange={ev=>setDraft(ev.target.value)} onKeyDown={ev=>{if(ev.key==="Enter")saveDraft();if(ev.key==="Escape")setEditing(false);}}/>
@@ -2312,12 +2361,12 @@ function NutritionCard({entry,dateKey:dk,updDay,target,onAddMeal,onUpdateMeal,on
       {lastAdd&&!editing&&<button className="text-btn undo-btn" onClick={undo}>+{lastAdd.g} g Protein eingetragen · Rückgängig</button>}
       {(pending.length>0||meals.length>0)&&<ul className="meal-list" aria-label="Mahlzeiten">
         {meals.map(m=>{const fav=findFavorite(favorites,m);
-          return <MealRow key={m.id} meal={m} onSave={patch=>onUpdateMeal(dk,m.id,patch)} onRemove={()=>onRemoveMeal(dk,m.id)} isFavorite={!!fav}
+          return <MealRow key={m.id} meal={m} onSave={patch=>onUpdateMeal(dk,m.id,patch)} onRemove={()=>onRemoveMeal(dk,m.id)} isFavorite={!!fav} onCorrect={hasCode?correct:null}
             onToggleFavorite={values=>{if(values)onSaveFavorite(values);else if(fav)onRemoveFavorite(fav.id);}}/>;})}
         {pending.map(p=><li key={p.key} className="meal-pending" role="status">
           {p.preview&&<img src={p.preview} alt=""/>}
-          <span>{p.status==="preparing"?"Foto wird vorbereitet …":p.status==="analyzing"?"Wird geschätzt …":p.message}</span>
-          {p.status==="error"&&<>{p.image&&<button className="text-btn" onClick={()=>analyze(p)}>Erneut</button>}
+          <span>{p.status==="preparing"?"Foto wird vorbereitet …":p.status==="analyzing"?(p.description?`„${p.description.slice(0,40)}${p.description.length>40?"…":""}“ wird geschätzt …`:"Wird geschätzt …"):p.message}</span>
+          {p.status==="error"&&<>{(p.image||p.description)&&<button className="text-btn" onClick={()=>analyze(p)}>Erneut</button>}
             <button className="text-btn" onClick={()=>setPending(list=>list.filter(x=>x.key!==p.key))}>Verwerfen</button></>}
         </li>)}
       </ul>}
