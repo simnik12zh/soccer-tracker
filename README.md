@@ -97,16 +97,20 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   "Frühere Phasen anzeigen", no "0 / 0" counts) and the settings entry (profile, connections,
   reminders, backup export/restore). The weekly report shows its numbers as tiles per topic
   (`factGroups`).
-- **Fixtures** — `MATCH_SCHEDULE` contains the seven FC Julius Bär games from the user's
-  27 September 2026 screenshot, including opponent, home/away, kickoff, match ID and
-  `Europe/Zurich` timezone. Kickoffs are local clock strings so the October DST change
+- **Fixtures** — `MATCH_SCHEDULE` contains the seven FC Julius Bär league games from the user's
+  27 September 2026 screenshot plus the cup game of 2 November (Cup · Zwischenrunde 1, Juchhof 2,
+  Schlieren, match 515893), including opponent, home/away, kickoff, match ID and
+  `Europe/Zurich` timezone; optional `competition` and `place` show in Today and Week. Kickoffs are local clock strings so the October DST change
   does not shift them. There is no automatic online fixture sync.
   Games replace open training on their dates. A one-time import into the existing v3
   blob removes unlogged generic Saturday match placeholders from 27 September onwards;
   past entries, completed days, notes, body values and explicitly detailed matches remain.
   Overwritten entries are retained in `matchScheduleBackup.previousEntries` (included
-  in exports), and `matchScheduleVersion` prevents repeated imports. Restoring a pre-import
-  backup runs the same migration. Dated games cannot be moved by the training-day swap.
+  in exports), and `matchScheduleVersion` prevents repeated imports. Later schedule versions
+  only add fixtures that are not there yet (no clean-up, known match days keep his edits); a
+  fixture can carry `reshape` dates whose untouched coached days take the new prescription
+  (the cup week: Tuesday recovery, Wednesday upper body). Restoring a pre-import backup runs
+  the same migration. Dated games cannot be moved by the training-day swap.
   Gold match markers distinguish games in Today, Week and Month; the month also lists
   all known fixtures with their details. Unknown spring games are not invented.
 - **Reviewed end-of-year plan** — `COACHED_WEEKS` / `COACHED_SESSIONS` define a dated
@@ -232,6 +236,13 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   after 7 days or when it gets worse, and never to diagnose; the plan proposal gets them as
   `complaints` (enforced rule above); the weekly report lists complaints active that week with
   their worst level. Stored top-level as `complaints` in the `soccer-v3` blob (no key bump).
+- **Coach context: time, trends, last report** — every coach, report and plan call adds the
+  local time (`localTime`), `trends.weeks` (`weeklyTrends`: the last eight completed weeks plus
+  the current one so far, with training days, gym/reha, games, load, weight, body fat, fat and
+  lean mass, protein, red days, sleep, sleep score, HRV, resting HR, steps, football km, top
+  speed, high-HR minutes and social match points; null = no data) and `lastWeeklyReport`
+  (`coachExtras`; a new report gets the one before it). The prompt asks for trends over three or
+  more weeks with numbers, and to keep the last report's Fokus as the line for the week.
 - **Social matches** — his game against losing control at restaurants, bars, parties and family
   dinners. Before the event: "Social Match planen" (link at the bottom of the nutrition card, or
   under Körper) with day, kick-off (default 19:00), occasion and exactly three yes/no rules; his

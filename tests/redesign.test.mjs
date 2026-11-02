@@ -114,13 +114,14 @@ test('retired check-ins are not included in server coach context',()=>{
   assert.doesNotMatch(text,/readiness|Left hip|general freshness/);
 });
 
-test('all seven Julius Bär fixtures match the screenshot, including local kickoff times',()=>{
+test('all Julius Bär fixtures match the screenshots, including local kickoff times',()=>{
   assert.deepEqual(plain(api.MATCH_SCHEDULE.map(({id,date,kickoff,opponent,home})=>[id,date,kickoff,opponent,home])),[
     ['972321','2026-10-02','20:00','FC UBS 1 AG',false],
     ['972311','2026-10-12','20:30','FC Ränte',true],
     ['972315','2026-10-16','20:15','FC Ristorante Da Carlo',false],
     ['972323','2026-10-26','20:30','Shamrock Football Club',true],
     ['972326','2026-10-31','10:00','FC Ränte',false],
+    ['515893','2026-11-02','20:30','Shamrock Football Club',true],
     ['972330','2026-11-09','20:30','FC Ristorante Da Carlo',true],
     ['972331','2026-11-12','19:00','FIFA FOOTBALL CLUB',false],
   ]);
@@ -170,6 +171,35 @@ test('fixture migration preserves logged days, metadata and an archive of overwr
   assert.equal(api.migrateMatchSchedule(after),after,'import is idempotent');
   after.plan['2026-10-12'].notes='User changed after import';
   assert.equal(api.migrateMatchSchedule(after).plan['2026-10-12'].notes,'User changed after import');
+});
+
+test('a fixture added later only adds itself and reshapes untouched days of its week',()=>{
+  const v1=api.migrateMatchSchedule({playerName:'Test',plan:api.buildDefaultPlan(),matchScheduleVersion:'julius-baer-autumn-2026-v1',
+    matchScheduleBackup:{version:'v1',previousEntries:{'2026-10-12':{sessions:['Gym']}}}});
+  // Simulate stored v1 data: the cup game is not there yet, Mon–Wed still hold the old prescriptions.
+  const old=plain(v1);old.matchScheduleVersion='julius-baer-autumn-2026-v1';
+  const presc=(sessions,title)=>({sessions,workout:'',completed:false,coaching:{sessions,title,text:'x'}});
+  old.plan['2026-11-02']=presc(['Gym','Mobility'],'Oberkörper & Rumpf · Beine entlasten');
+  old.plan['2026-11-03']=presc(['Walking'],'Locker bewegen');
+  old.plan['2026-11-04']={sessions:[],workout:'',completed:false,coaching:{sessions:[],title:'Trainingsfrei',text:'x'}};
+  old.plan['2026-11-09']={...old.plan['2026-11-09'],notes:'My note on a known fixture'};
+  old.plan['2026-11-14']={sessions:['Match'],completed:false,notes:'Friendly I added myself'};
+  const after=api.migrateMatchSchedule(old);
+  assert.equal(after.matchScheduleVersion,api.MATCH_SCHEDULE_VERSION);
+  assert.equal(after.plan['2026-11-02'].match.competition,'Cup · Zwischenrunde 1');
+  assert.equal(after.plan['2026-11-02'].match.place,'Juchhof 2, Schlieren');
+  assert.equal(after.plan['2026-11-02'].match.reshape,undefined,'internal field is not stored');
+  assert.deepEqual(plain(after.plan['2026-11-02'].sessions),['Match']);
+  assert.deepEqual(plain(after.plan['2026-11-04'].sessions),['Gym','Mobility'],'Wednesday takes the upper-body session');
+  assert.equal(after.plan['2026-11-04'].coaching.title,'Oberkörper & Rumpf · Beine entlasten');
+  assert.equal(after.plan['2026-11-03'].coaching.title,'Erholung nach dem Spiel','Tuesday becomes the post-match recovery day');
+  assert.equal(after.plan['2026-11-09'].notes,'My note on a known fixture','known fixtures are not re-imported');
+  assert.deepEqual(plain(after.plan['2026-11-14']),plain(old.plan['2026-11-14']),'no clean-up of his own games');
+  assert.deepEqual(plain(after.matchScheduleBackup.previousEntries['2026-10-12']),{sessions:['Gym']},'earlier backup kept');
+  assert.deepEqual(plain(after.matchScheduleBackup.previousEntries['2026-11-02'].sessions),['Gym','Mobility']);
+  // A day he changed himself is left alone.
+  const edited=plain(old);edited.plan['2026-11-04']={sessions:['Futsal'],completed:false,coaching:null};
+  assert.deepEqual(plain(api.migrateMatchSchedule(edited).plan['2026-11-04'].sessions),['Futsal']);
 });
 
 test('reviewed plan covers every date through year end and provides two gym days per week',()=>{

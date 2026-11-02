@@ -51,7 +51,7 @@ const SEASON_END = '2027-08-05';
 
 // Confirmed FC Julius Bär fixtures, transcribed from the user's 27 Sep 2026 screenshot.
 // Times are local Europe/Zurich wall-clock times, NOT UTC (DST changes on 25 Oct).
-const MATCH_SCHEDULE_VERSION = 'julius-baer-autumn-2026-v1';
+const MATCH_SCHEDULE_VERSION = 'julius-baer-autumn-2026-v2';
 const MATCH_IMPORT_FROM = '2026-09-27';
 const MATCH_SCHEDULE = [
   { id:'972321', date:'2026-10-02', kickoff:'20:00', opponent:'FC UBS 1 AG', home:false },
@@ -59,6 +59,9 @@ const MATCH_SCHEDULE = [
   { id:'972315', date:'2026-10-16', kickoff:'20:15', opponent:'FC Ristorante Da Carlo', home:false },
   { id:'972323', date:'2026-10-26', kickoff:'20:30', opponent:'Shamrock Football Club', home:true },
   { id:'972326', date:'2026-10-31', kickoff:'10:00', opponent:'FC Ränte', home:false },
+  { id:'515893', date:'2026-11-02', kickoff:'20:30', opponent:'Shamrock Football Club', home:true, competition:'Cup · Zwischenrunde 1', place:'Juchhof 2, Schlieren',
+    // Added later: the rest of its week follows the match-week pattern (recover, then upper body).
+    reshape:['2026-11-03','2026-11-04'] },
   { id:'972330', date:'2026-11-09', kickoff:'20:30', opponent:'FC Ristorante Da Carlo', home:true },
   { id:'972331', date:'2026-11-12', kickoff:'19:00', opponent:'FIFA FOOTBALL CLUB', home:false },
 ].map(match=>({...match,team:'FC Julius Bär',timezone:'Europe/Zurich'}));
@@ -78,11 +81,13 @@ function entryDescription(entry) {
 
 // One-time, immutable schedule import. Backups retain the original entries,
 // including overridden open training, notes and body values. Logged days are never rewritten.
-function applyMatchSchedule(plan) {
+// cleanup=false (later schedule versions): only fixtures not yet imported are added, so his
+// later edits on known match days and games he entered himself stay untouched.
+function applyMatchSchedule(plan,{cleanup=true}={}) {
   const next={...plan}, previousEntries={};
   const fixtureDates=new Set(MATCH_SCHEDULE.map(m=>m.date));
   const replace=(dk,entry)=>{if(!(dk in previousEntries))previousEntries[dk]=plan[dk]??null;next[dk]=entry;};
-  for (const [dk,entry] of Object.entries(plan)) {
+  if(cleanup)for (const [dk,entry] of Object.entries(plan)) {
     const phase=phaseForDate(dk)?.name;
     if(dk<MATCH_IMPORT_FROM||fixtureDates.has(dk)||entry.completed||entry.match||
       !['Autumn Season','Spring Season'].includes(phase)||dow0(new Date(dk+'T12:00:00'))!==5)continue;
@@ -90,19 +95,27 @@ function applyMatchSchedule(plan) {
   }
   for (const match of MATCH_SCHEDULE) {
     const entry=next[match.date]||{};
+    if(entry.match?.id===match.id)continue;
     // Completed non-match training remains the actual log; the fixture is calendar context only.
+    const {reshape,...fixture}=match;
     replace(match.date,{...entry,
       ...(!entry.completed?{sessions:['Match'],workout:'',completed:false}:{}),
-      match:{...match},
+      match:fixture,
     });
+    // Days he has not changed himself take the new prescription; logged or edited days stay.
+    for(const dk of reshape||[]){
+      const e=next[dk],slot=COACHED_DAYS[dk],pr=slot&&COACHED_SESSIONS[slot];
+      if(!pr||!e||e.completed||isMatchDay(e)||!coachingFor(e)||!Object.values(COACHED_SESSIONS).some(c=>c.title===e.coaching.title))continue;
+      replace(dk,{...e,sessions:[...pr.sessions],workout:'',coaching:{...pr,sessions:[...pr.sessions]}});
+    }
   }
   return {plan:next,previousEntries};
 }
 function migrateMatchSchedule(data) {
   if(data.matchScheduleVersion===MATCH_SCHEDULE_VERSION)return data;
-  const result=applyMatchSchedule(data.plan);
+  const result=applyMatchSchedule(data.plan,{cleanup:!data.matchScheduleVersion});
   return {...data,plan:result.plan,matchScheduleVersion:MATCH_SCHEDULE_VERSION,
-    matchScheduleBackup:{version:MATCH_SCHEDULE_VERSION,previousEntries:result.previousEntries}};
+    matchScheduleBackup:{version:MATCH_SCHEDULE_VERSION,previousEntries:{...(data.matchScheduleBackup?.previousEntries||{}),...result.previousEntries}}};
 }
 
 // Reviewed calendar, not a recurring rule: only 27 Sep–31 Dec 2026.
@@ -132,7 +145,7 @@ const COACHED_WEEKS = [
   ['2026-10-12',['match','recover','upper','teamLight','match','recover','upper']],
   ['2026-10-19',['walk','gym','rest','team','upper','prehab','rest']],
   ['2026-10-26',['match','recover','upper','team','primer','match','recover']],
-  ['2026-11-02',['upper','walk','rest','team','gym','prehab','rest']],
+  ['2026-11-02',['match','recover','upper','team','gym','prehab','rest']],
   ['2026-11-09',['match','recover','primer','match','recover','upper','rest']],
   ['2026-11-16',['walk','deload','rest','deload','walk','aerobic','rest']],
   ['2026-11-23',['gym','futsal','rest','gym','rest','aerobic','rest']],
@@ -984,7 +997,36 @@ function coachText(value,max=1200) {
 function validCoachDate(dk) {
   return /^\d{4}-\d{2}-\d{2}$/.test(dk)&&dateKey(new Date(dk+'T12:00:00'))===dk;
 }
-function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),proteinTarget=DEFAULT_PROTEIN_TARGET,complaints=[],social=null) {
+// Week by week (Mon–Sun) for the key numbers: the last `weeks` completed weeks and the current
+// week so far. Means only over days with data; null means no data, never zero.
+function weeklyTrends(plan,referenceDate=todayStr(),target=DEFAULT_PROTEIN_TARGET,social=null,weeks=8) {
+  const monday=weekAround(referenceDate)[0],avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+  const r1=v=>v==null?null:Math.round(v*10)/10,r0=v=>v==null?null:Math.round(v);
+  return Array.from({length:weeks+1},(_,i)=>{
+    const from=daysBeforeStr(monday,(weeks-i)*7),to=daysBeforeStr(from,-6);
+    const days=Array.from({length:7},(_,j)=>daysBeforeStr(from,-j)).filter(d=>d<=referenceDate),es=days.map(d=>plan[d]||{});
+    const done=days.filter(d=>plan[d]?.completed&&getSessions(plan[d]).length),count=t=>done.filter(d=>getSessions(plan[d]).includes(t)).length;
+    const vals=(f,ok)=>es.map(f).filter(v=>Number.isFinite(v)&&ok(v));
+    const weight=avg(vals(e=>e.weight,v=>v>0&&v<=500)),bodyFat=avg(vals(e=>e.bodyFat,v=>v>0&&v<100));
+    const protein=days.map(d=>dayProtein(plan[d])).filter(v=>v!=null),rec=es.map(e=>e.recovery).filter(Boolean);
+    const recAvg=(k,ok=v=>v>0)=>r0(avg(rec.map(r=>r[k]).filter(v=>Number.isFinite(v)&&ok(v))));
+    const soccer=es.flatMap(e=>(Array.isArray(e.garmin)?e.garmin:[]).filter(g=>garminSessionType(g.type)==='soccer'));
+    const sm=social?.matches?socialTable(social.matches,from,to,referenceDate):null,load=days.reduce((n,d)=>n+dayLoad(plan[d]),0);
+    return {from,...(i===weeks?{currentWeekSoFar:true,daysSoFar:days.length}:{}),
+      trainingDays:done.length,gym:count('Gym'),reha:count('Mobility'),games:count('Match'),load:load?Math.round(load):null,
+      weightKg:r1(weight),bodyFatPct:r1(bodyFat),
+      fatMassKg:weight!=null&&bodyFat!=null?r1(weight*bodyFat/100):null,leanMassKg:weight!=null&&bodyFat!=null?r1(weight*(1-bodyFat/100)):null,
+      avgProteinG:r0(avg(protein)),proteinTargetDays:protein.filter(v=>v>=target).length,proteinLoggedDays:protein.length,
+      redDays:es.filter(e=>e.nutrition==='red').length,
+      avgSleepMin:recAvg('sleepMin'),avgSleepScore:recAvg('sleepScore'),avgHrvMs:recAvg('hrv'),avgRestingHr:recAvg('restingHr'),
+      avgSteps:r0(avg(vals(e=>e.steps,v=>Number.isInteger(v)&&v>=0))),
+      footballKm:soccer.length?r1(soccer.reduce((n,g)=>n+(Number.isFinite(g.distanceKm)?g.distanceKm:0),0)):null,
+      topSpeedKmh:soccer.some(g=>Number.isFinite(g.maxSpeedKmh))?r1(Math.max(...soccer.map(g=>Number.isFinite(g.maxSpeedKmh)?g.maxSpeedKmh:0))):null,
+      highHrMin:soccer.length?r0(soccer.reduce((n,g)=>n+(Number.isFinite(g.highHrMin)?g.highHrMin:0),0)):null,
+      ...(sm&&sm.played?{socialMatches:sm.played,socialAvgPoints:sm.avg}:{})};
+  });
+}
+function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),proteinTarget=DEFAULT_PROTEIN_TARGET,complaints=[],social=null,extra={}) {
   const dates=Object.keys(plan).filter(dk=>validCoachDate(dk)&&plan[dk]&&typeof plan[dk]==='object').sort();
   const types=dk=>[...new Set(getSessions(plan[dk]))];
   const logged=dk=>dk<=referenceDate&&plan[dk]?.completed===true&&types(dk).length>0;
@@ -1015,6 +1057,7 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
       notes:coachText(e.notes),
       guidance:guidance?{title:coachText(guidance.title,150),text:coachText(guidance.text,900)}:null,
       match:isMatchDay(e)?{opponent:coachText(e.match?.opponent,180),venue:e.match?matchVenue(e.match):null,
+        ...(e.match?.competition?{competition:coachText(e.match.competition,60)}:{}),...(e.match?.place?{place:coachText(e.match.place,80)}:{}),
         kickoff:coachText(e.match?.kickoff,5),timezone:'Europe/Zurich',
         participation:logged(dk)&&sessions.includes('Match')?'logged':'not_recorded'}:null};
   };
@@ -1047,7 +1090,9 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
       previous7Days:average(daysBeforeStr(referenceDate,13),daysBeforeStr(referenceDate,7))};
   };
   const nextMatchDate=dates.find(dk=>dk>=referenceDate&&isMatchDay(plan[dk])&&!(logged(dk)&&types(dk).includes('Match')));
-  return {schemaVersion:2,referenceDate,timezone:'Europe/Zurich',playerName:coachText(playerName,100),
+  return {schemaVersion:2,referenceDate,timezone:'Europe/Zurich',
+    ...(/^([01]\d|2[0-3]):[0-5]\d$/.test(extra.localTime||'')?{localTime:extra.localTime}:{}),
+    playerName:coachText(playerName,100),
     phase:phase?{name:phaseLabel(phase.name),description:phase.description}:null,
     nextPhase:next?phaseLabel(next.name):null,daysToNextPhase:phaseEnd?dayDistance(phaseEnd):null,
     today:{...day(referenceDate),recoveryAssessment:(r=>r?{level:r.level,signals:r.signals.map(x=>({signal:x.key,level:x.level,text:x.text}))}:null)(recoveryStatus(plan,referenceDate))},selectedDay:viewKey!==referenceDate?day(viewKey):null,
@@ -1070,6 +1115,8 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
     social:socialForCoach(social?.matches,social?.holidays,referenceDate),
     nutrition:{proteinTargetGrams:target,last7Days:eatingStats(daysBeforeStr(referenceDate,6),referenceDate),
       previous7Days:eatingStats(daysBeforeStr(referenceDate,13),daysBeforeStr(referenceDate,7))},
+    trends:{weeks:weeklyTrends(plan,referenceDate,target,social)},
+    ...(extra.lastReport?.text?{lastWeeklyReport:{week:coachText(extra.lastReport.week,40),text:coachText(extra.lastReport.text,2400)}}:{}),
     tactical:tacticalFor(referenceDate)};
 }
 
@@ -2460,7 +2507,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
         <div className="session-art">{sessions.length?sessions.map(s=><Icon key={s} name={s} size={24}/>):<Icon name="rest" size={24}/>}</div></div>
       {match&&<div className="fixture-detail" aria-label="Spieltermin">
         <div className="fixture-meta"><span className="match-badge">{match.home?'Heimspiel':'Auswärtsspiel'}</span><strong>{match.kickoff} Uhr</strong></div>
-        <h3>Gegen {match.opponent}</h3><p>FC Julius Bär · {shortDate(match.date)} · Zeit in der Schweiz</p>
+        <h3>Gegen {match.opponent}</h3><p>{match.competition?`${match.competition} · `:"FC Julius Bär · "}{shortDate(match.date)}{match.place?` · ${match.place}`:" · Zeit in der Schweiz"}</p>
         {e.completed&&!sessions.includes('Match')&&<p>Spieltermin laut Spielplan. Dein bereits abgeschlossenes Training bleibt unverändert.</p>}
       </div>}
       <div className="session-main">
@@ -2538,7 +2585,7 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays,planner
         <button className="week-open" disabled={!!swapFrom&&!!e.match} onClick={()=>pick(dk)} aria-label={shortDate(dk)+" · "+entryDescription(e)+(calendarDone(e)?" · erledigt":"")}>
           <span className={"date-tile"+(dk===today?" current":"")}><small>{dk===today?"Heute":DN[i]}</small><strong>{Number(dk.slice(-2))}</strong></span>
           <span className="week-info">
-            {isMatchDay(e)&&<span className="match-badge">{e.match?(e.match.home?"Heimspiel":"Auswärtsspiel"):"Spieltag"}{e.match?" · "+e.match.kickoff+" Uhr":""}</span>}
+            {isMatchDay(e)&&<span className="match-badge">{e.match?.competition?e.match.competition.split(" · ")[0]+" · ":""}{e.match?(e.match.home?"Heimspiel":"Auswärtsspiel"):"Spieltag"}{e.match?" · "+e.match.kickoff+" Uhr":""}</span>}
             <strong>{e.match?"Gegen "+e.match.opponent:sessionsLabel(e)||"Ruhetag"}</strong>
             {e.match&&getSessions(e).some(s=>s!=="Match")&&<span className="fixture-existing">{sessionsLabel(e)}</span>}
             {guidanceTitle(e)&&<span className="week-plan-focus">{guidanceTitle(e)}</span>}
@@ -2965,7 +3012,7 @@ function CoachScreen({viewKey,plan,playerName,proteinTarget,complaints,social,on
     setMessages([...base,{role:"assistant",content:""}]);
     try {
       const resp=await fetch("/api/coach",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json",...authHeaders()},
-        body:JSON.stringify({...buildCoachContext(plan,playerName,viewKey,todayStr(),proteinTarget,complaints,social),messages:base.slice(-20)})});
+        body:JSON.stringify({...buildCoachContext(plan,playerName,viewKey,todayStr(),proteinTarget,complaints,social,coachExtras()),messages:base.slice(-20)})});
       if (resp.status===401) throw Object.assign(new Error("access"),{auth:true});
       if (!resp.ok||!resp.body) throw new Error("bad response");
       const reader=resp.body.getReader(), decoder=new TextDecoder();
@@ -3043,7 +3090,7 @@ function PlanProposal({plan,weekStart,playerName,proteinTarget,complaints,social
     setBusy(true);setError("");
     try{
       const res=await fetch("/api/plan",{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},
-        body:JSON.stringify({...planWeekInput(plan,weekStart,today,complaints),context:buildCoachContext(plan,playerName,today,today,proteinTarget,complaints,social)})});
+        body:JSON.stringify({...planWeekInput(plan,weekStart,today,complaints),context:buildCoachContext(plan,playerName,today,today,proteinTarget,complaints,social,coachExtras())})});
       const body=await res.json().catch(()=>({}));
       if(!res.ok||!body.proposal){setError(PLAN_ERRORS[body.error]||"Der Vorschlag hat nicht geklappt. Versuch es erneut.");return;}
       save({proposal:body.proposal,createdAt:new Date().toISOString(),applied:null});
@@ -3082,6 +3129,11 @@ function PlanProposal({plan,weekStart,playerName,proteinTarget,complaints,social
 // ─── Weekly report screen ────────────────────────────────────────────────────────
 // Stored under coach-report-<weekStart> so backups (coach-*) include it.
 const reportKey=weekStart=>`coach-report-${weekStart}`;
+// What every coach call adds beyond the plan: the local time and the latest weekly report.
+function coachExtras(beforeWeek=null) {
+  const week=beforeWeek?daysBeforeStr(beforeWeek,7):lastCompletedWeek(),r=readReport(week);
+  return {localTime:nowTime(),lastReport:r?.text?{week:weekLabel(week),text:r.text}:null};
+}
 function readReport(weekStart) { try { return JSON.parse(localStorage.getItem(reportKey(weekStart))||"null"); } catch { return null; } }
 function writeReport(weekStart,data) { try { localStorage.setItem(reportKey(weekStart),JSON.stringify(data)); } catch {} }
 const weekLabel=from=>`${shortDate(from)} – ${shortDate(daysBeforeStr(from,-6))}`;
@@ -3128,7 +3180,7 @@ function ReportScreen({plan,weekStart,playerName,proteinTarget,onBack,planner}) 
     const controller=new AbortController();requestRef.current=controller;
     try{
       const resp=await fetch("/api/coach",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json",...authHeaders()},
-        body:JSON.stringify({...buildCoachContext(plan,playerName,todayStr(),todayStr(),proteinTarget,planner?.complaints,planner?.social),weeklyReport:{...facts,isLatest:latest},
+        body:JSON.stringify({...buildCoachContext(plan,playerName,todayStr(),todayStr(),proteinTarget,planner?.complaints,planner?.social,coachExtras(weekStart)),weeklyReport:{...facts,isLatest:latest},
           messages:[{role:"user",content:`Wochenreport für die Woche ${weekLabel(weekStart)}`}]})});
       if(resp.status===401)throw Object.assign(new Error("access"),{auth:true});
       // Only the coach's plain-text stream counts (never an HTML error page).
