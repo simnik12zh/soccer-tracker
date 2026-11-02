@@ -40,7 +40,8 @@ test('week facts are computed exactly from the plan',()=>{
   assert.equal(f.load.week,265);
   assert.deepEqual(plain(f.body.weight),{value:78.6,readings:1,deltaVsPrevWeek:-0.4});
   assert.deepEqual(plain(f.body.bodyFat),{value:15.8,readings:1,deltaVsPrevWeek:-0.3});
-  assert.deepEqual([f.nutrition.proteinHitDays,f.nutrition.avgProtein,f.nutrition.avgKcal,f.nutrition.kcalDays],[2,92,1600,1]);
+  assert.deepEqual([f.nutrition.proteinHitDays,f.nutrition.avgProtein],[2,92]);
+  assert.equal(f.nutrition.avgKcal,undefined,'no calorie totals');
   assert.deepEqual(plain(f.nutrition.ratings),{green:1,amber:1,red:0});
   assert.deepEqual([f.recovery.nights,f.recovery.avgSleepMin,f.recovery.avgRestingHr,f.recovery.prevAvgRestingHr],[2,450,50,52]);
   assert.deepEqual(plain(f.steps),{avg:9000,days:1});

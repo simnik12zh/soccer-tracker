@@ -9,7 +9,7 @@ const source=readFileSync(new URL('../src/App.jsx',import.meta.url),'utf8');
 const helpers=source.slice(source.indexOf('const SK ='),source.indexOf('// Midnight & Ice.'))
   +source.slice(source.indexOf('const PHASE_LABELS'),source.indexOf('function Icon'));
 const FixedDate=class extends Date{constructor(...args){super(...(args.length?args:['2026-10-28T12:00:00+01:00']));}};
-const app=vm.runInNewContext(helpers+'\n({dayProtein,dayKcal,dayMeals,nutritionSummary,dayChecklist,buildCoachContext})',{Date:FixedDate});
+const app=vm.runInNewContext(helpers+'\n({dayProtein,dayMeals,nutritionSummary,dayChecklist,buildCoachContext})',{Date:FixedDate});
 
 const ENV={APP_ACCESS_CODE:'code-123',ANTHROPIC_API_KEY:'test-only'};
 const IMAGE='A'.repeat(400);
@@ -109,21 +109,21 @@ test('access code, image checks and model failures give clear errors',async()=>{
 test('day totals combine photographed meals and quick-add protein',()=>{
   const meal=(id,kcal,protein)=>({id,at:'12:30',title:'M'+id,kcal,protein});
   const e={protein:20,meals:[meal('a',645,61),meal('b',380,24),{id:'bad',kcal:'x'}]};
-  assert.equal(app.dayProtein(e),105);assert.equal(app.dayKcal(e),1025);assert.equal(app.dayMeals(e).length,2);
+  assert.equal(app.dayProtein(e),105);assert.equal(app.dayMeals(e).length,2);
   assert.equal(app.dayProtein({meals:[meal('a',500,30)]}),30,'meals alone');
-  assert.equal(app.dayKcal({protein:40}),null,'no kcal without photos');
   assert.equal(app.dayProtein({}),null);
   const plan={'2026-10-27':e,'2026-10-28':{protein:30}};
   const s=app.nutritionSummary(plan,['2026-10-27','2026-10-28'],100);
-  assert.deepEqual([s.hits,s.avgProtein,s.kcalDays,s.avgKcal],[1,68,1,1025]);
+  assert.deepEqual([s.hits,s.avgProtein],[1,68]);
+  assert.equal(s.avgKcal,undefined,'no calorie totals: he does not log every meal');
   assert.deepEqual(plain(app.dayChecklist({meals:[meal('a',700,90)]},'2026-10-28','2026-10-28',100).open),['10 g Protein','Ernährung bewerten']);
   const ctx=app.buildCoachContext(plan,'Test','2026-10-28','2026-10-28');
   const day=ctx.recentDays.find(d=>d.date==='2026-10-27');
-  assert.deepEqual(plain(day.nutrition),{proteinGrams:105,rating:null,kcal:1025,meals:[{title:'Ma',kcal:645,proteinGrams:61},{title:'Mb',kcal:380,proteinGrams:24}]});
+  assert.deepEqual(plain(day.nutrition),{proteinGrams:105,rating:null,meals:[{title:'Ma',kcal:645,proteinGrams:61},{title:'Mb',kcal:380,proteinGrams:24}]});
   assert.deepEqual(plain(ctx.today.nutrition),{proteinGrams:30,rating:null},'no kcal fields without photos');
-  assert.equal(ctx.nutrition.last7Days.avgKcal,1025);
+  assert.equal(ctx.nutrition.last7Days.avgKcal,undefined);
   const coach=readFileSync(new URL('../api/coach.js',import.meta.url),'utf8');
-  assert.match(coach,/never that he fasted/);
+  assert.match(coach,/never add meal kcal up to a daily intake/);
 });
 
 test('meal updates build on the latest plan, so results arriving later never drop edits',()=>{

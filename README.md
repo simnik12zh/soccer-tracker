@@ -41,9 +41,13 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   session card keeps FERTIG next to the title so it stays above the tab bar on a phone; long
   plan guidance is clamped to two lines, and its title drops a repeated session name
   (`guidanceTitle`). The load card is one line (value, short status, advice) and expands to the
-  bar and explanation. The nutrition card: total with a pencil to correct it, photo button plus a
-  library button, one "Schnell eintragen" row (favourites, then +20/+30/+40 g protein), meals,
-  rating. Below: "Als Nächstes" (next two planned days plus the next game within seven days,
+  bar and explanation. The ring card's first line is the first-glance readiness: recovery
+  badge, sleep duration (moon icon), Garmin sleep score and HRV; resting HR and Body Battery only
+  when they stand out (`recoveryGlance`; the values wrap together to a second line on small
+  phones). The nutrition card: protein total with a pencil to correct it, +20/+30/+40 g buttons
+  right under the bar, Foto · Beschreiben · Mediathek, the saved meals as a list that folds open
+  (open/closed remembered on the device), the day's meals, rating. No calorie totals anywhere: he
+  does not log every meal, so sums and averages would mislead; single meals keep their kcal. Below: "Als Nächstes" (next two planned days plus the next game within seven days,
   `upcomingDays`). Choosing "Krank/verletzt" in the session sheet offers to report where it hurts.
 - **Nutrition (level A)** — per day, optional `protein` (grams via +20/+30/+40 quick-add,
   correctable, undo for the last add) and `nutrition` (`green` Im Plan / `amber` Gemischt /
@@ -57,9 +61,9 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   confidence. The server clamps implausible values and recomputes totals from the components.
   The estimate is saved immediately as `meals[]` on the day; opening a meal to correct kcal/protein
   or delete it is optional. Photos are never stored. Day protein = quick-add `protein` + meal
-  protein (the pencil corrects the day total; the quick-add part absorbs the difference); day kcal
-  comes from photographed meals only. Coach context gets per-day kcal and meals plus 7-day
-  averages, with the instruction that photo kcal are rough and cover only photographed meals.
+  protein (the pencil corrects the day total; the quick-add part absorbs the difference). Coach
+  context gets the day's meals (title, kcal, protein) and the instruction never to add meal kcal
+  up to a daily intake or judge energy balance from them.
   Day updates build on the latest plan (`planRef`) so results arriving after an await never drop
   newer edits.
 - **Describe and correct meals** — "Beschreiben" next to "Foto" takes a short text ("Chicken
@@ -72,12 +76,12 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   right after a photo sends it again; later corrections use the earlier portions instead. His text
   is passed inside tags as a description only, never as instructions.
 - **Meal favourites** — open a meal → "Als Favorit merken" (name, kcal and protein as shown in
-  the fields; the name is editable). Favourites appear as a scrollable chip row under the photo
-  button, most used first; one tap adds a copy to the viewed day (`source: 'favorite'`,
-  `favoriteId`, no photo, no model call) with an inline "Rückgängig". "Verwalten" removes
+  the fields; the name is editable). Favourites appear under "Gespeicherte Mahlzeiten", a list that
+  folds open, most used first; one tap adds a copy to the viewed day (`source: 'favorite'`,
+  `favoriteId`, no photo, no model call) with an inline "Rückgängig". "Bearbeiten" removes
   favourites (meals already logged stay) or adds one by hand (e.g. a shake). Same name = update,
   max. 12 (the least used one goes). Stored top-level as `mealFavorites` in the `soccer-v3` blob
-  (no key bump). Favourite meals count for protein and kcal like photo meals; the coach context
+  (no key bump). Favourite meals count for protein like photo meals; the coach context
   marks them `fromFavorite`.
 - **Plan** — Woche/Monat toggle. The week view marks today, has one edit button per day (swap
   lives in the session sheet: "Mit einem anderen Tag tauschen"), then Plan-Vorschlag,
@@ -198,7 +202,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   tapping it opens `/?report=latest` (or messages an open app). `weeklyReportFacts` computes the
   last completed Monday–Sunday week in the app: training days, goals, games, watch minutes,
   football km and top speed, weekly load against the range, body-fat and weight 7-day means
-  versus the week before, nutrition (protein hits, average, traffic lights, kcal on photo days),
+  versus the week before, nutrition (protein hits, average, traffic lights),
   recovery (sleep, HRV, resting HR versus the previous week, caution/low days) and steps.
   The coach (`/api/coach`, `weeklyReport` whitelisted) writes Bilanz / Gut / Besser / Ausblick /
   Fokus around those numbers; Ausblick only for the latest week. Reports are stored under

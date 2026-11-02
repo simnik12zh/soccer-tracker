@@ -9,7 +9,7 @@ const helpers=source.slice(source.indexOf('const SK ='),source.indexOf('// Midni
   +source.slice(source.indexOf('const PHASE_LABELS'),source.indexOf('function Icon'));
 const FixedDate=class extends Date{constructor(...args){super(...(args.length?args:['2026-11-04T08:00:00+01:00']));}};
 const app=vm.runInNewContext(helpers+`\n({saveFavorite,removeFavorite,useFavorite,favoriteList,findFavorite,mealFromFavorite,
-  dayProtein,dayKcal,buildCoachContext,MAX_FAVORITES})`,{Date:FixedDate});
+  dayProtein,buildCoachContext,MAX_FAVORITES})`,{Date:FixedDate});
 
 const shake={id:'m1',at:'07:30',title:'Proteinshake',kcal:180,protein:30.4};
 const muesli={id:'m2',at:'08:00',title:'Müesli mit Quark',kcal:520,protein:34,items:[{name:'Quark',grams:250,kcal:170,protein:28}],confidence:'high',kcalLow:450,kcalHigh:600};
@@ -38,7 +38,6 @@ test('using a favourite counts it, sorts it first and adds a meal that counts li
   assert.deepEqual(plain(meal),{id:'f1',at:'12:10',title:'Müesli mit Quark',kcal:520,protein:34,items:muesli.items,favoriteId:list[1].id,source:'favorite'});
   const day={protein:20,meals:[meal,app.mealFromFavorite(list[0],'','f2')]};
   assert.equal(app.dayProtein(day),20+34+30);
-  assert.equal(app.dayKcal(day),700);
   assert.equal(app.findFavorite(list,meal).title,'Müesli mit Quark','found by id');
   assert.equal(app.findFavorite(list,{title:'PROTEINSHAKE'}).uses,2,'found by name');
   assert.equal(app.findFavorite(app.removeFavorite(list,list[1].id),meal),null,'removed');
