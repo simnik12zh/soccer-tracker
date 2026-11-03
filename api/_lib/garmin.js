@@ -10,7 +10,7 @@ import { accessDenied } from "./access.js";
 const BASE_URL = "https://personal.connectapi.garmin.com";
 const TOKEN_PATH = "/personalapitoken-service/personal-api/personal-api-key/token";
 const REFRESH_WINDOW_SECONDS = 3600;
-const MAX_RANGE_DAYS = 60;   // activities (load history needs ~6 weeks)
+const MAX_RANGE_DAYS = 90;   // activities: the acute load needs ~13 weeks (28-day chronic plus warm-up)
 const HEALTH_RANGE_DAYS = 28; // steps endpoint limit; sleep allows 31
 
 export class GarminError extends Error {

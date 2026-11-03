@@ -202,6 +202,25 @@ test('the load line: measured up to today, then the plan, matching the day light
   assert.equal(app.loadOutlookText({},TODAY,app.loadSeries({},TODAY),app.loadStatus({},TODAY)),null,'no range yet: no sentence');
 });
 
+test('the load line explains each day: what came on top, what faded, and they add up',()=>{
+  const plan=history();
+  plan[TODAY]={sessions:['Walking'],completed:false};
+  plan['2026-10-29']={sessions:['Team Training']};
+  plan['2026-10-30']={sessions:[]};
+  const series=app.loadSeries(plan,TODAY);
+  for(const p of series)assert.equal(p.items.reduce((n,x)=>n+x.load,0)+p.carry-p.fade,p.change,`parts add up on ${p.date}`);
+  const thu=series.find(p=>p.date==='2026-10-25');
+  assert.deepEqual(plain(thu.items),[{label:'Mannschaftstraining',load:170}],'recorded days name what it was in the plan');
+  const today=series.find(p=>p.date===TODAY);
+  assert.deepEqual(plain(today.open),[{label:'Spazieren',load:20,planned:true}],'today\'s open plan is listed, not yet counted');
+  const tomorrow=series.find(p=>p.date==='2026-10-29');
+  assert.deepEqual(plain(tomorrow.items),[{label:'Mannschaftstraining',load:170,planned:true}]);
+  assert.equal(tomorrow.carry,17,'today\'s planned walk, faded by a day');
+  const rest=series.find(p=>p.date==='2026-10-30');
+  assert.deepEqual(plain(rest.items),[]);
+  assert.ok(rest.fade>0&&rest.change===-rest.fade,'a rest day only fades');
+});
+
 test('weekly totals and coach context',()=>{
   const plan=history(6);
   const weeks=app.weeklyLoads(plan,TODAY,6);
@@ -219,5 +238,5 @@ test('weekly totals and coach context',()=>{
   assert.match(coach,/'nutrition','load',/,'server accepts the load block');
   assert.match(coach,/always let low recovery overrule spare load/);
   assert.match(coach,/An extra session today counts in every one of these windows/);
-  assert.match(source,/if\(!gLast\|\|gLast\.v!==4\)gFrom=daysBeforeStr\(today,41\)/,'six weeks of activities are loaded once');
+  assert.match(source,/if\(!gLast\|\|gLast\.v!==5\)gFrom=daysBeforeStr\(today,89\)/,'90 days of activities are loaded once');
 });

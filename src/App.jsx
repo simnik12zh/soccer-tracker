@@ -1038,9 +1038,22 @@ function loadSeries(plan,dk=todayStr(),ahead=LOAD_CHART_AHEAD,back=LOAD_CHART_BA
   const from=daysBeforeStr(dk,back+LOAD_WARMUP),to=daysBeforeStr(dk,-ahead);
   const measured=acuteLoads(plan,from,to),planned=acuteLoads(plan,from,to,dk,typical);
   const used=measured.map((p,i)=>p.date<=dk?p:planned[i]),n=back+ahead+1;
-  return used.slice(-n).map((p,k)=>{const i=used.length-n+k,band=loadBand(chronicOf(used,i));
-    return {date:p.date,load:Math.round(p.load),future:p.date>dk,...(p.date>dk?{base:Math.round(measured[i].load)}:{}),...band};});
+  // Per day what moved the line, for the details on tap: the sessions that came on top (done
+  // or planned), today's still open plan that counts from tomorrow, and the fading of the day
+  // before. The parts always add up to the change shown.
+  const shown=i=>i<0?0:Math.round(used[i].date<=dk?measured[i].load:used[i].load);
+  return used.slice(-n).map((p,k)=>{
+    const i=used.length-n+k,band=loadBand(chronicOf(used,i)),future=p.date>dk,e=plan[p.date]||{};
+    const done=(e.garmin||[]).filter(g=>Number.isFinite(g.load)&&g.load>0).map(g=>({label:activityLabel(e,g),load:Math.round(g.load)}));
+    const open=p.date>=dk?plannedLoad(plan,p.date,typical).sessions.map(x=>({label:displayName(x),load:sessionLoad(typical,x),planned:true})):[];
+    const items=future?open:done,carry=future&&i>0&&used[i-1].date===dk?Math.round((planned[i-1].load-measured[i-1].load)*LOAD_DECAY):0;
+    const change=Math.round(p.load)-shown(i-1),fade=items.reduce((n,x)=>n+x.load,0)+carry-change;
+    return {date:p.date,load:Math.round(p.load),future,...(future?{base:Math.round(measured[i].load)}:{}),...band,
+      change,fade,carry,items,...(p.date===dk&&open.length?{open}:{})};
+  });
 }
+// A recorded activity by what it was in the plan (Spiel, Mannschaftstraining, ...), else by Garmin's type.
+function activityLabel(e,g) { const k=reviewKind(e,g);return k?REVIEW_KINDS[k].label:garminLabel(g); }
 // One sentence on where the plan takes the load: over the range until when and why, or not.
 function loadOutlookText(plan,dk,series,status,typical=typicalLoads(plan,dk)) {
   const future=series.filter(p=>p.future),weekday=d=>new Date(d+'T12:00:00').toLocaleDateString('de-CH',{weekday:'long'});
@@ -1704,6 +1717,15 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .load-key i{display:inline-block;width:16px;height:0;border-top:2px solid var(--accent-ink)}.load-key i.dash{border-top-style:dashed}
 .load-key i.band{height:8px;border:1px dashed rgba(143,209,158,.7);background:rgba(143,209,158,.25);border-radius:2px}
 .load-outlook{font-size:13px;line-height:1.5;color:var(--text);margin-top:12px;text-wrap:pretty}
+.load-trend svg{touch-action:pan-y;cursor:pointer;-webkit-user-select:none;user-select:none}.load-trend svg:focus{outline:none}.load-trend svg:focus-visible{outline:2px solid var(--accent-ink);outline-offset:4px;border-radius:4px}.load-trend .sel{stroke:var(--text);stroke-width:1;opacity:.45}
+.load-trend circle.sel-pt{fill:var(--text);stroke:var(--panel);stroke-width:2}.load-key .load-hint{color:var(--faint)}
+.load-day{margin-top:12px;padding:6px 6px 10px 12px;border:1px solid var(--line);border-radius:var(--r-m);background:rgba(16,26,37,.35)}
+.load-day-head{display:flex;align-items:center;gap:8px}.load-day-head strong{font-size:14px;font-weight:600}.load-day-head small{font-size:11px;color:var(--muted)}
+.load-day-head b{margin-left:auto;font-size:20px;font-weight:500;letter-spacing:-.03em;font-variant-numeric:tabular-nums}.load-day-head .icon-btn{min-width:40px;min-height:40px}
+.load-day-status{font-size:12px;color:var(--muted);margin-top:-4px;padding-right:6px}.load-day-status.over{color:var(--warn)}.load-day-status.very{color:var(--bad-ink)}
+.load-day-items{list-style:none;margin:8px 6px 0 0;padding:0;font-size:13px}.load-day-items li{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px solid var(--line-soft)}
+.load-day-items li:first-child{border-top:0}.load-day-items b{font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}.load-day-items .fade{color:var(--muted)}
+.load-day-note{font-size:11px;line-height:1.5;color:var(--faint);margin-top:6px;padding-right:6px}
 .report-banner{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:14px 16px;margin-bottom:12px;color:var(--accent-ink);border-color:var(--edge)}
 .report-banner span{flex:1}.report-banner strong{display:block;font-size:14px;font-weight:500;color:var(--text)}.report-banner small{display:block;font-size:12px;color:var(--muted);margin-top:2px}
 .report-group+.report-group{margin-top:18px}.report-group>.eyebrow{margin-bottom:8px}
@@ -3080,6 +3102,9 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays,planner
 // changing a session in the week above redraws it. Past weeks show the measured part only.
 function LoadTrend({plan,dk}) {
   const today=todayStr(),ahead=dk>=today?LOAD_CHART_AHEAD:0,status=loadStatus(plan,dk),series=loadSeries(plan,dk,ahead);
+  // A tap (or a drag along the line, or the arrow keys) picks the nearest day and shows its details.
+  const [sel,setSel]=useState(null),svgRef=useRef(null);
+  useEffect(()=>setSel(null),[dk]);
   if(!series.some(p=>p.load>0))return null;
   const now=series.find(p=>p.date===dk),text=ahead?loadOutlookText(plan,dk,series,status):null;
   const W=340,H=150,L=4,R=30,T=8,B=20,vals=series.map(p=>p.load);
@@ -3093,12 +3118,24 @@ function LoadTrend({plan,dk}) {
   // His range moves with his chronic load, as in Garmin's chart.
   const edge=k=>pts.map(([i,p])=>`${x(i).toFixed(1)},${y(p[k]).toFixed(1)}`).join(" "),end=series.at(-1);
   const peak=ahead?Math.max(...series.filter(p=>p.future).map(p=>p.load)):null;
+  const pick=ev=>{const r=svgRef.current.getBoundingClientRect(),vx=(ev.clientX-r.left)/r.width*W;
+    setSel(Math.max(0,Math.min(series.length-1,Math.round((vx-L)/((W-L-R)/(series.length-1))))));};
+  const keys=ev=>{
+    if(ev.key==="ArrowLeft"||ev.key==="ArrowRight"){ev.preventDefault();setSel(i=>i==null?ti:Math.max(0,Math.min(series.length-1,i+(ev.key==="ArrowLeft"?-1:1))));}
+    else if(ev.key==="Escape")setSel(null);
+  };
+  const day=sel==null?null:series[sel],dayName=d=>`${DN[dow0(new Date(d+"T12:00:00"))]} ${shortDate(d)}`;
+  const where=p=>!status.ready?"":p.load>p.veryHigh?"deutlich über Bereich":p.load>p.high?"über Bereich":p.load<p.low?"unter Bereich":"im Bereich";
+  const signed=v=>(v>=0?"+":"−")+Math.abs(v);
   return <section aria-label="Belastung">
     <div className="section-heading"><h2>Belastung</h2><small>akut, Tag für Tag</small></div>
     <div className="panel load-trend">
       <div className="load-trend-head"><strong>{now.load}<small>{dk===today?"heute":shortDate(dk)}</small></strong>
         {status.ready&&<span className={"load-tag "+status.status}>{LOAD_SHORT[status.status]}</span>}</div>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Akute Belastung: ${now.load}`+(status.ready?`, dein Bereich ${status.low} bis ${status.high}`:"")+(ahead?`, mit deinem Plan in den nächsten 7 Tagen höchstens ${peak}`:"")}>
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} tabIndex={0} role="slider" aria-valuemin={0} aria-valuemax={series.length-1} aria-valuenow={sel??ti}
+        aria-label={`Akute Belastung: ${now.load}`+(status.ready?`, dein Bereich ${status.low} bis ${status.high}`:"")+(ahead?`, mit deinem Plan in den nächsten 7 Tagen höchstens ${peak}`:"")+". Pfeiltasten wählen einen Tag."}
+        aria-valuetext={day?`${dayName(day.date)}: ${day.load}`:`Heute: ${now.load}`}
+        onPointerDown={ev=>{pick(ev);ev.currentTarget.setPointerCapture?.(ev.pointerId);}} onPointerMove={ev=>{if(ev.buttons)pick(ev);}} onKeyDown={keys}>
         {status.ready&&<>
           <polygon points={edge("high")+" "+pts.slice().reverse().map(([i,p])=>`${x(i).toFixed(1)},${y(p.low).toFixed(1)}`).join(" ")} className="band"/>
           <polyline points={edge("high")} className="band-edge"/><polyline points={edge("low")} className="band-edge"/>
@@ -3112,9 +3149,22 @@ function LoadTrend({plan,dk}) {
         {ahead>0&&<path d={path(pts.filter(([i])=>i>=ti))} className="future"/>}
         {pts.filter(([i])=>i>ti).map(([i,p])=><circle key={p.date} cx={x(i)} cy={y(p.load)} r="3" className={"pt"+level(p)}/>)}
         <circle cx={x(ti)} cy={y(now.load)} r="4.5" className="now"/>
+        {day&&<><line x1={x(sel)} x2={x(sel)} y1={T} y2={H-B} className="sel"/><circle cx={x(sel)} cy={y(day.load)} r="5.5" className="sel-pt"/></>}
       </svg>
       <p className="load-key"><span><i/>gemessen</span>{ahead>0&&<span><i className="dash"/>mit deinem Plan</span>}
-        {status.ready&&<span><i className="band"/>dein Bereich, heute {status.low}–{status.high}</span>}</p>
+        {status.ready&&<span><i className="band"/>dein Bereich, heute {status.low}–{status.high}</span>}{!day&&<span className="load-hint">Tag antippen für Details</span>}</p>
+      {day&&<div className="load-day" aria-live="polite">
+        <div className="load-day-head"><strong>{dayName(day.date)}</strong><small>{day.future?"geplant":day.date===today?"heute":"gemessen"}</small>
+          <b>{day.future?"≈ ":""}{day.load}</b><button className="icon-btn" onClick={()=>setSel(null)} aria-label="Details schliessen"><Icon name="close" size={18}/></button></div>
+        <p className={"load-day-status"+(day.load>day.veryHigh?" very":day.load>day.high?" over":"")}>{where(day)}{status.ready?` (${day.low}–${day.high})`:""} · {signed(day.change)} zum Vortag</p>
+        <ul className="load-day-items">
+          {day.items.map((x,i)=><li key={i}><span>{x.label}</span><b>{x.planned?"≈ ":""}+{x.load}</b></li>)}
+          {day.carry>0&&<li><span>heute noch geplant</span><b>≈ +{day.carry}</b></li>}
+          {!day.items.length&&!day.carry&&<li><span>{day.future?"nichts geplant":"keine Einheit"}</span><b/></li>}
+          <li className="fade"><span>Abklingen</span><b>−{day.fade}</b></li>
+        </ul>
+        {day.open&&<p className="load-day-note">Noch geplant: {day.open.map(x=>`${x.label} (≈ ${x.load})`).join(", ")}. Zählt, sobald erledigt; in der Vorschau ab morgen schon dabei.</p>}
+      </div>}
       {text&&<p className="load-outlook">{text}</p>}
       {!status.ready&&<p className="chart-caption">Dein Bereich kommt nach {LOAD_CHRONIC_DAYS} Tagen mit Uhrdaten. Bisher {status.historyDays}.</p>}
     </div>
@@ -3804,12 +3854,13 @@ export default function App() {
     const now=Date.now(),today=todayStr(),extras=storedExtras.current;
     const gLast=extras.garminSync,wLast=extras.withingsSync;
     const due=last=>force||!(last?.at&&now-last.at<10*60*1000);
-    const garminDue=due(gLast?.v===4?gLast:null),withingsDue=due(wLast);
+    const garminDue=due(gLast?.v===5?gLast:null),withingsDue=due(wLast);
     if(!garminDue&&!withingsDue)return;
     let gFrom=gLast?.through?daysBeforeStr(gLast.through,2):daysBeforeStr(today,13);
-    // Version 4 added training load: load six weeks of activities once (health data: last 28 days).
-    if(!gLast||gLast.v!==4)gFrom=daysBeforeStr(today,41);
-    if(gFrom<daysBeforeStr(today,59))gFrom=daysBeforeStr(today,59);
+    // Version 5 (Garmin-like acute load): load 90 days of activities once, so the 4-week
+    // chronic load and its warm-up are right from the first day of the chart (health data: last 28 days).
+    if(!gLast||gLast.v!==5)gFrom=daysBeforeStr(today,89);
+    if(gFrom<daysBeforeStr(today,89))gFrom=daysBeforeStr(today,89);
     const wWindow=withingsWindow(wLast,today),wFrom=wWindow.from;
     if(garminDue)setGarmin(g=>({...g,state:"syncing"}));
     if(withingsDue)setWithings(w=>({...w,state:"syncing"}));
@@ -3818,7 +3869,7 @@ export default function App() {
     if(g){
       if(g.res?.ok&&Array.isArray(g.body.activities)&&Array.isArray(g.body.steps)){
         const r=applyGarminImport(next,g.body,today);next=r.plan;changed=true;
-        storedExtras.current={...storedExtras.current,garminSync:{at:Date.now(),through:today,v:4}};
+        storedExtras.current={...storedExtras.current,garminSync:{at:Date.now(),through:today,v:5}};
         setGarmin({state:"ok",at:Date.now()});
         if(r.completed.length)notes.push(r.completed.length>2?`${r.completed.length} Trainings von Garmin eingetragen`
           :"Von Garmin eingetragen: "+r.completed.map(dk=>sessionsLabel(next[dk])+" ("+shortDate(dk)+")").join(", "));

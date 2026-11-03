@@ -213,7 +213,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   chart, where acute load drops about 13–17 % a day after a game); chronic = the average acute
   load of the last 28 days, which settles at his usual weekly total; optimal = 0.8–1.4 × chronic,
   high from 1.5, very high from 2.0 (Garmin's load-ratio bands at one decimal, `LOAD_BANDS`)
-  (`loadStatus`, needs 28 days of watch data). Values should be close to Garmin's, not identical:
+  (`loadStatus`, needs 28 days of watch data). Sync version 5 loads 90 days of activities once (`/api/garmin` allows up to 90), so the chronic load and its warm-up are right from the first day of the chart. Values should be close to Garmin's, not identical:
   Garmin does not publish its weights. `typicalLoads` = his own median per session type
   over 60 days; football also per kind (Spiel, Mannschaftstraining, Freizeitkick, told apart by the plan) once two of a kind are recorded, so a planned game counts like his games; `plannedLoad` adds planned, not yet done sessions. `loadOutlook` looks ahead:
   the acute load for today and the next 4 days with planned sessions at his typical load
@@ -234,7 +234,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   Bereich, bald über Bereich, deutlich darüber), and Spiel gestern / heute / morgen or an active
   complaint when they apply. The Erholung ring keeps showing the night only. The expanded
   card shows the projected peak as a hollow marker. Heute shows the advice at the top of the ring card and a load card for today (value,
-  range bar with the planned part); Plan → Woche shows the same acute load as a line, with his range moving along with the chronic load like in Garmin's chart, measured and planned, so chart and day light always agree; past weeks show the measured part only.
+  range bar with the planned part); Plan → Woche shows the same acute load as a line, with his range moving along with the chronic load like in Garmin's chart, and a tap (or a drag along the line, or the arrow keys) on a day shows what moved it: the sessions done or planned that day with their load, today's still open plan for tomorrow, and the fading of the day before, adding up to the change, measured and planned, so chart and day light always agree; past weeks show the measured part only.
   The coach gets the whole block (`load`, whitelisted server-side). The Garmin endpoint now
   accepts up to 60 days: activities for the full window (paged by 99), steps/sleep/HRV/daily
   summaries for the last 28 days. Sync version 4 loads six weeks of activities once.

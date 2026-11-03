@@ -93,7 +93,7 @@ test('a rejected token is renewed once; bad keys and ranges give clear errors',a
   const limited=fakeBackend({dataStatus:[429,429]});
   assert.equal((await call(garminHandler({env:ENV,fetchImpl:limited.fetchImpl,now:()=>NOW}))).body.error,'garmin_rate_limited');
   const backend=fakeBackend();
-  for(const query of [{from:'2026-08-01',to:'2026-10-28'},{from:'2026-10-28',to:'2026-10-20'},{from:'2026-02-30',to:'2026-03-01'},{}])
+  for(const query of [{from:'2026-07-01',to:'2026-10-28'},{from:'2026-10-28',to:'2026-10-20'},{from:'2026-02-30',to:'2026-03-01'},{}])
     assert.equal((await call(garminHandler({env:ENV,fetchImpl:backend.fetchImpl}),{query})).body.error,'invalid_range',JSON.stringify(query));
   assert.equal(jwtExpiry('not-a-jwt'),null);
   assert.deepEqual(normalizeActivities(null),[]);assert.deepEqual(normalizeSteps({}),[]);
