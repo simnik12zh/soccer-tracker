@@ -134,6 +134,25 @@ test('day light: one colour with a matching sentence, looking ahead to games',()
   assert.match(r.advice,/^Du liegst deutlich über deinem Bereich \(\d+, normal bis \d+\)\. Heute nur locker oder Pause\.$/);
 });
 
+test('day light: a second reason of another kind joins the sentence, and the factors show all of them',()=>{
+  const plan=history();
+  // A game yesterday instead of the easy run: a good night, but the load is above the range.
+  plan['2026-10-27']={sessions:['Match'],completed:true,match:{opponent:'X',home:true,kickoff:'20:00'},garmin:[g('m','soccer',260)]};
+  plan[TODAY]={sessions:['Walking']};
+  const st=app.loadStatus(plan,TODAY);
+  assert.equal(st.status,'high');
+  const r=app.dayGuidance(plan,TODAY,[],st,{level:'good',signals:[]});
+  assert.deepEqual([r.level,r.label],['caution','Ruhiger Tag']);
+  assert.equal(r.advice,'Gestern war Spiel, und deine Belastung liegt über dem Bereich. Heute nur Spazieren oder Mobilität.');
+  assert.deepEqual(plain(r.factors),[{key:'sleep',level:'good',text:'Schlaf gut'},{key:'load',level:'caution',text:'Belastung über Bereich'},
+    {key:'game',level:'caution',text:'Spiel gestern'}]);
+  // A limited night after the game: the night joins instead of the load (one second reason only).
+  const mild={level:'caution',signals:[{key:'sleep',level:'caution',why:'nur 6:40 h Schlaf'},{key:'hrv',level:'caution',why:'HRV 44 ms unter deinem Bereich'}]};
+  assert.equal(app.dayGuidance(plan,TODAY,[],st,mild).advice,'Gestern war Spiel, und dein Schlaf war mässig. Heute nur Spazieren oder Mobilität.');
+  // Without a night from the watch: no colour, and sleep says so.
+  assert.equal(app.dayGuidance(plan,TODAY,[],st,null).factors[0].text,'Schlaf ohne Daten');
+});
+
 test('weekly totals and coach context',()=>{
   const plan=history(6);
   const weeks=app.weeklyLoads(plan,TODAY,6);

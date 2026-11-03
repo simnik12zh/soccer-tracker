@@ -793,10 +793,11 @@ function outlookLabel(upcoming) {
 // complaints). The strictest reason wins and the sentence names it with what to do, so colour
 // and words never disagree. Green: do the plan fully. Orange: keep quality, trim volume, nothing
 // extra. Red: only easy or rest. The day before and the day after a game are never green.
+// dayLightRule finds the deciding reason; dayGuidance adds a second one and the factor line.
 const DAY_LABELS={good:'Bereit',caution:'Ruhiger Tag',low:'Erholungstag'};
 const HARD_SESSIONS=['Team Training','Futsal','Gym','Easy run'];
 const joinWords=list=>list.length>1?list.slice(0,-1).join(', ')+' und '+list.at(-1):list[0]||'';
-function dayGuidance(plan,dk=todayStr(),complaints=[],status=loadStatus(plan,dk),recovery=recoveryStatus(plan,dk)) {
+function dayLightRule(plan,dk,complaints,status,recovery) {
   const e=plan[dk]||{},out=(level,advice,why=null)=>({level,label:level?DAY_LABELS[level]:null,advice,why});
   const matchToday=isMatchDay(e),matchTomorrow=!matchToday&&isMatchDay(plan[daysBeforeStr(dk,-1)]),matchYesterday=!matchToday&&isMatchDay(plan[daysBeforeStr(dk,1)]);
   const hard=e.completed?[]:getSessions(e).filter(s=>HARD_SESSIONS.includes(s)),hardLabel=hard.map(displayName).join(' + ');
@@ -847,6 +848,36 @@ function dayGuidance(plan,dk=todayStr(),complaints=[],status=loadStatus(plan,dk)
     :`Du bist im Bereich, und mit ${ahead} kommt genug dazu. Heute nichts extra.`);
   return out(fine,'Du bist im Bereich. Mehr braucht es heute nicht.');
 }
+// The deciding reason, plus a second one of another kind in the sentence ("Gestern war Spiel,
+// und deine Belastung liegt über dem Bereich.") and the factors behind the colour for the line
+// under it: sleep and load always, a game or a complaint when they apply.
+const COMBINES=['night','load','plan','outlook','gameTomorrow','gameYesterday'];
+const REASON_KIND={complaint:'complaint',night:'night',load:'load',plan:'load',outlook:'load',gameTomorrow:'game',gameYesterday:'game',game:'game'};
+const SLEEP_TEXT={good:'Schlaf gut',caution:'Schlaf mässig',low:'Schlaf schlecht'};
+function dayGuidance(plan,dk=todayStr(),complaints=[],status=loadStatus(plan,dk),recovery=recoveryStatus(plan,dk)) {
+  const g=dayLightRule(plan,dk,complaints,status,recovery);
+  const matchToday=isMatchDay(plan[dk]),matchTomorrow=!matchToday&&isMatchDay(plan[daysBeforeStr(dk,-1)]),matchYesterday=!matchToday&&isMatchDay(plan[daysBeforeStr(dk,1)]);
+  const hurting=activeComplaints(complaints,dk).filter(c=>c.level>=2).sort((a,b)=>b.level-a.level)[0];
+  const heavy=status.ready&&(status.status==='high'||status.status==='veryHigh');
+  const others=[hurting&&{kind:'complaint',text:`${complaintLabel(hurting)} ${hurting.level===3?'schmerzt stark':'zwickt'}`},
+    recovery&&recovery.level!=='good'&&{kind:'night',text:recovery.level==='low'?'dein Schlaf war schlecht':'dein Schlaf war mässig'},
+    heavy&&{kind:'load',text:status.status==='veryHigh'?'deine Belastung liegt deutlich über dem Bereich':'deine Belastung liegt über dem Bereich'},
+    matchTomorrow&&{kind:'game',text:'morgen ist Spiel'},matchYesterday&&{kind:'game',text:'gestern war Spiel'}].filter(Boolean);
+  const second=g.level&&g.level!=='good'&&COMBINES.includes(g.why)?others.find(o=>o.kind!==REASON_KIND[g.why]):null;
+  const cut=g.advice.indexOf('. ');
+  const advice=second&&cut>0?`${g.advice.slice(0,cut)}, und ${second.text}. ${g.advice.slice(cut+2)}`:g.advice;
+  const factors=[recovery?{key:'sleep',level:recovery.level,text:SLEEP_TEXT[recovery.level]}:{key:'sleep',level:null,text:'Schlaf ohne Daten'}];
+  if(status.ready)factors.push(status.status==='veryHigh'?{key:'load',level:'low',text:'Belastung deutlich darüber'}
+    :status.status==='high'?{key:'load',level:'caution',text:'Belastung über Bereich'}
+    :g.why==='plan'||g.why==='outlook'?{key:'load',level:'caution',text:'Belastung bald über Bereich'}
+    :{key:'load',level:'good',text:status.status==='low'?'Belastung unter Bereich':'Belastung im Bereich'});
+  if(matchYesterday)factors.push({key:'game',level:'caution',text:'Spiel gestern'});
+  if(matchTomorrow)factors.push({key:'game',level:'caution',text:'Spiel morgen'});
+  if(matchToday)factors.push({key:'game',level:'neutral',text:'Spiel heute'});
+  if(hurting)factors.push({key:'complaint',level:hurting.level===3?'low':'caution',text:complaintLabel(hurting)});
+  return {...g,advice,factors};
+}
+
 // ─── Session review ──────────────────────────────────────────────────────────────
 // A recorded activity compared with his previous sessions of the same kind: games only
 // with games, team trainings with team trainings, runs with runs. Garmin calls all
@@ -1244,7 +1275,7 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
     phase:phase?{name:phaseLabel(phase.name),description:phase.description}:null,
     nextPhase:next?phaseLabel(next.name):null,daysToNextPhase:phaseEnd?dayDistance(phaseEnd):null,
     today:{...day(referenceDate),recoveryAssessment:(r=>r?{level:r.level,signals:r.signals.map(x=>({signal:x.key,level:x.level,text:x.text}))}:null)(recoveryStatus(plan,referenceDate)),
-      dayLight:(g=>({color:{good:'green',caution:'orange',low:'red'}[g.level]||null,label:g.label,advice:g.advice}))(dayGuidance(plan,referenceDate,complaints))},selectedDay:viewKey!==referenceDate?day(viewKey):null,
+      dayLight:(g=>({color:{good:'green',caution:'orange',low:'red'}[g.level]||null,label:g.label,advice:g.advice,factors:g.factors.map(f=>f.text)}))(dayGuidance(plan,referenceDate,complaints))},selectedDay:viewKey!==referenceDate?day(viewKey):null,
     recentDays:Array.from({length:14},(_,i)=>day(daysBeforeStr(referenceDate,14-i))),
     upcoming:Array.from({length:7},(_,i)=>day(daysBeforeStr(referenceDate,-i-1))),
     nextMatch:nextMatchDate?{...day(nextMatchDate),daysAway:dayDistance(nextMatchDate)}:null,
@@ -1535,7 +1566,10 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .day-status{display:flex;flex-direction:column;gap:10px;padding:0 12px 14px;margin-bottom:10px;border-bottom:1px solid var(--line-soft)}
 .verdict{display:inline-flex;align-items:center;gap:8px;font-size:17px;font-weight:600;color:var(--text)}
 .verdict-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;background:var(--good)}.day-status.caution .verdict-dot{background:var(--warn)}.day-status.low .verdict-dot{background:var(--bad)}
-.verdict-text{font-size:14px;line-height:1.5;color:var(--text);margin-top:6px;text-wrap:pretty}.verdict~.recovery-signals{margin-top:6px}
+.verdict-text{font-size:14px;line-height:1.5;color:var(--text);margin-top:6px;text-wrap:pretty}
+.day-factors{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px;font-size:12px;line-height:1.5;color:var(--muted)}.day-factors span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.day-factors i{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--faint)}.day-factors .good i{background:var(--good)}.day-factors .caution i{background:var(--warn)}.day-factors .low i{background:var(--bad)}.day-factors .neutral i{background:var(--accent)}
+.day-factors .caution,.day-factors .low{color:var(--text)}.verdict~.recovery-signals{margin-top:6px}
 .day-status .complaint-strip{margin:0;gap:4px}.day-status .complaint-row{border-radius:var(--r-s)}.day-status .complaint-row.l1{border-color:transparent;background:transparent}
 .day-status .complaint-row.l1 .complaint-summary{padding-left:4px;padding-right:4px}.day-status .complaint-summary{padding:7px 10px;min-height:44px}
 .recovery-signals{display:flex;gap:0 12px;font-size:13px;color:var(--text);white-space:nowrap;font-variant-numeric:tabular-nums}.recovery-signals>span+span{position:relative}
@@ -2161,6 +2195,8 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
       {(advice||glance.length>0)&&<div role="status">
         {guide?.level&&<strong className="verdict"><span className="verdict-dot" aria-hidden="true"/>{guide.label}</strong>}
         {advice&&<p className="verdict-text">{advice}</p>}
+        {advice&&guide.factors.length>0&&<p className="day-factors">{guide.factors.map(f=>
+          <span key={f.key} className={f.level||""}><i aria-hidden="true"/>{f.text}</span>)}</p>}
         {glance.length>0&&<p className="recovery-signals">{glance.map(x=>
           <span key={x.key} className={x.level!=='good'?'flag':''}>{x.key==='sleep'&&<Icon name="rest" size={12}/>}{x.text}</span>)}</p>}
       </div>}

@@ -222,7 +222,12 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   there is no colour, only the sentence. Green may still say nothing extra is needed; an extra
   session only if the projected peak plus the extra stays at most ~1.1 × his average week
   (`LOAD_EXTRA_TARGET`), otherwise it names the planned sessions that fill the week. The coach gets
-  the same light (`today.dayLight`) and must not contradict it. The expanded
+  the same light (`today.dayLight`) and must not contradict it. When another reason of a different kind also holds the colour
+  back, the sentence names it too ("Gestern war Spiel, und deine Belastung liegt über dem
+  Bereich."). Under the sentence a factor line shows what the colour is made of: Schlaf (gut /
+  mässig / schlecht / ohne Daten, from the night's watch values), Belastung (unter / im / über
+  Bereich, bald über Bereich, deutlich darüber), and Spiel gestern / heute / morgen or an active
+  complaint when they apply. The Erholung ring keeps showing the night only. The expanded
   card shows the projected peak as a hollow marker. Heute shows the advice at the top of the ring card and a load card for today (value,
   range bar with the planned part); Plan → Woche shows six weekly totals with the range.
   The coach gets the whole block (`load`, whitelisted server-side). The Garmin endpoint now
