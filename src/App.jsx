@@ -1721,7 +1721,7 @@ const REMINDER_COPY={
   loading:"Wird geprüft …",
   install:"Auf dem iPhone funktionieren Erinnerungen nur in der App vom Homescreen. Öffne sie dort und aktiviere sie hier.",
   unsupported:"Dieser Browser kann keine Push-Mitteilungen empfangen.",
-  denied:"Mitteilungen sind blockiert. Erlaube sie in den iPhone-Einstellungen unter Mitteilungen → Soccer.",
+  denied:"Mitteilungen sind blockiert. Erlaube sie in den iPhone-Einstellungen unter Mitteilungen → Athlete (früher Soccer).",
   unconfigured:"Auf dem Server fehlt noch der Speicher für Erinnerungen (Upstash in Vercel).",
   off:"Täglich zwischen 12 und 13 Uhr und zwischen 21 und 22 Uhr. Die Mitteilung zeigt, was an dem Tag noch offen ist.",
   on:"Aktiv: täglich zwischen 12 und 13 Uhr und zwischen 21 und 22 Uhr.",
@@ -1837,7 +1837,7 @@ function SetupScreen({initName,initProteinTarget=DEFAULT_PROTEIN_TARGET,isEdit,o
   };
 
   return <main className="app-shell settings-screen">
-    <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Soccer Tracker</span>
+    <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Athlete</span>
       {onBack&&<button className="icon-btn" aria-label="Zurück" onClick={onBack}><Icon name="close"/></button>}</div>
       <h1>{isEdit?"Dein Profil.":"Deine Saison.\nDein Fortschritt."}</h1>
       <p className="header-subtitle">{isEdit?"Deine Daten bleiben bei dir.":"Trainiere bewusst. Bleib im Spiel."}</p></header>
@@ -3583,7 +3583,7 @@ export default function App() {
   else if(screen==="report")content=<ReportScreen plan={plan} weekStart={reportWeek||lastCompletedWeek()} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")} planner={planner}/>;
   else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} complaints={complaints} social={social} onBack={()=>setScreen("main")}/>;
   else content=<main className="app-shell">
-    <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Soccer Tracker</span>
+    <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Athlete</span>
       <div className="head-actions"><button className="icon-btn head-settings" aria-label="Einstellungen" onClick={()=>{setScreen("setup");window.scrollTo(0,0);}}><Icon name="settings" size={20}/></button>
         <button className="coach-pill" aria-label="Trainer öffnen" onClick={()=>setScreen("coach")}><Icon name="coach" size={17}/><span>Trainer</span></button></div></div>
       <h1>{headings[view]}</h1>

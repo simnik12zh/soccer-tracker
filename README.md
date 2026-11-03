@@ -1,7 +1,9 @@
-# Soccer Tracker
+# Athlete
 
-Mobile-first, full-season training tracker for a soccer player. React + Vite single-file
-frontend (`src/App.jsx`), one Vercel serverless function for the AI coach. All data lives in
+Mobile-first, full-season athletic coach for an amateur football player: training, recovery,
+load, nutrition and body composition. Formerly "Soccer Tracker"; the web address, the repository
+and the storage keys (`soccer-v3`, …) keep the old name on purpose, so existing data stays.
+React + Vite single-file frontend (`src/App.jsx`), one Vercel serverless function for the AI coach. All data lives in
 `localStorage` (key `soccer-v3`) — no backend database. Installable as a PWA.
 The app currently has no service worker; offline app loading is not guaranteed.
 
@@ -345,7 +347,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   → Krafttraining, `Futsal` → Freizeitkick/Futsal, `Mobility` → Prävention/Reha).
   Session-specific card summaries cover both planned and completed days and two-session
   combinations. New coach replies are instructed to be German; existing notes and chats
-  are preserved verbatim. The Soccer Tracker brand name is unchanged.
+  are preserved verbatim. The brand name Athlete stays English.
   Per-day coach chats live under
   `coach-YYYY-MM-DD`; one-time milestone flags under `milestone-<id>`.
 
