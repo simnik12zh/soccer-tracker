@@ -797,7 +797,7 @@ const DAY_LABELS={good:'Bereit',caution:'Ruhiger Tag',low:'Erholungstag'};
 const HARD_SESSIONS=['Team Training','Futsal','Gym','Easy run'];
 const joinWords=list=>list.length>1?list.slice(0,-1).join(', ')+' und '+list.at(-1):list[0]||'';
 function dayGuidance(plan,dk=todayStr(),complaints=[],status=loadStatus(plan,dk),recovery=recoveryStatus(plan,dk)) {
-  const e=plan[dk]||{},out=(level,advice)=>({level,label:level?DAY_LABELS[level]:null,advice});
+  const e=plan[dk]||{},out=(level,advice,why=null)=>({level,label:level?DAY_LABELS[level]:null,advice,why});
   const matchToday=isMatchDay(e),matchTomorrow=!matchToday&&isMatchDay(plan[daysBeforeStr(dk,-1)]),matchYesterday=!matchToday&&isMatchDay(plan[daysBeforeStr(dk,1)]);
   const hard=e.completed?[]:getSessions(e).filter(s=>HARD_SESSIONS.includes(s)),hardLabel=hard.map(displayName).join(' + ');
   const why=recovery?joinWords((recovery.signals||[]).filter(x=>x.level!=='good'&&x.why).map(x=>x.why)):'';
@@ -808,30 +808,30 @@ function dayGuidance(plan,dk=todayStr(),complaints=[],status=loadStatus(plan,dk)
     :hard.length?`${hardLabel} heute kürzer oder lockerer, nichts extra.`:'Heute nichts extra, höchstens Spazieren oder Mobilität.';
   // Red. A complaint from "Mittel" upwards counts even without enough watch data.
   const hurting=activeComplaints(complaints,dk).filter(c=>c.level>=2).sort((a,b)=>b.level-a.level)[0];
-  if(hurting?.level===3)return out('low',`Wegen ${complaintLabel(hurting)} (stark): heute keine Belastung für diese Stelle. Hält es an, abklären lassen.`);
-  if(recovery?.level==='low')return out('low',`${night}. ${easy}`);
-  if(status.ready&&status.status==='veryHigh')return out('low',`Du liegst deutlich über deinem Bereich (${status.acute}, normal bis ${status.high}). ${easy}`);
+  if(hurting?.level===3)return out('low',`Wegen ${complaintLabel(hurting)} (stark): heute keine Belastung für diese Stelle. Hält es an, abklären lassen.`,'complaint');
+  if(recovery?.level==='low')return out('low',`${night}. ${easy}`,'night');
+  if(status.ready&&status.status==='veryHigh')return out('low',`Du liegst deutlich über deinem Bereich (${status.acute}, normal bis ${status.high}). ${easy}`,'load');
   // Orange. Around games the next game wins over the last one.
-  if(hurting)return out('caution',`Wegen ${complaintLabel(hurting)}: keine Zusatzeinheit, nur schmerzfreie Bewegungen.`);
+  if(hurting)return out('caution',`Wegen ${complaintLabel(hurting)}: keine Zusatzeinheit, nur schmerzfreie Bewegungen.`,'complaint');
   if(matchTomorrow)return out('caution',hard.length?`Morgen ist Spiel. ${hardLabel} heute locker halten, nichts extra.`
-    :'Morgen ist Spiel. Heute keine Zusatzeinheit, höchstens Mobilität oder Spazieren.');
-  if(matchYesterday)return out('caution','Gestern war Spiel. Heute nur Spazieren oder Mobilität.');
-  if(recovery?.level==='caution')return out('caution',`${night}. ${calm}`);
+    :'Morgen ist Spiel. Heute keine Zusatzeinheit, höchstens Mobilität oder Spazieren.','gameTomorrow');
+  if(matchYesterday)return out('caution','Gestern war Spiel. Heute nur Spazieren oder Mobilität.','gameYesterday');
+  if(recovery?.level==='caution')return out('caution',`${night}. ${calm}`,'night');
   // Green when the night was fine; without watch data from the night there is no colour.
   const fine=recovery?'good':null;
   if(!status.ready)return out(fine,`Noch zu wenig Daten von der Uhr: ${status.historyDays} von 21 Tagen.`);
   const typical=typicalLoads(plan,dk),planned=plannedLoad(plan,dk,typical),label=planned.sessions.map(displayName).join(' + ');
   if(status.status==='high')return out('caution',matchToday?'Du liegst schon über deinem Bereich. Vor dem Spiel nichts extra.'
     :planned.load?`Du liegst schon über deinem Bereich. ${label} (≈ ${planned.load}) heute kürzer oder lockerer halten.`
-    :'Du liegst über deinem Bereich. Heute keine Zusatzeinheit, höchstens Mobilität oder Spazieren.');
+    :'Du liegst über deinem Bereich. Heute keine Zusatzeinheit, höchstens Mobilität oder Spazieren.','load');
   const outlook=loadOutlook(plan,dk,typical),peak=outlook.peak.load,ahead=outlookLabel(outlook.upcoming),over=peak>status.high;
   const after=status.acute+planned.load;
   // A game is played anyway: its load only shapes the days after it.
   if(matchToday)return out(fine,after>status.high||over?'Heute ist Spiel. Danach liegst du über deinem Bereich: die Tage nach dem Spiel ruhig angehen.'
-    :'Heute ist Spiel, und deine Belastung passt.');
+    :'Heute ist Spiel, und deine Belastung passt.','game');
   if(planned.load){
-    if(after>status.high)return out('caution',`Mit ${label} (≈ ${planned.load}) kommst du auf ${after}, über deinem Bereich. Heute kontrolliert halten.`);
-    return over&&ahead?out('caution',`Mit ${label} (≈ ${planned.load}) bleibst du heute im Bereich, aber mit ${ahead} kommst du danach auf ≈ ${peak}. Heute kontrolliert halten.`)
+    if(after>status.high)return out('caution',`Mit ${label} (≈ ${planned.load}) kommst du auf ${after}, über deinem Bereich. Heute kontrolliert halten.`,'plan');
+    return over&&ahead?out('caution',`Mit ${label} (≈ ${planned.load}) bleibst du heute im Bereich, aber mit ${ahead} kommst du danach auf ≈ ${peak}. Heute kontrolliert halten.`,'outlook')
       :out(fine,`Mit ${label} (≈ ${planned.load}) bleibst du im Bereich.`);
   }
   const run=typical['Easy run'],extra=run||typical.Gym||50,target=Math.round(status.weekly*LOAD_EXTRA_TARGET);
@@ -842,11 +842,130 @@ function dayGuidance(plan,dk=todayStr(),complaints=[],status=loadStatus(plan,dk)
   }
   if(ahead&&over)return out('caution',status.status==='low'
     ?`Du liegst noch unter deinem Bereich, aber mit ${ahead} kommst du auf ≈ ${peak}, über deinem Bereich. Heute keine Zusatzeinheit.`
-    :`Mit ${ahead} kommst du auf ≈ ${peak}, über deinem Bereich. Heute nichts extra.`);
+    :`Mit ${ahead} kommst du auf ≈ ${peak}, über deinem Bereich. Heute nichts extra.`,'outlook');
   if(ahead)return out(fine,status.status==='low'?`Du liegst noch unter deinem Bereich, aber mit ${ahead} kommst du auf ≈ ${peak}. Heute keine Zusatzeinheit.`
     :`Du bist im Bereich, und mit ${ahead} kommt genug dazu. Heute nichts extra.`);
   return out(fine,'Du bist im Bereich. Mehr braucht es heute nicht.');
 }
+// ─── Session review ──────────────────────────────────────────────────────────────
+// A recorded activity compared with his previous sessions of the same kind: games only
+// with games, team trainings with team trainings, runs with runs. Garmin calls all
+// football "Fussball", so the plan of that day tells a game from a training.
+const REVIEW_WINDOW=8;
+const FOOTBALL_METRICS=['load','distanceKm','highHrMin','maxSpeedKmh','avgHr','minutes'];
+const REVIEW_KINDS={
+  match:{label:'Spiel',plural:'Spiele',dative:'Spielen',adj:'es',third:'ab dem dritten Spiel',metrics:FOOTBALL_METRICS},
+  training:{label:'Mannschaftstraining',plural:'Mannschaftstrainings',dative:'Mannschaftstrainings',adj:'es',third:'ab dem dritten Mannschaftstraining',metrics:FOOTBALL_METRICS},
+  futsal:{label:'Freizeitkick',plural:'Freizeitkicks',dative:'Freizeitkicks',adj:'er',third:'ab dem dritten Freizeitkick',metrics:FOOTBALL_METRICS},
+  run:{label:'Lauf',plural:'Läufe',dative:'Läufen',adj:'er',third:'ab dem dritten Lauf',metrics:['distanceKm','pace','avgHr','load','minutes']},
+  gym:{label:'Krafttraining',plural:'Krafteinheiten',dative:'Krafteinheiten',adj:'es',third:'ab der dritten Krafteinheit',metrics:['minutes','avgHr','load']},
+};
+const paceText=v=>{const s=Math.round(v*60);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
+// tol: how far from his average still counts as usual. scales: grows with the time played.
+const REVIEW_METRICS={
+  load:{label:'Belastung',unit:'',fmt:v=>String(Math.round(v)),tol:.08,scales:true},
+  distanceKm:{label:'Distanz',unit:'km',fmt:v=>v.toFixed(1),tol:.04,scales:true,more:'Mehr gelaufen als sonst',less:'Weniger gelaufen als sonst'},
+  highHrMin:{label:'Intensiv',unit:'min',fmt:v=>String(Math.round(v)),tol:.1,scales:true,more:'Mehr intensive Minuten',less:'Weniger intensive Minuten'},
+  maxSpeedKmh:{label:'Topspeed',unit:'km/h',fmt:v=>v.toFixed(1),tol:.02,more:'Schneller im Sprint',less:'Topspeed unter deinem Schnitt'},
+  avgHr:{label:'Ø Puls',unit:'bpm',fmt:v=>String(Math.round(v)),tol:.02,more:'Puls höher als sonst',less:'Puls tiefer als sonst'},
+  minutes:{label:'Dauer',unit:'min',fmt:v=>String(Math.round(v)),tol:.05},
+  pace:{label:'Tempo',unit:'/km',fmt:paceText,tol:.02,faster:true,more:'Langsamer als sonst',less:'Schneller als sonst'},
+};
+function reviewKind(entry,g) {
+  const type=garminSessionType(g?.type);
+  if(type==='soccer')return isMatchDay(entry)?'match':getSessions(entry).includes('Team Training')?'training':'futsal';
+  return type==='Easy run'?'run':type==='Gym'?'gym':null;
+}
+const reviewValue=(g,key)=>{const v=key==='pace'?(g.distanceKm>0&&g.minutes>0?g.minutes/g.distanceKm:null):g[key];return Number.isFinite(v)&&v>0?v:null;};
+const medianOf=v=>{const a=[...v].sort((x,y)=>x-y),m=a.length>>1;return a.length%2?a[m]:(a[m-1]+a[m])/2;};
+// The session and up to REVIEW_WINDOW earlier sessions of its kind.
+function reviewHistory(plan,dk,id) {
+  const e=plan[dk]||{},g=(e.garmin||[]).find(x=>x.id===id),kind=g?reviewKind(e,g):null;
+  if(!kind)return null;
+  const prev=[];
+  for(const d of Object.keys(plan).filter(x=>x<=dk).sort())
+    for(const x of plan[d]?.garmin||[]){
+      if(d===dk&&x.id===id)break;
+      if(reviewKind(plan[d],x)===kind)prev.push({date:d,g:x,opponent:plan[d]?.match?.opponent||null});
+    }
+  return {kind,cur:{date:dk,g,opponent:e.match?.opponent||null},prev:prev.slice(-REVIEW_WINDOW)};
+}
+// Per value: his average and range over the earlier sessions, and where this one landed.
+// A much shorter session can be scaled to his usual duration (scaled=true); its intensity
+// is always judged per minute.
+function sessionReview(plan,dk,id,scaled=false) {
+  const h=reviewHistory(plan,dk,id);
+  if(!h)return null;
+  const kind=REVIEW_KINDS[h.kind],cur=h.cur.g;
+  const prevMin=h.prev.map(s=>reviewValue(s.g,'minutes')).filter(v=>v!=null);
+  const usualMin=prevMin.length>=2?medianOf(prevMin):null;
+  const short=!!usualMin&&reviewValue(cur,'minutes')!=null&&cur.minutes<usualMin*.8,factor=short&&scaled?usualMin/cur.minutes:1;
+  const rows=kind.metrics.map(key=>{
+    const m=REVIEW_METRICS[key],raw=reviewValue(cur,key),before=h.prev.map(s=>reviewValue(s.g,key)).filter(v=>v!=null);
+    if(raw==null||before.length<2)return null;
+    const v=m.scales?raw*factor:raw,vals=[...before,v],med=medianOf(before),rel=(v-med)/med;
+    const lo=Math.min(...vals),hi=Math.max(...vals),n=vals.length;
+    const top=v===hi&&vals.indexOf(hi)===n-1,bottom=v===lo&&vals.indexOf(lo)===n-1;
+    const status=m.faster?(bottom?`schnellster von ${n}`:top?`langsamster von ${n}`:rel<=-m.tol?'schneller':rel>=m.tol?'langsamer':'wie üblich')
+      :top?`Höchstwert von ${n}`:bottom?`Tiefstwert von ${n}`:rel>=m.tol?'über Schnitt':rel<=-m.tol?'unter Schnitt':'im Schnitt';
+    return {key,...m,v,med,lo,hi,beforeLo:Math.min(...before),beforeHi:Math.max(...before),rel,status,record:top||bottom,best:m.faster?bottom:top};
+  }).filter(Boolean);
+  const ready=h.prev.length>=2&&rows.length>0,load=rows.find(r=>r.key==='load');
+  const ratio=ready&&load?cur.load*(short?usualMin/cur.minutes:1)/load.med:null;
+  const level=ratio==null?null:ratio>=1.15?3:ratio<=.85?1:2;
+  const football=kind.metrics===FOOTBALL_METRICS;
+  const headline=!ready?kind.label:short?(football?'Kurzer Einsatz':'Kürzer als üblich'):level?['Locker','Normal','Intensiv'][level-1]+kind.adj+' '+kind.label:kind.label;
+  return {...h,kind,kindKey:h.kind,ready,short,usualMin,rows,level,headline,count:h.prev.length+1,
+    sentence:ready?reviewSentence(cur,rows,short,usualMin,level):'',
+    plain:kind.metrics.map(key=>({key,...REVIEW_METRICS[key],v:reviewValue(cur,key)})).filter(x=>x.v!=null)};
+}
+function reviewSentence(cur,rows,short,usualMin,level) {
+  const get=k=>rows.find(r=>r.key===k),load=get('load');
+  if(short){
+    const f=usualMin/cur.minutes,how=level===3?'intensiver als sonst':level===1?'lockerer als sonst':'so intensiv wie sonst';
+    return `${Math.round(cur.minutes)} statt ${Math.round(usualMin)} Minuten. Pro Minute ${how}`+(load?`: Auf deine übliche Dauer hochgerechnet wären es ≈ ${Math.round(cur.load*f)} Belastung${get('distanceKm')?` und ${(cur.distanceKm*f).toFixed(1)} km`:''}.`:'.');
+  }
+  const parts=[];
+  if(load)parts.push(`Belastung ${load.fmt(load.v)}, `+(Math.abs(load.rel)<.05?`nah an deinem Schnitt (${load.fmt(load.med)}).`
+    :`rund ${Math.round(Math.abs(load.rel)*100)} % ${load.rel>0?'über':'unter'} deinem Schnitt (${load.fmt(load.med)}).`));
+  const notable=rows.filter(r=>r.more&&Math.abs(r.rel)>=r.tol).sort((a,b)=>Math.abs(b.rel)/b.tol-Math.abs(a.rel)/a.tol).slice(0,2);
+  for(const r of notable)parts.push(`${r.rel>0?r.more:r.less} (${r.fmt(r.v)} statt ${r.fmt(r.med)}${r.key==='pace'?' pro km':r.unit&&r.key!=='avgHr'?' '+r.unit:''}).`);
+  if(!notable.length&&load)parts.push('Die übrigen Werte liegen in deinem üblichen Bereich.');
+  const pace=get('pace'),hr=get('avgHr');
+  if(pace&&hr&&pace.rel<=-pace.tol&&hr.rel<=-hr.tol)parts.push('Ein gutes Zeichen für deine Grundausdauer.');
+  return parts.join(' ');
+}
+// What the session means for the next days: its share of his usual week, and the day
+// light of the day after it while that day is today or tomorrow.
+function reviewOutlook(plan,dk,load,complaints=[],today=todayStr()) {
+  const st=loadStatus(plan,dk);
+  const share=st.ready&&Number.isFinite(load)&&load>0?`${Math.round(load)} sind ${Math.round(load/st.weekly*100)} % deiner üblichen Woche (≈ ${st.weekly}).`:null;
+  let next=null;
+  if(dk===daysBeforeStr(today,1)){const g=dayGuidance(plan,today,complaints);if(g.level)next={when:'Heute',level:g.level,label:g.label,text:g.advice};}
+  else if(dk===today){
+    const g=dayGuidance(plan,daysBeforeStr(today,-1),complaints);
+    const why={complaint:'Wegen deiner Beschwerde.',load:g.level==='low'?'Du liegst deutlich über deinem Bereich.':'Du liegst über deinem Bereich.',
+      gameTomorrow:'Übermorgen ist Spiel: nichts extra.',gameYesterday:'Nach dem Spiel nur Spazieren oder Mobilität.',game:'Morgen ist Spiel.',
+      plan:'Mit dem, was geplant ist, kommst du über deinen Bereich.',outlook:'Mit dem, was geplant ist, kommst du über deinen Bereich.'}[g.why];
+    next=g.level?{when:'Morgen',level:g.level,label:g.label,text:why||''}
+      :{when:'Morgen',level:null,label:null,text:why||'Nichts spricht gegen deinen Plan. Die Farbe kommt mit deiner Nacht.'};
+  }
+  return {share,next};
+}
+// For the coach: the same comparison in words, for the sessions he is likely to ask about.
+function reviewForCoach(r) {
+  const u=x=>x.key==='pace'?' /km':x.unit?' '+x.unit:'';
+  return {date:r.cur.date,kind:r.kind.label,opponent:r.cur.opponent?coachText(r.cur.opponent,180):null,verdict:r.headline,
+    comparedWithPrevious:r.count-1,shortSession:r.short?{minutes:Math.round(r.cur.g.minutes),usualMinutes:Math.round(r.usualMin)}:null,
+    values:r.rows.map(x=>({metric:x.label,value:x.fmt(x.v)+u(x),average:x.fmt(x.med)+u(x),range:x.fmt(x.lo)+'–'+x.fmt(x.hi)+u(x),status:x.status}))};
+}
+function sessionReviewsForCoach(plan,referenceDate,viewKey) {
+  const days=[...new Set([...Array.from({length:7},(_,i)=>daysBeforeStr(referenceDate,i)),...(viewKey<=referenceDate?[viewKey]:[])])];
+  const out=[];
+  for(const d of days)for(const g of plan[d]?.garmin||[]){const r=sessionReview(plan,d,g.id);if(r?.ready)out.push(reviewForCoach(r));}
+  return out.slice(0,8);
+}
+
 // Weekly totals (Mon–Sun) for the n weeks up to the week of dk.
 function weeklyLoads(plan,dk=todayStr(),n=6) {
   const monday=weekAround(dk)[0];
@@ -1146,6 +1265,7 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
     nutrition:{proteinTargetGrams:target,last7Days:eatingStats(daysBeforeStr(referenceDate,6),referenceDate),
       previous7Days:eatingStats(daysBeforeStr(referenceDate,13),daysBeforeStr(referenceDate,7))},
     trends:{weeks:weeklyTrends(plan,referenceDate,target,social)},
+    sessionReviews:sessionReviewsForCoach(plan,referenceDate,viewKey),
     ...(extra.lastReport?.text?{lastWeeklyReport:{week:coachText(extra.lastReport.week,40),text:coachText(extra.lastReport.text,2400)}}:{}),
     tactical:tacticalFor(referenceDate)};
 }
@@ -1420,6 +1540,34 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .day-status .complaint-row.l1 .complaint-summary{padding-left:4px;padding-right:4px}.day-status .complaint-summary{padding:7px 10px;min-height:44px}
 .recovery-signals{display:flex;gap:0 12px;font-size:13px;color:var(--text);white-space:nowrap;font-variant-numeric:tabular-nums}.recovery-signals>span+span{position:relative}
 .recovery-signals>span+span:before{content:"·";position:absolute;left:-8px;color:var(--faint)}.recovery-signals svg{vertical-align:-1px;margin-right:3px}.recovery-signals .flag{color:var(--warn)}.day-status.low .recovery-signals .flag{color:var(--bad-ink)}
+/* Today: a recorded session opens its review. */
+.watch-list .watch-row{display:flex;align-items:center;gap:8px;width:calc(100% + 20px);min-height:44px;margin:-4px -10px;padding:6px 10px;border:0;border-radius:var(--r-s);background:transparent;color:inherit;font-size:12px;text-align:left}
+@media(hover:hover){.watch-list .watch-row:hover{background:rgba(156,203,211,.07)}}
+.watch-list .watch-more{flex:0 0 auto;display:inline-flex;align-items:center;gap:2px;font-size:11px;font-weight:500}.watch-more svg{transform:rotate(-90deg)}
+.intensity{display:inline-flex;align-items:flex-end;gap:2px;height:14px;flex-shrink:0}.intensity i{width:4px;border-radius:1px;background:var(--line-strong)}
+.intensity i:nth-child(1){height:6px}.intensity i:nth-child(2){height:10px}.intensity i:nth-child(3){height:14px}.intensity i.on{background:var(--accent)}
+.review-verdict{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:600;margin:2px 0 6px}
+.review-short{margin:0 0 14px;padding:10px 12px 12px;border:1px solid var(--line);border-radius:var(--r-m);font-size:13px;line-height:1.4;color:var(--muted)}
+.review-short strong{color:var(--text);font-weight:500}.review-short .range-switch{margin-top:10px}
+.review-rows{display:flex;flex-direction:column;gap:18px;margin:6px 0 4px}
+.review-top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+.review-name{font-size:14px;font-weight:500}.review-status{display:block;font-size:11px;font-weight:400;color:var(--muted);margin-top:2px}.review-status.best{color:var(--accent-ink)}
+.review-val{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap}.review-val small{font-size:11px;font-weight:400;color:var(--muted);letter-spacing:0}
+.review-clip{overflow:hidden;margin:8px -8px 0;padding:0 8px}.review-track{position:relative;height:18px}
+.review-track .rail{position:absolute;left:0;right:0;top:8px;height:2px;border-radius:2px;background:var(--track)}
+.review-track .band{position:absolute;top:5px;height:8px;border-radius:4px;background:rgba(156,203,211,.2)}
+.review-track .avg{position:absolute;top:2px;width:2px;height:14px;border-radius:1px;background:var(--faint);transform:translateX(-50%)}
+.review-track .mk{position:absolute;inset:0;transform:translateX(var(--x));animation:reviewIn .3s cubic-bezier(.23,1,.32,1) both;pointer-events:none}
+.review-track .mk i{position:absolute;left:0;top:2px;width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);transform:translateX(-50%)}
+@keyframes reviewIn{from{transform:translateX(var(--from))}}
+@media(prefers-reduced-motion:reduce){.review-track .mk{animation:none}}
+.review-ends{display:flex;justify-content:space-between;font-size:10px;color:var(--faint);margin-top:3px;font-variant-numeric:tabular-nums}
+.review-plain{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:8px 0 10px}.review-plain div{padding:10px;border-radius:var(--r-m);background:var(--surface);min-width:0}
+.review-plain dt{font-size:11px;color:var(--muted)}.review-plain dd{margin:4px 0 0;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em}.review-plain dd small{font-size:11px;font-weight:400;color:var(--muted)}
+.review-next{margin-top:16px;padding-top:14px;border-top:1px solid var(--line-soft);display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.5;color:var(--muted)}
+.review-tomorrow{display:flex;align-items:baseline;gap:8px;color:var(--text)}.review-tomorrow strong{font-weight:600}
+.review-tomorrow i{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--good);transform:translateY(-1px)}.review-tomorrow.caution i{background:var(--warn)}.review-tomorrow.low i{background:var(--bad)}
+.review-coach{width:100%;margin-top:16px;display:flex;align-items:center;justify-content:center;gap:8px}
 /* Today: the sheets behind the rings. */
 .sheet-lede{font-size:14px;line-height:1.5;color:var(--muted);margin-bottom:10px;text-wrap:pretty}
 .sheet-big{font-size:40px;font-weight:600;letter-spacing:-.04em;font-variant-numeric:tabular-nums;line-height:1.1;margin:4px 0 8px}.sheet-big small{font-size:16px;font-weight:400;letter-spacing:0;color:var(--muted)}
@@ -2137,6 +2285,65 @@ function BodySheet({plan,dk,bf,onClose,onOpenBody}) {
   </InfoSheet>;
 }
 
+// ─── Today: session review ───────────────────────────────────────────────────────
+// Tapping a recorded session shows where each value sits between his lowest and highest
+// of the same kind: the field is his usual range, the tick his average, and the point
+// slides out from the average to this session.
+function IntensityMark({level}) {
+  if(!level)return null;
+  return <span className="intensity" role="img" aria-label={"Intensität "+["locker","normal","hoch"][level-1]}>
+    {[1,2,3].map(i=><i key={i} className={i<=level?"on":""}/>)}</span>;
+}
+function ReviewTrack({x}) {
+  let lo=x.lo,hi=x.hi;
+  const pad=(hi-lo)*.06||1;lo-=pad;hi+=pad;
+  const pos=v=>(v-lo)/(hi-lo)*100;
+  // The clip keeps the sliding layer inside the sheet; its padding leaves room for the end dots.
+  return <div className="review-clip" aria-hidden="true"><div className="review-track">
+    <span className="rail"/>
+    <span className="band" style={{left:pos(x.beforeLo)+"%",width:Math.max(1,pos(x.beforeHi)-pos(x.beforeLo))+"%"}}/>
+    <span className="avg" style={{left:pos(x.med)+"%"}}/>
+    <span className="mk" style={{"--x":pos(x.v)+"%","--from":pos(x.med)+"%"}}><i/></span>
+  </div></div>;
+}
+function SessionReviewSheet({plan,dk,id,complaints,onClose,onAskCoach}) {
+  const [scaled,setScaled]=useState(false);
+  const r=sessionReview(plan,dk,id,scaled);
+  if(!r)return null;
+  const g=r.cur.g,{share,next}=reviewOutlook(plan,dk,g.load,complaints);
+  const unit=x=>x.unit?<small> {x.unit}</small>:null;
+  const status=x=>x.record?x.status:x.status+" · Ø "+x.fmt(x.med);
+  const question=`Wie war mein ${r.kind.label}${r.cur.opponent?` gegen ${r.cur.opponent}`:""} am ${shortDate(dk)} im Vergleich zu meinen letzten ${r.kind.dative}?`;
+  // A game is titled by its opponent; anything else by its kind (Garmin's own names are generic).
+  const when=`${DN[dow0(new Date(dk+"T12:00:00"))]} ${shortDate(dk)}${g.start?` · ${g.start}`:""}`;
+  return <InfoSheet id="review-sheet" eyebrow={r.cur.opponent?`${r.kind.label} · ${when}`:when}
+    title={r.cur.opponent?`Gegen ${r.cur.opponent}`:r.kind.label} onClose={onClose}>
+    {r.level&&<p className="review-verdict"><IntensityMark level={r.level}/>{r.headline}</p>}
+    {r.sentence&&<p className="sheet-lede">{r.sentence}</p>}
+    {r.short&&<div className="review-short"><p>Kürzer als üblich: <strong>{Math.round(g.minutes)} statt {Math.round(r.usualMin)} min</strong>.</p>
+      <div className="range-switch" role="group" aria-label="Werte zeigen">
+        <button aria-pressed={!scaled} onClick={()=>setScaled(false)}>Gemessen</button>
+        <button aria-pressed={scaled} onClick={()=>setScaled(true)}>Auf {Math.round(r.usualMin)} min</button></div></div>}
+    {r.ready?<>
+      <div className="review-rows">{r.rows.map(x=><div key={x.key+(scaled?"-s":"")} role="group"
+        aria-label={`${x.label} ${x.fmt(x.v)}${x.unit?" "+x.unit:""}, ${status(x)}`}>
+        <div className="review-top"><span className="review-name">{x.label}<span className={"review-status"+(x.best?" best":"")}>{status(x)}</span></span>
+          <span className="review-val">{x.fmt(x.v)}{unit(x)}</span></div>
+        <ReviewTrack x={x}/>
+        <div className="review-ends" aria-hidden="true"><span>{x.fmt(x.lo)}</span><span>{x.fmt(x.hi)}</span></div>
+      </div>)}</div>
+      <p className="chart-caption">Feld: dein Bereich in den {r.count-1} {r.kind.plural} davor · Strich: dein Schnitt · Punkt: diesmal.</p>
+    </>:<>
+      <dl className="review-plain">{r.plain.map(x=><div key={x.key}><dt>{x.label}</dt><dd>{x.fmt(x.v)}{unit(x)}</dd></div>)}</dl>
+      <p className="helper-text">Einen Vergleich gibt es {r.kind.third} mit Uhr. Bisher {r.count}.</p>
+    </>}
+    {(share||next)&&<div className="review-next">{share&&<p>{share}</p>}
+      {next&&<p className={"review-tomorrow "+(next.level||"")}>{next.level&&<i aria-hidden="true"/>}
+        <span><strong>{next.when}{next.label?`: ${next.label}.`:":"}</strong> {next.text}</span></p>}</div>}
+    <button className="secondary review-coach" onClick={()=>onAskCoach(question)}><Icon name="coach" size={18}/> Trainer fragen</button>
+  </InfoSheet>;
+}
+
 // ─── Social matches (Today, Körper) ─────────────────────────────────────────────
 function useSheetFocus(onClose) {
   const dialog=useRef(null),closeRef=useRef(onClose);closeRef.current=onClose;
@@ -2624,14 +2831,14 @@ function UpNextCard({plan,from,onSelect}) {
 }
 
 // ─── Today view ──────────────────────────────────────────────────────────────────
-function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,onOpenBody,meals,onOpenReport,complaints,onReportComplaint,onResolveComplaint,socialProps}) {
+function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,onOpenBody,onAskCoach,meals,onOpenReport,complaints,onReportComplaint,onResolveComplaint,socialProps}) {
   const viewKey=offsetDate(dayOff), e=plan[viewKey]||{};
   const [sheetOpen,setSheetOpen]=useState(false);
   const [notesOpen,setNotesOpen]=useState(false);
   const [confirmUnlog,setConfirmUnlog]=useState(false);
-  const [guideOpen,setGuideOpen]=useState(false),[complaintOpen,setComplaintOpen]=useState(false);
+  const [guideOpen,setGuideOpen]=useState(false),[complaintOpen,setComplaintOpen]=useState(false),[review,setReview]=useState(null);
   const [direction,setDirection]=useState(1);
-  useEffect(()=>{setNotesOpen(false);setConfirmUnlog(false);setSheetOpen(false);setGuideOpen(false);},[viewKey]);
+  useEffect(()=>{setNotesOpen(false);setConfirmUnlog(false);setSheetOpen(false);setGuideOpen(false);setReview(null);},[viewKey]);
   const navDay=delta=>{setDirection(Math.sign(delta));setDayOff(o=>o+delta);};
   const swipe=useSwipe(()=>navDay(1),()=>navDay(-1));
   const sessions=getSessions(e), match=e.match, guidance=coachingFor(e);
@@ -2676,10 +2883,13 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,onOpen
         </button>}
       </div>
       <p className="session-subtitle">{sessionSubtitle(e)}</p>
-      {Array.isArray(e.garmin)&&e.garmin.length>0&&<ul className="watch-list" aria-label="Von Garmin">{e.garmin.map(g=><li key={g.id}>
-        <Icon name="watch" size={16}/><span>{garminLabel(g)}{g.minutes!=null?` · ${g.minutes} min`:""}{g.avgHr?` · Ø ${g.avgHr} bpm`:""}
+      {Array.isArray(e.garmin)&&e.garmin.length>0&&<ul className="watch-list" aria-label="Von Garmin">{e.garmin.map(g=>{
+        const row=<><Icon name="watch" size={16}/><span>{garminLabel(g)}{g.minutes!=null?` · ${g.minutes} min`:""}{g.avgHr?` · Ø ${g.avgHr} bpm`:""}
           {garminSessionType(g.type)==="soccer"&&garminStats(g)&&<em className="watch-stats">{garminStats(g).split(" · ").map((part,i)=><Fragment key={i}>{i?" · ":""}<i>{part}</i></Fragment>)}</em>}</span>
-        {!g.matched&&<small>nicht im Plan</small>}</li>)}</ul>}
+          {!g.matched&&<small>nicht im Plan</small>}</>;
+        // Comparable sessions (games, trainings, runs, strength) open their review.
+        return <li key={g.id}>{reviewKind(e,g)?<button className="watch-row" aria-haspopup="dialog" onClick={()=>setReview(g.id)}>{row}
+          <span className="watch-more">Auswertung<Icon name="chevron" size={14}/></span></button>:row}</li>;})}</ul>}
       {guidance&&<aside className={"plan-guidance"+(guideOpen?" open":"")} aria-label="Planhinweis">{guidanceTitle(e)&&<strong>{guidanceTitle(e)}</strong>}<p>{guidance.text}</p>
         {guidance.text.length>110&&<button className="text-btn more-btn" aria-expanded={guideOpen} onClick={()=>setGuideOpen(o=>!o)}>{guideOpen?"Weniger":"Mehr lesen"}</button>}</aside>}
       <div className="session-actions">
@@ -2708,6 +2918,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,onOpen
     {sheetOpen&&<WorkoutSheet dateKey={viewKey} entry={e} updDay={updDay} onClose={()=>setSheetOpen(false)}
       onReportComplaint={dayOff===0?()=>setComplaintOpen(true):null}/>}
     {complaintOpen&&<ComplaintSheet onReport={onReportComplaint} onClose={()=>setComplaintOpen(false)}/>}
+    {review&&<SessionReviewSheet plan={plan} dk={viewKey} id={review} complaints={complaints} onClose={()=>setReview(null)} onAskCoach={onAskCoach}/>}
   </div>;
 }
 
@@ -3146,9 +3357,9 @@ function JourneyView({plan,today,onGoToDay,onOpenSettings,onOpenReport}) {
 }
 
 // ─── Coach screen (full-screen chat) ─────────────────────────────────────────────
-function CoachScreen({viewKey,plan,playerName,proteinTarget,complaints,social,onBack}) {
+function CoachScreen({viewKey,plan,playerName,proteinTarget,complaints,social,initialInput="",onBack}) {
   const [messages,setMessages]=useState([]);
-  const [input,setInput]=useState("");
+  const [input,setInput]=useState(initialInput);
   const [sending,setSending]=useState(false);
   const [coachError,setCoachError]=useState(false);
   const coachKey=`coach-${viewKey}`;
@@ -3378,7 +3589,7 @@ function ReportScreen({plan,weekStart,playerName,proteinTarget,onBack,planner}) 
 
 export default function App() {
   const [loading,setLoading]=useState(true),[playerName,setPlayerName]=useState(""),[plan,setPlan]=useState({});
-  const [view,setView]=useState("today"),[screen,setScreen]=useState("main"),[planMode,setPlanMode]=useState("week");
+  const [view,setView]=useState("today"),[screen,setScreen]=useState("main"),[planMode,setPlanMode]=useState("week"),[coachDraft,setCoachDraft]=useState("");
   // null = default target; only an explicitly chosen value is stored (top-level, optional).
   const [proteinSetting,setProteinSetting]=useState(null);
   const proteinTarget=proteinSetting??DEFAULT_PROTEIN_TARGET;
@@ -3581,7 +3792,8 @@ export default function App() {
     connections={{garmin,withings,scale:scaleSummary(plan),onSync:syncSources,onWithingsConnect:connectWithings,onWithingsDisconnect:disconnectWithings}}
     onSave={(n,target)=>{const pt=target===DEFAULT_PROTEIN_TARGET&&proteinSetting==null?null:target;setPlayerName(n);setProteinSetting(pt);save(plan,n,pt);setScreen("main");}}/>;
   else if(screen==="report")content=<ReportScreen plan={plan} weekStart={reportWeek||lastCompletedWeek()} playerName={playerName} proteinTarget={proteinTarget} onBack={()=>setScreen("main")} planner={planner}/>;
-  else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} complaints={complaints} social={social} onBack={()=>setScreen("main")}/>;
+  else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} complaints={complaints} social={social}
+    initialInput={coachDraft} onBack={()=>{setCoachDraft("");setScreen("main");}}/>;
   else content=<main className="app-shell">
     <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Athlete</span>
       <div className="head-actions"><button className="icon-btn head-settings" aria-label="Einstellungen" onClick={()=>{setScreen("setup");window.scrollTo(0,0);}}><Icon name="settings" size={20}/></button>
@@ -3591,7 +3803,7 @@ export default function App() {
     </header>
     {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} proteinTarget={proteinTarget} meals={mealHandlers} onOpenReport={openReport} complaints={complaints} onReportComplaint={reportComplaintNow} onResolveComplaint={resolveComplaintNow} socialProps={socialProps}
       onOpenPlan={()=>{setWkOff(Math.floor((dow0(new Date())+dayOff)/7));setPlanMode("week");setView("plan");window.scrollTo(0,0);}}
-      onOpenBody={()=>{setView("body");window.scrollTo(0,0);}}/>}
+      onOpenBody={()=>{setView("body");window.scrollTo(0,0);}} onAskCoach={q=>{setCoachDraft(q);setScreen("coach");window.scrollTo(0,0);}}/>}
     {view==="plan"&&<PlanView mode={planMode} setMode={setPlanMode} today={today} plan={plan} wkOff={wkOff} setWkOff={setWkOff}
       moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays} planner={planner}/>}
     {view==="body"&&<BodyView plan={plan} updDay={updDay} proteinTarget={proteinTarget} socialProps={socialProps}/>}

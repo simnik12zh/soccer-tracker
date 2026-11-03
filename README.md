@@ -56,6 +56,19 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   (open/closed remembered on the device), the day's meals, rating. No calorie totals anywhere: he
   does not log every meal, so sums and averages would mislead; single meals keep their kcal. Below: "Als Nächstes" (next two planned days plus the next game within seven days,
   `upcomingDays`). Choosing "Krank/verletzt" in the session sheet offers to report where it hurts.
+- **Auswertung einer Einheit** — a recorded game, team training, Freizeitkick, run or strength
+  session in the training card opens a review ("Auswertung ›", `SessionReviewSheet`). It compares
+  only with the up to 8 earlier sessions of the same kind (`reviewHistory`; Garmin calls all
+  football "Fussball", so the day's plan tells a game from a training). Per value a bar from his
+  lowest to his highest: the field is his range before, the tick his average (median), the point
+  this session, sliding out from the average. Verdict Locker / Normal / Intensiv from Garmin load
+  vs. his average (≥ 1.15 intensive, ≤ 0.85 easy), judged per minute when the session was much
+  shorter than usual ("Kurzer Einsatz"; values can be scaled to the usual duration). One sentence
+  names the load and the two values that stood out. Below: the session's share of his usual week
+  and the day light of the next day (today for yesterday's session, tomorrow for today's).
+  "Trainer fragen" opens the coach with the question filled in; the coach context carries the same
+  comparisons for the last 7 days (`sessionReviews`). From three sessions of a kind; before that
+  the sheet shows the values only. Walks and mobility have no review.
 - **Nutrition (level A)** — per day, optional `protein` (grams via +20/+30/+40 quick-add,
   correctable, undo for the last add) and `nutrition` (`green` Im Plan / `amber` Gemischt /
   `red` Daneben: viel Süsses, Essen aus Lust statt Hunger, Fast Food). Not logged is never zero
