@@ -1987,7 +1987,7 @@ function recoveryGlance(r,status) {
     ...status.signals.filter(x=>(x.key==='restingHr'||x.key==='bodyBattery')&&x.level!=='good').map(x=>({key:x.key,text:x.short,level:x.level}))].filter(Boolean);
 }
 const LEVEL_COLOR={good:"var(--good)",caution:"var(--warn)",low:"var(--bad)"};
-const BF_START=16;   // where the goal started (16 % → 13–14 %); the ring shows the way covered
+const BF_START=16;   // where the goal started (16 % → 12–13 %); the ring shows the way covered
 function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,children}) {
   const today=todayStr(),e=plan[viewKey]||{},isToday=viewKey===today,future=viewKey>today;
   const [sheet,setSheet]=useState(null);
@@ -2007,7 +2007,7 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
   const glance=!isToday&&recovery?recoveryGlance(e.recovery,recovery):[];
   const offNight=recovery?recovery.signals.filter(x=>x.level!=='good'&&x.why).map(x=>x.why):[];
   const bf=bodySnapshot(plan,viewKey).bodyFat,bfValue=bf?.current?.value;
-  const bfSub=bfValue==null?"keine Messung":bfValue<=BF_GOAL&&bfValue>=BF_GOAL_LOW?"im Ziel ✓":bfValue<BF_GOAL_LOW?"unter dem Ziel":`Ziel ${BF_GOAL} %`;
+  const bfSub=bfValue==null?"keine Messung":bfValue<=BF_GOAL&&bfValue>=BF_GOAL_LOW?"im Ziel ✓":bfValue<BF_GOAL_LOW?"unter dem Ziel":`Ziel ${BF_GOAL_LOW}–${BF_GOAL} %`;
   return <section className="panel rings" aria-label="Tagesübersicht">
     {(advice||glance.length>0||children)&&<div className={"day-status "+((isToday?guide?.level:recovery?.level)||"")}>
       {(advice||glance.length>0)&&<div role="status">
@@ -2029,7 +2029,7 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
         {protein==null?"–":<>{protein}<small>g</small></>}
       </Ring>
       <Ring value={bfValue==null?0:BF_START-bfValue} max={BF_START-BF_GOAL} color="var(--accent)" label="Körperfett" sub={bfSub} dialog={bfValue!=null}
-        ariaLabel={bfValue==null?"Körperfett: noch keine Messung. Körper-Tab öffnen":`Körperfett ${fmt1(bfValue)} Prozent im 7-Tage-Mittel, Ziel ${BF_GOAL} Prozent. Verlauf öffnen`}
+        ariaLabel={bfValue==null?"Körperfett: noch keine Messung. Körper-Tab öffnen":`Körperfett ${fmt1(bfValue)} Prozent im 7-Tage-Mittel, Ziel ${BF_GOAL_LOW} bis ${BF_GOAL} Prozent. Verlauf öffnen`}
         onClick={()=>bfValue==null?onOpenBody():setSheet("body")}>
         {bfValue==null?"–":fmt1(bfValue)}
       </Ring>
@@ -2836,7 +2836,7 @@ function MonthView({today,plan,moOff,setMoOff,onGoToDay}) {
 // Optional per-day `weight` (kg) and `bodyFat` (%) fields. Smart-scale readings
 // are individually noisy, so the 7-day rolling average is always the headline;
 // raw readings are background dots. Gaps in logging are normal — never an error.
-const BF_GOAL = 14;   // upper end of the 13–14% target band
+const BF_GOAL = 13;   // upper end of the 12–13% target band
 
 function bodyCompReadings(plan, field) {
   return Object.keys(plan).filter(dk=>dk<=todayStr()&&Number.isFinite(plan[dk]?.[field])&&plan[dk][field]>0).sort()
@@ -2857,7 +2857,7 @@ function rollingSeries(readings, fromDk, toDk) {
   return out;
 }
 
-const BF_GOAL_LOW = 13;  // lower end of the target band
+const BF_GOAL_LOW = 12;  // lower end of the target band
 // 7-day mean ending at `to` (inclusive), or null when that window holds no readings.
 function bodyMean(readings,to) {
   const from=daysBeforeStr(to,6),points=readings.filter(r=>r.date>=from&&r.date<=to);

@@ -1,6 +1,6 @@
 # Body Composition Tracking — Weight & Body Fat %
 
-Add optional weight + body fat % logging, with trend-first display. The player uses a smart scale a few times a week (not daily), which gives both numbers together. Goal: 16% → 13–14% body fat, sustained over months.
+Add optional weight + body fat % logging, with trend-first display. The player uses a smart scale a few times a week (not daily), which gives both numbers together. Goal: 16% → 12–13% body fat, sustained over months.
 
 **Design principle:** smart-scale readings are directionally useful but individually noisy (bioimpedance reads hydration as much as fat). A single day's number means little; the multi-week trend is the real signal. The app must therefore lean on trend display and treat gaps in logging as completely normal — never as a missed target or broken streak.
 
@@ -26,7 +26,7 @@ Add a body composition trend section to the Journey view, where long-horizon fra
 
 **A line chart showing:**
 - **Primary line: 7-day rolling average of body fat %** — this is the hero. Computed from whatever entries exist in the trailing 7 days (do not require 7 entries; average whatever is present; if no entries in the window, the line simply has a gap).
-- **Target line: a horizontal reference at 14%** (the upper end of the 13–14% goal), visually distinct — e.g. a dashed muted line — so the player sees the gap closing over time.
+- **Target line: a horizontal reference at 13%** (the upper end of the 12–13% goal), visually distinct — e.g. a dashed muted line — so the player sees the gap closing over time.
 - **Raw daily readings**: shown as small, de-emphasized dots behind the average line, so the noise is visible but clearly secondary. Optional — if it clutters on mobile, drop the dots and keep the average line only.
 - **X-axis spans the season phases** where practical, so the Winter Break (the prime body-comp window, mid Nov → early Apr) is visible as the long stretch it is. If phase-banding the chart is complex, a simple date axis is acceptable for v1.
 
@@ -65,7 +65,7 @@ Note that a body comp entry can exist on a day with **no session logged** (e.g. 
 
 - "＋ Log weight" appears on Today as a quiet, optional line; shows logged values when present; never shows a zero or failure state when empty.
 - Weight and body fat % can be entered independently (either alone is valid).
-- Journey shows a body fat % trend using a 7-day rolling average, with a 14% target reference line.
+- Journey shows a body fat % trend using a 7-day rolling average, with a 13% target reference line.
 - Rolling average computes correctly with sparse data (e.g. 3 entries in the trailing 7 days) and gracefully handles windows with no entries.
 - Weight trend is viewable (second chart or toggle).
 - Summary line reflects the rolling average, not the latest raw reading.

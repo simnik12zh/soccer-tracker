@@ -40,7 +40,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   (`recoveryGlance`), future days nothing. Active complaints sit right
   below. Then three rings: Erholung (the night only: watch values in their normal range, coloured and
   labelled Gut erholt / Eingeschränkt / Wenig erholt from `recoveryStatus`),
-  Protein vs. target and Körperfett (7-day mean; the arc is the way from 16 % to the 14 % goal,
+  Protein vs. target and Körperfett (7-day mean; the arc is the way from 16 % to the 13 % goal,
   `BF_START`). Each ring opens a sheet: Erholung lists sleep, HRV, resting HR and Body Battery with
   the last 7 nights against his normal range (tap a row for the nightly values); Protein has
   +20/+30/+40 g with undo and a link to the meal card; Körperfett shows the change over 4 weeks,
@@ -91,7 +91,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 - **Plan** — Woche/Monat toggle. The week view marks today, has one edit button per day (swap
   lives in the session sheet: "Mit einem anderen Tag tauschen"), then Plan-Vorschlag,
   Wochenziele, Belastung (six weekly bars with the normal range as one band) and Taktik.
-- **Körper** — body-fat 7-day mean as hero with delta vs. the previous 7 days and a 13–14 %
+- **Körper** — body-fat 7-day mean as hero with delta vs. the previous 7 days and a 12–13 %
   goal bar; weight, fat mass and lean mass tiles (mass needs weight and body fat in the same
   window, `bodySnapshot`); trend chart (Körperfett/Gewicht, 4 Wochen / 3 Monate / Saison);
   dated measurement editor (any date up to today, empty field removes a value); the last five
