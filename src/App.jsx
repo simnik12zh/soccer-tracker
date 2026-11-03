@@ -575,18 +575,18 @@ function recoveryStatus(plan,dk) {
   const r=plan[dk]?.recovery;
   if(!r)return null;
   const signals=[],num=Number.isFinite;
-  if(num(r.sleepMin))signals.push({key:'sleep',level:r.sleepMin<360?'low':r.sleepMin<420?'caution':'good',text:'Schlaf '+fmtHM(r.sleepMin),short:'Schlaf '+fmtHM(r.sleepMin)});
+  if(num(r.sleepMin))signals.push({key:'sleep',level:r.sleepMin<360?'low':r.sleepMin<420?'caution':'good',text:'Schlaf '+fmtHM(r.sleepMin),short:'Schlaf '+fmtHM(r.sleepMin),why:'nur '+fmtHM(r.sleepMin)+' Schlaf'});
   if(num(r.hrv)){
     const level=num(r.hrvLow)?(num(r.hrvFloor)&&r.hrv<r.hrvFloor?'low':r.hrv<r.hrvLow?'caution':'good')
       :['LOW','POOR'].includes(r.hrvStatus)?'low':r.hrvStatus==='UNBALANCED'?'caution':'good';
-    signals.push({key:'hrv',level,text:`HRV ${r.hrv} ms${level==='good'?'':' (unter Normalbereich)'}`,short:`HRV ${r.hrv} ↓`});
+    signals.push({key:'hrv',level,text:`HRV ${r.hrv} ms${level==='good'?'':' (unter Normalbereich)'}`,short:`HRV ${r.hrv} ↓`,why:`HRV ${r.hrv} ms ${level==='low'?'deutlich ':''}unter deinem Bereich`});
   }
   if(num(r.restingHr)){
     const base=restingHrBaseline(plan,dk),diff=base==null?null:r.restingHr-base;
     const level=diff==null?'good':diff>=6?'low':diff>=3?'caution':'good';
-    signals.push({key:'restingHr',level,text:`Ruhepuls ${r.restingHr}${diff!=null&&diff>=3?` (+${Math.round(diff)})`:''}`,short:`Ruhepuls ${r.restingHr} +${Math.round(diff??0)}`});
+    signals.push({key:'restingHr',level,text:`Ruhepuls ${r.restingHr}${diff!=null&&diff>=3?` (+${Math.round(diff)})`:''}`,short:`Ruhepuls ${r.restingHr} +${Math.round(diff??0)}`,why:`Ruhepuls ${Math.round(diff??0)} Schläge über deinem Schnitt`});
   }
-  if(num(r.bodyBattery))signals.push({key:'bodyBattery',level:r.bodyBattery<30?'low':r.bodyBattery<50?'caution':'good',text:`Body Battery ${r.bodyBattery}`,short:`Body Battery ${r.bodyBattery}`});
+  if(num(r.bodyBattery))signals.push({key:'bodyBattery',level:r.bodyBattery<30?'low':r.bodyBattery<50?'caution':'good',text:`Body Battery ${r.bodyBattery}`,short:`Body Battery ${r.bodyBattery}`,why:`Body Battery nur ${r.bodyBattery}`});
   if(!signals.length)return null;
   const lows=signals.filter(x=>x.level==='low').length,cautions=signals.filter(x=>x.level==='caution').length;
   return {level:lows>=2?'low':lows===1||cautions>=2?'caution':'good',signals};
@@ -788,39 +788,64 @@ function outlookLabel(upcoming) {
   const parts=upcoming.filter(u=>u.load>=30).map(u=>`${u.sessions.map(displayName).join(' + ')} (${DN[dow0(new Date(u.date+'T12:00:00'))]})`);
   return parts.length>1?parts.slice(0,-1).join(', ')+' und '+parts.at(-1):parts[0]||'';
 }
-function loadAdvice(plan,dk=todayStr(),status=loadStatus(plan,dk),recovery=recoveryStatus(plan,dk),complaints=[]) {
-  // A complaint from "Mittel" upwards counts even without enough watch data.
+// Today's traffic light: one colour from everything that decides how hard he can go (the
+// night's watch values, the 7-day load and what is planned ahead, the game calendar,
+// complaints). The strictest reason wins and the sentence names it with what to do, so colour
+// and words never disagree. Green: do the plan fully. Orange: keep quality, trim volume, nothing
+// extra. Red: only easy or rest. The day before and the day after a game are never green.
+const DAY_LABELS={good:'Bereit',caution:'Ruhiger Tag',low:'Erholungstag'};
+const HARD_SESSIONS=['Team Training','Futsal','Gym','Easy run'];
+const joinWords=list=>list.length>1?list.slice(0,-1).join(', ')+' und '+list.at(-1):list[0]||'';
+function dayGuidance(plan,dk=todayStr(),complaints=[],status=loadStatus(plan,dk),recovery=recoveryStatus(plan,dk)) {
+  const e=plan[dk]||{},out=(level,advice)=>({level,label:level?DAY_LABELS[level]:null,advice});
+  const matchToday=isMatchDay(e),matchTomorrow=!matchToday&&isMatchDay(plan[daysBeforeStr(dk,-1)]),matchYesterday=!matchToday&&isMatchDay(plan[daysBeforeStr(dk,1)]);
+  const hard=e.completed?[]:getSessions(e).filter(s=>HARD_SESSIONS.includes(s)),hardLabel=hard.map(displayName).join(' + ');
+  const why=recovery?joinWords((recovery.signals||[]).filter(x=>x.level!=='good'&&x.why).map(x=>x.why)):'';
+  const night=why?why[0].toUpperCase()+why.slice(1):recovery?.level==='low'?'Die Erholung ist heute niedrig':'Die Erholung ist heute eingeschränkt';
+  // What to do on a red or orange day; on a game day the game itself stays.
+  const easy=matchToday?'Heute nur das Spiel und davor nichts. Fühlst du dich schlecht, lieber aussetzen.':'Heute nur locker oder Pause.';
+  const calm=matchToday?'Vor dem Spiel nichts extra, gut einwärmen.'
+    :hard.length?`${hardLabel} heute kürzer oder lockerer, nichts extra.`:'Heute nichts extra, höchstens Spazieren oder Mobilität.';
+  // Red. A complaint from "Mittel" upwards counts even without enough watch data.
   const hurting=activeComplaints(complaints,dk).filter(c=>c.level>=2).sort((a,b)=>b.level-a.level)[0];
-  if(hurting)return hurting.level===3?`Wegen ${complaintLabel(hurting)} (stark): heute keine Belastung für diese Stelle. Hält es an, abklären lassen.`
-    :`Wegen ${complaintLabel(hurting)}: keine Zusatzeinheit, nur schmerzfreie Bewegungen.`;
-  if(!status.ready)return `Noch zu wenig Daten von der Uhr: ${status.historyDays} von 21 Tagen.`;
-  const typical=typicalLoads(plan,dk),planned=plannedLoad(plan,dk,typical);
-  const label=planned.sessions.map(displayName).join(' + ');
-  if(recovery?.level==='low')return 'Die Erholung ist heute niedrig. Unabhängig von der Belastung: nur locker oder Pause.';
-  if(status.status==='high'||status.status==='veryHigh')
-    return planned.load?`Du liegst schon über deinem Bereich. ${label} (≈ ${planned.load}) heute kürzer oder lockerer halten.`
-      :'Du liegst über deinem Bereich. Heute keine Zusatzeinheit, höchstens Mobilität oder Spazieren.';
+  if(hurting?.level===3)return out('low',`Wegen ${complaintLabel(hurting)} (stark): heute keine Belastung für diese Stelle. Hält es an, abklären lassen.`);
+  if(recovery?.level==='low')return out('low',`${night}. ${easy}`);
+  if(status.ready&&status.status==='veryHigh')return out('low',`Du liegst deutlich über deinem Bereich (${status.acute}, normal bis ${status.high}). ${easy}`);
+  // Orange. Around games the next game wins over the last one.
+  if(hurting)return out('caution',`Wegen ${complaintLabel(hurting)}: keine Zusatzeinheit, nur schmerzfreie Bewegungen.`);
+  if(matchTomorrow)return out('caution',hard.length?`Morgen ist Spiel. ${hardLabel} heute locker halten, nichts extra.`
+    :'Morgen ist Spiel. Heute keine Zusatzeinheit, höchstens Mobilität oder Spazieren.');
+  if(matchYesterday)return out('caution','Gestern war Spiel. Heute nur Spazieren oder Mobilität.');
+  if(recovery?.level==='caution')return out('caution',`${night}. ${calm}`);
+  // Green when the night was fine; without watch data from the night there is no colour.
+  const fine=recovery?'good':null;
+  if(!status.ready)return out(fine,`Noch zu wenig Daten von der Uhr: ${status.historyDays} von 21 Tagen.`);
+  const typical=typicalLoads(plan,dk),planned=plannedLoad(plan,dk,typical),label=planned.sessions.map(displayName).join(' + ');
+  if(status.status==='high')return out('caution',matchToday?'Du liegst schon über deinem Bereich. Vor dem Spiel nichts extra.'
+    :planned.load?`Du liegst schon über deinem Bereich. ${label} (≈ ${planned.load}) heute kürzer oder lockerer halten.`
+    :'Du liegst über deinem Bereich. Heute keine Zusatzeinheit, höchstens Mobilität oder Spazieren.');
   const outlook=loadOutlook(plan,dk,typical),peak=outlook.peak.load,ahead=outlookLabel(outlook.upcoming),over=peak>status.high;
+  const after=status.acute+planned.load;
+  // A game is played anyway: its load only shapes the days after it.
+  if(matchToday)return out(fine,after>status.high||over?'Heute ist Spiel. Danach liegst du über deinem Bereich: die Tage nach dem Spiel ruhig angehen.'
+    :'Heute ist Spiel, und deine Belastung passt.');
   if(planned.load){
-    const after=status.acute+planned.load;
-    if(after>status.high)return `Mit ${label} (≈ ${planned.load}) kommst du auf ${after}, knapp über deinem Bereich. Kontrolliert halten.`;
-    return over&&ahead?`Mit ${label} (≈ ${planned.load}) bleibst du heute im Bereich, aber mit ${ahead} kommst du danach auf ≈ ${peak}. Heute kontrolliert halten.`
-      :`Mit ${label} (≈ ${planned.load}) bleibst du im Bereich.`;
+    if(after>status.high)return out('caution',`Mit ${label} (≈ ${planned.load}) kommst du auf ${after}, über deinem Bereich. Heute kontrolliert halten.`);
+    return over&&ahead?out('caution',`Mit ${label} (≈ ${planned.load}) bleibst du heute im Bereich, aber mit ${ahead} kommst du danach auf ≈ ${peak}. Heute kontrolliert halten.`)
+      :out(fine,`Mit ${label} (≈ ${planned.load}) bleibst du im Bereich.`);
   }
-  // Football rules as in the weekly plan: nothing extra the day before a game, recovery the day after.
-  if(isMatchDay(plan[daysBeforeStr(dk,-1)]))return 'Morgen ist Spiel. Heute keine Zusatzeinheit, höchstens Mobilität oder Spazieren.';
-  if(isMatchDay(plan[daysBeforeStr(dk,1)]))return 'Gestern war Spiel. Heute nur Spazieren oder Mobilität.';
   const run=typical['Easy run'],extra=run||typical.Gym||50,target=Math.round(status.weekly*LOAD_EXTRA_TARGET);
   if(peak+extra<=target){
     const also=ahead?', auch mit dem, was noch geplant ist':'';
-    if(status.status==='low')return run?`Du liegst unter deinem Bereich${also}. Ein lockerer Lauf (≈ ${run}) passt gut.`:`Du liegst unter deinem Bereich${also}. Eine zusätzliche Einheit passt.`;
-    if(run)return `Spielraum ca. ${target-peak}${ahead?' trotz deines Plans':''}: Ein lockerer Lauf (≈ ${run}) liegt noch drin.`;
+    if(status.status==='low')return out(fine,run?`Du liegst unter deinem Bereich${also}. Ein lockerer Lauf (≈ ${run}) passt gut.`:`Du liegst unter deinem Bereich${also}. Eine zusätzliche Einheit passt.`);
+    if(run)return out(fine,`Spielraum ca. ${target-peak}${ahead?' trotz deines Plans':''}: Ein lockerer Lauf (≈ ${run}) liegt noch drin.`);
   }
-  if(ahead)return status.status==='low'
-    ?`Du liegst noch unter deinem Bereich, aber mit ${ahead} kommst du auf ≈ ${peak}${over?', über deinem Bereich':''}. Heute keine Zusatzeinheit.`
-    :over?`Mit ${ahead} kommst du auf ≈ ${peak}, über deinem Bereich. Heute nichts extra.`
-    :`Du bist im Bereich, und mit ${ahead} kommt genug dazu. Heute nichts extra.`;
-  return 'Du bist im Bereich. Mehr braucht es heute nicht.';
+  if(ahead&&over)return out('caution',status.status==='low'
+    ?`Du liegst noch unter deinem Bereich, aber mit ${ahead} kommst du auf ≈ ${peak}, über deinem Bereich. Heute keine Zusatzeinheit.`
+    :`Mit ${ahead} kommst du auf ≈ ${peak}, über deinem Bereich. Heute nichts extra.`);
+  if(ahead)return out(fine,status.status==='low'?`Du liegst noch unter deinem Bereich, aber mit ${ahead} kommst du auf ≈ ${peak}. Heute keine Zusatzeinheit.`
+    :`Du bist im Bereich, und mit ${ahead} kommt genug dazu. Heute nichts extra.`);
+  return out(fine,'Du bist im Bereich. Mehr braucht es heute nicht.');
 }
 // Weekly totals (Mon–Sun) for the n weeks up to the week of dk.
 function weeklyLoads(plan,dk=todayStr(),n=6) {
@@ -1099,7 +1124,8 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
     playerName:coachText(playerName,100),
     phase:phase?{name:phaseLabel(phase.name),description:phase.description}:null,
     nextPhase:next?phaseLabel(next.name):null,daysToNextPhase:phaseEnd?dayDistance(phaseEnd):null,
-    today:{...day(referenceDate),recoveryAssessment:(r=>r?{level:r.level,signals:r.signals.map(x=>({signal:x.key,level:x.level,text:x.text}))}:null)(recoveryStatus(plan,referenceDate))},selectedDay:viewKey!==referenceDate?day(viewKey):null,
+    today:{...day(referenceDate),recoveryAssessment:(r=>r?{level:r.level,signals:r.signals.map(x=>({signal:x.key,level:x.level,text:x.text}))}:null)(recoveryStatus(plan,referenceDate)),
+      dayLight:(g=>({color:{good:'green',caution:'orange',low:'red'}[g.level]||null,label:g.label,advice:g.advice}))(dayGuidance(plan,referenceDate,complaints))},selectedDay:viewKey!==referenceDate?day(viewKey):null,
     recentDays:Array.from({length:14},(_,i)=>day(daysBeforeStr(referenceDate,14-i))),
     upcoming:Array.from({length:7},(_,i)=>day(daysBeforeStr(referenceDate,-i-1))),
     nextMatch:nextMatchDate?{...day(nextMatchDate),daysAway:dayDistance(nextMatchDate)}:null,
@@ -1114,7 +1140,7 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
         last6Weeks:weeklyLoads(plan,referenceDate,6),
         outlook:(o=>({plannedNextDays:o.upcoming.map(u=>({date:u.date,sessions:u.sessions.map(displayName),typicalLoad:u.load})),
           projected7Days:o.projected,projectedPeak:o.peak}))(loadOutlook(plan,referenceDate,typical)),
-        appAdvice:loadAdvice(plan,referenceDate,st,recoveryStatus(plan,referenceDate),complaints)};})(),
+        appAdvice:dayGuidance(plan,referenceDate,complaints,st).advice};})(),
     complaints:complaintsForCoach(complaints,referenceDate),
     social:socialForCoach(social?.matches,social?.holidays,referenceDate),
     nutrition:{proteinTargetGrams:target,last7Days:eatingStats(daysBeforeStr(referenceDate,6),referenceDate),
@@ -1389,7 +1415,7 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .day-status{display:flex;flex-direction:column;gap:10px;padding:0 12px 14px;margin-bottom:10px;border-bottom:1px solid var(--line-soft)}
 .verdict{display:inline-flex;align-items:center;gap:8px;font-size:17px;font-weight:600;color:var(--text)}
 .verdict-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;background:var(--good)}.day-status.caution .verdict-dot{background:var(--warn)}.day-status.low .verdict-dot{background:var(--bad)}
-.verdict-text{font-size:14px;line-height:1.5;color:var(--text);margin-top:6px;text-wrap:pretty}.day-status .recovery-signals{margin-top:6px}
+.verdict-text{font-size:14px;line-height:1.5;color:var(--text);margin-top:6px;text-wrap:pretty}.verdict~.recovery-signals{margin-top:6px}
 .day-status .complaint-strip{margin:0;gap:4px}.day-status .complaint-row{border-radius:var(--r-s)}.day-status .complaint-row.l1{border-color:transparent;background:transparent}
 .day-status .complaint-row.l1 .complaint-summary{padding-left:4px;padding-right:4px}.day-status .complaint-summary{padding:7px 10px;min-height:44px}
 .recovery-signals{display:flex;gap:0 12px;font-size:13px;color:var(--text);white-space:nowrap;font-variant-numeric:tabular-nums}.recovery-signals>span+span{position:relative}
@@ -1974,16 +2000,18 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
     :isToday?"Alles erledigt für heute. Stark.":"Alles eingetragen.";
   const recovery=future?null:recoveryStatus(plan,viewKey);
   const ok=recovery?recovery.signals.filter(x=>x.level==='good').length:0;
-  // The advice looks at today's plan and load, so it only speaks for today.
+  // Today leads with the day light (colour and sentence); past days show the night's values.
   const load=isToday?loadStatus(plan,viewKey):null;
-  const advice=load&&(load.ready||load.historyDays)?loadAdvice(plan,viewKey,load,recovery,complaints):null;
+  const guide=isToday?dayGuidance(plan,viewKey,complaints,load,recovery):null;
+  const advice=guide&&(guide.level||load.ready||load.historyDays>0)?guide.advice:null;
   const glance=!isToday&&recovery?recoveryGlance(e.recovery,recovery):[];
+  const offNight=recovery?recovery.signals.filter(x=>x.level!=='good'&&x.why).map(x=>x.why):[];
   const bf=bodySnapshot(plan,viewKey).bodyFat,bfValue=bf?.current?.value;
   const bfSub=bfValue==null?"keine Messung":bfValue<=BF_GOAL&&bfValue>=BF_GOAL_LOW?"im Ziel ✓":bfValue<BF_GOAL_LOW?"unter dem Ziel":`Ziel ${BF_GOAL} %`;
   return <section className="panel rings" aria-label="Tagesübersicht">
-    {(recovery||advice||children)&&<div className={"day-status "+(recovery?.level||"")}>
-      {(recovery||advice)&&<div role="status">
-        {recovery&&<strong className="verdict"><span className="verdict-dot" aria-hidden="true"/>{RECOVERY_LABELS[recovery.level]}</strong>}
+    {(advice||glance.length>0||children)&&<div className={"day-status "+((isToday?guide?.level:recovery?.level)||"")}>
+      {(advice||glance.length>0)&&<div role="status">
+        {guide?.level&&<strong className="verdict"><span className="verdict-dot" aria-hidden="true"/>{guide.label}</strong>}
         {advice&&<p className="verdict-text">{advice}</p>}
         {glance.length>0&&<p className="recovery-signals">{glance.map(x=>
           <span key={x.key} className={x.level!=='good'?'flag':''}>{x.key==='sleep'&&<Icon name="rest" size={12}/>}{x.text}</span>)}</p>}
@@ -1991,8 +2019,8 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
       {children}</div>}
     <div className="ring-row">
       <Ring value={ok} max={recovery?.signals.length||0} color={LEVEL_COLOR[recovery?.level]} label="Erholung"
-        sub={recovery?"Werte normal":"keine Daten"} dialog disabled={!recovery} onClick={()=>setSheet("recovery")}
-        ariaLabel={recovery?`Erholung: ${RECOVERY_LABELS[recovery.level]}, ${ok} von ${recovery.signals.length} Werten normal. Details öffnen`:"Erholung: keine Daten von der Uhr"}>
+        sub={recovery?RECOVERY_LABELS[recovery.level]:"keine Daten"} dialog disabled={!recovery} onClick={()=>setSheet("recovery")}
+        ariaLabel={recovery?`Erholung letzte Nacht: ${RECOVERY_LABELS[recovery.level]}, ${ok} von ${recovery.signals.length} Werten normal. Details öffnen`:"Erholung: keine Daten von der Uhr"}>
         {recovery?<>{ok}<small>/{recovery.signals.length}</small></>:"–"}
       </Ring>
       <Ring value={protein||0} max={target} color="var(--good-soft)" label="Protein" sub={"von "+target+" g"} badge={level} dialog={!future}
@@ -2009,7 +2037,8 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
     <p className="day-summary">{summary}{week.goal>0&&<button className="day-week" onClick={onOpenPlan}
       aria-label={`Wochenziele: ${week.done} von ${week.goal}. Plan öffnen`}>Wochenziele <strong>{week.done}/{week.goal}</strong>{week.done>=week.goal?" ✓":""}</button>}</p>
     {sheet==="recovery"&&recovery&&<InfoSheet id="recovery-sheet" eyebrow={(isToday?"Heute":shortDate(viewKey))+" · Erholung"} title={RECOVERY_LABELS[recovery.level]} onClose={()=>setSheet(null)}>
-      {advice&&<p className="sheet-lede">{advice}</p>}
+      <p className="sheet-lede">{offNight.length?joinWords(offNight).replace(/^./,c=>c.toUpperCase())+"."+(recovery.level==='good'?" Ein einzelner Wert ändert die Ampel noch nicht.":"")
+        :`Alle ${recovery.signals.length} Werte im Normalbereich.`}</p>
       <SignalRows plan={plan} dk={viewKey} status={recovery}/>
       <p className="chart-caption">Linie: die letzten 7 Nächte, Feld: dein Normalbereich. HRV mit deinem Bereich von Garmin, Ruhepuls mit den 14 Tagen davor. Eine Orientierung, kein medizinischer Befund.</p>
     </InfoSheet>}

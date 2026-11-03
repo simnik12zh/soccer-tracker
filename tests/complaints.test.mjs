@@ -13,7 +13,7 @@ const helpers=source.slice(source.indexOf('const SK ='),source.indexOf('// Midni
   +source.slice(source.indexOf('const BF_GOAL ='),source.indexOf('// Minimal responsive SVG line chart'));
 const FixedDate=class extends Date{constructor(...args){super(...(args.length?args:['2026-11-04T08:00:00+01:00']));}};
 const app=vm.runInNewContext(helpers+`\n({reportComplaint,resolveComplaint,activeComplaints,complaintLabel,complaintTrend,complaintDays,
-  complaintsForCoach,complaintsInRange,loadAdvice,planWeekInput,buildCoachContext,weeklyReportFacts})`,{Date:FixedDate});
+  complaintsForCoach,complaintsInRange,dayGuidance,planWeekInput,buildCoachContext,weeklyReportFacts})`,{Date:FixedDate});
 
 test('reporting the same area and side updates the episode; another side starts a new one',()=>{
   let list=app.reportComplaint([],{area:'hip',side:'links',level:2},'2026-11-01');
@@ -45,15 +45,17 @@ test('a resolved episode is no longer active; a new report afterwards starts fre
   assert.equal(app.complaintsForCoach(list,'2026-11-20').recentlyResolved.length,0,'older than 14 days drops out');
 });
 
-test('load advice: Mittel and Stark override everything, Leicht does not; works without watch data',()=>{
+test('day light: Mittel and Stark override everything, Leicht does not; works without watch data',()=>{
   const status={ready:false,historyDays:3,acute:0};
-  assert.match(app.loadAdvice({},'2026-11-04',status,null,[]),/zu wenig Daten/);
+  assert.match(app.dayGuidance({},'2026-11-04',[],status,null).advice,/zu wenig Daten/);
   let list=app.reportComplaint([],{area:'knee',side:'links',level:1},'2026-11-04');
-  assert.match(app.loadAdvice({},'2026-11-04',status,null,list),/zu wenig Daten/);
+  assert.match(app.dayGuidance({},'2026-11-04',list,status,null).advice,/zu wenig Daten/);
   list=app.reportComplaint(list,{area:'knee',side:'links',level:2},'2026-11-04');
-  assert.equal(app.loadAdvice({},'2026-11-04',status,null,list),'Wegen Knie links: keine Zusatzeinheit, nur schmerzfreie Bewegungen.');
+  assert.equal(app.dayGuidance({},'2026-11-04',list,status,null).advice,'Wegen Knie links: keine Zusatzeinheit, nur schmerzfreie Bewegungen.');
   list=app.reportComplaint(list,{area:'shoulder',side:'rechts',level:3},'2026-11-04');
-  assert.match(app.loadAdvice({},'2026-11-04',status,null,list),/^Wegen Schulter rechts \(stark\)/,'the strongest complaint wins');
+  assert.match(app.dayGuidance({},'2026-11-04',list,status,null).advice,/^Wegen Schulter rechts \(stark\)/,'the strongest complaint wins');
+  assert.equal(app.dayGuidance({},'2026-11-04',list,status,null).level,'low','Stark makes the day red');
+  assert.equal(app.dayGuidance({},'2026-11-04',app.reportComplaint([],{area:'knee',side:'links',level:2},'2026-11-04'),status,null).level,'caution','Mittel makes it orange');
 });
 
 test('the week input carries complaints and the server strips runs and futsal for leg complaints',()=>{

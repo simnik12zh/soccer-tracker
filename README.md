@@ -35,10 +35,11 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   per-phase weekly `TEMPLATES` (with Ibiza and Tuscany holiday overrides) by
   `buildDefaultPlan()`, spanning 2026-06-29 → 2027-08-05.
 - **Heute** — compact day strip (‹ › jump a week, swipe moves a day). The ring card opens with
-  the first glance: the recovery verdict (Gut erholt / Eingeschränkt / Wenig erholt) and, for
-  today, the day's advice from `loadAdvice` in one sentence; past days show sleep, Garmin sleep
-  score and HRV instead (`recoveryGlance`), future days no verdict. Active complaints sit right
-  below. Then three rings: Erholung (watch values in their normal range, coloured by the verdict),
+  the first glance: for today the day light (`dayGuidance`, see Training load) with its colour,
+  name and one sentence; past days show sleep, Garmin sleep score and HRV instead
+  (`recoveryGlance`), future days nothing. Active complaints sit right
+  below. Then three rings: Erholung (the night only: watch values in their normal range, coloured and
+  labelled Gut erholt / Eingeschränkt / Wenig erholt from `recoveryStatus`),
   Protein vs. target and Körperfett (7-day mean; the arc is the way from 16 % to the 14 % goal,
   `BF_START`). Each ring opens a sheet: Erholung lists sleep, HRV, resting HR and Body Battery with
   the last 7 nights against his normal range (tap a row for the nightly values); Protein has
@@ -196,10 +197,17 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   (`loadStatus`, needs 21 days of watch data). `typicalLoads` = his own median per session type
   over 60 days; `plannedLoad` adds planned, not yet done sessions. `loadOutlook` looks ahead:
   the rolling 7-day load for today and the next 4 days with planned sessions at his typical load
-  (peak = highest window). `loadAdvice` gives one sentence: low recovery always wins over spare
-  load; nothing extra the day before a game, only walking/mobility the day after; an extra session
-  only if the projected peak plus the extra stays at most ~1.1 × his average week
-  (`LOAD_EXTRA_TARGET`), otherwise it names the planned sessions that fill the week. The expanded
+  (peak = highest window). `dayGuidance` turns all of it into one traffic light for today with a
+  sentence that names the deciding reason, so colour and words never disagree; the strictest reason
+  wins. Red (Erholungstag, only easy or rest): complaint Stark, low recovery, load above 1.5 × his
+  average week. Orange (Ruhiger Tag, keep quality, trim volume, nothing extra): complaint Mittel,
+  the day before a game (the next game wins), the day after a game, limited recovery, load above
+  the range, today's plan or the next 4 days pushing above it. Green (Bereit, do the plan fully)
+  otherwise; the game day itself stays green after a good night. Without a night from the watch
+  there is no colour, only the sentence. Green may still say nothing extra is needed; an extra
+  session only if the projected peak plus the extra stays at most ~1.1 × his average week
+  (`LOAD_EXTRA_TARGET`), otherwise it names the planned sessions that fill the week. The coach gets
+  the same light (`today.dayLight`) and must not contradict it. The expanded
   card shows the projected peak as a hollow marker. Heute shows the advice at the top of the ring card and a load card for today (value,
   range bar with the planned part); Plan → Woche shows six weekly totals with the range.
   The coach gets the whole block (`load`, whitelisted server-side). The Garmin endpoint now
@@ -234,7 +242,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   ankle, shoulder → Leicht / Mittel / Stark, which saves). An episode stays active until "Wieder
   gut"; reporting the same area and side again updates its level (log kept for the trend). Active
   episodes show as a row above the rings in Heute (tap → change level or "Wieder gut"; "noch
-  aktuell?" after 3 days without an update). Effects: `loadAdvice` puts Mittel/Stark first (also
+  aktuell?" after 3 days without an update). Effects: `dayGuidance` puts Mittel/Stark first (also
   without watch data); the coach context gets `complaints` (active with level, days, trend, plus
   resolved in the last 14 days) and the prompt says how to dose, to recommend a professional
   after 7 days or when it gets worse, and never to diagnose; the plan proposal gets them as

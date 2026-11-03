@@ -71,6 +71,8 @@ test('recovery is imported per day, and the coach gets values plus the assessmen
   assert.deepEqual(plain(ctx.today.recovery),{sleepMinutes:340,sleepScore:null,hrvMs:39,hrvBalancedRange:[46,60],hrvStatus:null,restingHr:55,bodyBatteryMax:28});
   assert.equal(ctx.today.recoveryAssessment.level,'low');
   assert.ok(ctx.today.recoveryAssessment.signals.some(x=>x.signal==='hrv'&&x.level==='low'));
+  assert.deepEqual(plain(ctx.today.dayLight),{color:'red',label:'Erholungstag',
+    advice:'Nur 5:40 h Schlaf, HRV 39 ms deutlich unter deinem Bereich und Body Battery nur 28. Heute nur locker oder Pause.'});
   assert.equal(ctx.upcoming[0].recovery,null);
   const coach=readFileSync(new URL('../api/coach.js',import.meta.url),'utf8');
   assert.match(coach,/One poor night is not a trend/);
