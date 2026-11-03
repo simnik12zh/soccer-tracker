@@ -566,6 +566,11 @@ function applyGarminImport(plan,data,today=todayStr()) {
 // Battery. A guide for training load, not a medical assessment.
 const RECOVERY_LABELS={good:'Gut erholt',caution:'Eingeschränkt',low:'Wenig erholt'};
 function fmtHM(minutes) { return Math.floor(minutes/60)+':'+String(Math.round(minutes%60)).padStart(2,'0')+' h'; }
+// His usual resting HR: the mean of the 14 days before `dk`, once at least 4 of them have a value.
+function restingHrBaseline(plan,dk) {
+  const prev=Array.from({length:14},(_,i)=>plan[daysBeforeStr(dk,i+1)]?.recovery?.restingHr).filter(Number.isFinite);
+  return prev.length>=4?prev.reduce((n,v)=>n+v,0)/prev.length:null;
+}
 function recoveryStatus(plan,dk) {
   const r=plan[dk]?.recovery;
   if(!r)return null;
@@ -577,8 +582,7 @@ function recoveryStatus(plan,dk) {
     signals.push({key:'hrv',level,text:`HRV ${r.hrv} ms${level==='good'?'':' (unter Normalbereich)'}`,short:`HRV ${r.hrv} ↓`});
   }
   if(num(r.restingHr)){
-    const prev=Array.from({length:14},(_,i)=>plan[daysBeforeStr(dk,i+1)]?.recovery?.restingHr).filter(num);
-    const diff=prev.length>=4?r.restingHr-prev.reduce((n,v)=>n+v,0)/prev.length:null;
+    const base=restingHrBaseline(plan,dk),diff=base==null?null:r.restingHr-base;
     const level=diff==null?'good':diff>=6?'low':diff>=3?'caution':'good';
     signals.push({key:'restingHr',level,text:`Ruhepuls ${r.restingHr}${diff!=null&&diff>=3?` (+${Math.round(diff)})`:''}`,short:`Ruhepuls ${r.restingHr} +${Math.round(diff??0)}`});
   }
@@ -1321,7 +1325,7 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .day-head .text-btn{min-height:32px;padding:0;color:var(--accent-ink)}
 .day-nav{display:flex;align-items:center;gap:2px;margin:0 0 12px}
 .week-step{flex-shrink:0;width:26px;min-height:44px;border:0;background:transparent;color:var(--faint);font-size:22px;padding:0;border-radius:10px}
-.rings{padding:14px 8px 12px;margin-bottom:12px}
+.rings{padding:16px 8px 12px;margin-bottom:12px}
 .ring-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
 .ring{position:relative;display:flex;flex-direction:column;align-items:center;gap:1px;border:0;background:transparent;padding:4px 0;border-radius:var(--r-m);min-width:0}
 .ring>svg{width:64px;height:64px;display:block}
@@ -1331,6 +1335,9 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .ring-label{font-size:12px;margin-top:6px;color:var(--text)}.ring>small{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .ring-badge{position:absolute;top:2px;right:calc(50% - 38px);width:19px;height:19px;border-radius:50%;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;color:var(--bg);border:2px solid #1B2935}
 .day-summary{font-size:12px;line-height:1.5;color:var(--muted);text-align:center;margin-top:10px;padding:0 8px}.day-summary strong{color:var(--text);font-weight:500}
+.day-week{position:relative;display:inline-block;border:0;background:none;padding:0;font:inherit;color:var(--accent-ink);white-space:nowrap}.day-week:before{content:"·";margin:0 6px;color:var(--faint)}
+.day-week:after{content:"";position:absolute;inset:-12px -6px}.day-summary .day-week strong{color:var(--accent-ink)}
+.ring:disabled{opacity:1}.ring:disabled .ring-center,.ring:disabled .ring-label{color:var(--muted)}
 .session-main{display:flex;align-items:center;gap:14px;margin:14px 0 8px}.session-main h2{flex:1;min-width:0}
 .plan-guidance:not(.open) p{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .more-btn{min-height:32px;padding:0;font-size:11px;color:var(--accent-ink)!important}
@@ -1379,24 +1386,37 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .nutri-stats strong{display:block;font-size:18px;font-weight:500;font-variant-numeric:tabular-nums}.nutri-stats>div>span{display:block;font-size:12px;color:var(--muted);line-height:1.4;margin-top:3px}
 .ampel-counts{display:flex!important;gap:6px;align-items:center;font-size:14px;font-weight:500}
 .settings-link{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:18px;margin-top:24px;color:var(--text)}.settings-link>span{flex:1;min-width:0}.settings-link small{display:block;font-size:12px;color:var(--muted);margin-top:3px}
-.day-status{display:flex;flex-direction:column;gap:4px;padding:0 8px 10px;margin-bottom:8px;border-bottom:1px solid var(--line-soft)}
-.recovery{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap}
+.day-status{display:flex;flex-direction:column;gap:10px;padding:0 12px 14px;margin-bottom:10px;border-bottom:1px solid var(--line-soft)}
+.verdict{display:inline-flex;align-items:center;gap:8px;font-size:17px;font-weight:600;color:var(--text)}
+.verdict-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;background:var(--good)}.day-status.caution .verdict-dot{background:var(--warn)}.day-status.low .verdict-dot{background:var(--bad)}
+.verdict-text{font-size:14px;line-height:1.5;color:var(--text);margin-top:6px;text-wrap:pretty}.day-status .recovery-signals{margin-top:6px}
 .day-status .complaint-strip{margin:0;gap:4px}.day-status .complaint-row{border-radius:var(--r-s)}.day-status .complaint-row.l1{border-color:transparent;background:transparent}
 .day-status .complaint-row.l1 .complaint-summary{padding-left:4px;padding-right:4px}.day-status .complaint-summary{padding:7px 10px;min-height:44px}
-.recovery-badge{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;padding:5px 10px;border-radius:var(--r-pill);background:var(--surface);color:var(--text)}
-.recovery-dot{width:9px;height:9px;border-radius:50%;background:var(--good)}.recovery.caution .recovery-dot{background:var(--warn)}.recovery.low .recovery-dot{background:var(--bad)}
 .recovery-signals{display:flex;gap:0 12px;font-size:13px;color:var(--text);white-space:nowrap;font-variant-numeric:tabular-nums}.recovery-signals>span+span{position:relative}
-.recovery-signals>span+span:before{content:"·";position:absolute;left:-8px;color:var(--faint)}.recovery-signals svg{vertical-align:-1px;margin-right:3px}.recovery-signals .flag{color:var(--warn)}.recovery.low .recovery-signals .flag{color:var(--bad-ink)}
+.recovery-signals>span+span:before{content:"·";position:absolute;left:-8px;color:var(--faint)}.recovery-signals svg{vertical-align:-1px;margin-right:3px}.recovery-signals .flag{color:var(--warn)}.day-status.low .recovery-signals .flag{color:var(--bad-ink)}
+/* Today: the sheets behind the rings. */
+.sheet-lede{font-size:14px;line-height:1.5;color:var(--muted);margin-bottom:10px;text-wrap:pretty}
+.sheet-big{font-size:40px;font-weight:600;letter-spacing:-.04em;font-variant-numeric:tabular-nums;line-height:1.1;margin:4px 0 8px}.sheet-big small{font-size:16px;font-weight:400;letter-spacing:0;color:var(--muted)}
+.sheet-quick{margin:4px 0 0}.sheet-more{color:var(--accent-ink);font-size:13px;margin-top:6px}.sheet-chart{margin-top:16px}
+.signal-rows{list-style:none;margin:6px 0 4px;padding:0}.signal-rows li+li{border-top:1px solid var(--line-soft)}
+.signal-row{display:grid;grid-template-columns:minmax(0,1fr) 88px 70px;align-items:center;gap:12px;width:100%;min-height:54px;padding:8px 0;border:0;background:none;color:var(--text);text-align:left}
+.signal-name{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:14px;font-weight:500;white-space:nowrap}.signal-name small{font-size:11px;font-weight:400;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.signal-val{font-size:18px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap}.signal-val small{font-size:11px;font-weight:400;color:var(--muted);letter-spacing:0}
+.signal-val.caution{color:var(--warn)}.signal-val.low{color:var(--bad-ink)}.signal-mark{font-style:normal;font-weight:500;font-size:.8em;margin-left:2px}
+.signal-trend{display:block;width:88px;height:30px}.signal-trend .band{fill:var(--good);opacity:.12}.signal-trend .line{fill:none;stroke:var(--edge);stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+.signal-trend .dot{fill:var(--good);stroke:var(--panel);stroke-width:2}.signal-trend .dot.caution{fill:var(--warn)}.signal-trend .dot.low{fill:var(--bad)}
+.signal-nights{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;margin:0 0 10px;font-size:12px;text-align:center;font-variant-numeric:tabular-nums}.signal-nights small{display:block;font-size:10px;color:var(--faint);margin-bottom:2px}
+@media(max-width:360px){.signal-row{grid-template-columns:minmax(0,1fr) 64px 64px;gap:10px}.signal-row .signal-trend{width:64px}}
 .sleep-fill{background:var(--accent)!important}.sleep-fill.good{background:var(--good)!important}.sleep-fill.caution{background:var(--warn)!important}.sleep-fill.low{background:var(--bad)!important}
 .night-metric{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
 .steps-week.sleep-week{grid-template-columns:34px repeat(7,minmax(0,1fr));gap:4px;padding-left:10px}
 .steps-week .sleep-labels{align-items:flex-start}.steps-week .sleep-labels .steps-bar{background:transparent}.steps-week .sleep-labels b,.steps-week .sleep-labels small{color:var(--faint);font-weight:500}
-.load-card{padding:6px 20px 16px;margin-top:12px}.load-card>.card-head{min-height:44px}
+.load-card{padding:6px 20px;margin-top:12px}
 .load-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:48px;border:0;background:transparent;padding:0;text-align:left}
 .load-inline{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}.load-inline small{font-size:12px;color:var(--muted);margin-left:-3px}.load-tag{white-space:nowrap}
 @media(max-width:360px){.load-inline small{display:none}}.load-inline strong{font-size:20px;font-weight:500;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
 .load-inline .chev{color:var(--muted);transition:transform .2s}.load-inline .chev.up{transform:rotate(180deg)}
-.load-details{margin-top:10px}.load-range{font-size:12px;color:var(--muted)}
+.load-details{margin-top:4px;padding-bottom:14px}.load-range{font-size:12px;color:var(--muted)}
 .load-tag{font-size:11px;padding:4px 9px;border-radius:var(--r-pill);background:var(--surface);color:var(--muted)}.load-tag.optimal{color:var(--good)}.load-tag.high{color:var(--warn)}.load-tag.veryHigh{color:var(--bad-ink)}.load-tag.low{color:var(--accent-ink)}
 .load-value{display:flex;align-items:baseline;gap:10px;margin-top:10px}.load-value strong{font-size:30px;font-weight:500;letter-spacing:-.04em;font-variant-numeric:tabular-nums}.load-value span{font-size:12px;color:var(--muted)}
 .load-bar{position:relative;height:12px;border-radius:var(--r-pill);background:var(--track);margin:12px 0 10px;overflow:visible}
@@ -1404,7 +1424,6 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .load-bar .planned{position:absolute;top:3px;bottom:3px;background:repeating-linear-gradient(90deg,var(--accent) 0 4px,transparent 4px 7px);opacity:.8}
 .load-bar .marker.peak{background:transparent;border:2px solid var(--text);box-shadow:none;width:8px}
 .load-bar .marker{position:absolute;top:-5px;width:4px;height:22px;border-radius:4px;background:var(--text);transform:translateX(-50%);box-shadow:0 0 0 3px #1B2935}
-.load-advice{font-size:13px;line-height:1.5;color:var(--text)}
 .load-weeks{padding:18px 14px 14px}
 .load-plot{position:relative;height:88px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));align-items:end;border-bottom:1px solid var(--line-soft)}
 .load-band{position:absolute;left:0;right:0;background:rgba(143,209,158,.13);border-top:1px dashed rgba(143,209,158,.55);border-bottom:1px dashed rgba(143,209,158,.55)}
@@ -1916,15 +1935,16 @@ function WeeklyTargets({plan,date=todayStr()}) {
 }
 
 // ─── Today: rings ────────────────────────────────────────────────────────────────
-// Three glanceable rings for the selected day: training, protein and the week's
-// priority sessions. Each ring has a text label and value, never colour alone.
+// First glance: the day's verdict and one sentence, then three rings that answer the
+// questions behind it: Erholung, Protein, Körperfett. Each ring opens a sheet with the
+// detail; nothing relies on colour alone.
 const reduceMotion=()=>{try{return window.matchMedia("(prefers-reduced-motion: reduce)").matches;}catch{return false;}};
 const scrollToId=id=>document.getElementById(id)?.scrollIntoView({behavior:reduceMotion()?"auto":"smooth",block:"start"});
-function Ring({value,max,color,label,sub,badge,ariaLabel,onClick,children}) {
+function Ring({value,max,color,label,sub,badge,ariaLabel,onClick,dialog,disabled,children}) {
   const r=27,c=2*Math.PI*r,frac=max>0?Math.max(0,Math.min(1,value/max)):0;
-  return <button className="ring" onClick={onClick} aria-label={ariaLabel}>
+  return <button className="ring" onClick={onClick} aria-label={ariaLabel} aria-haspopup={dialog?"dialog":undefined} disabled={disabled}>
     <svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r={r} className="ring-track"/>
-      {frac>0&&<circle cx="32" cy="32" r={r} className="ring-value" stroke={color} strokeLinecap="round"
+      {frac>0&&<circle cx="32" cy="32" r={r} className="ring-value" style={{stroke:color}} strokeLinecap="round"
         strokeDasharray={`${(c*frac).toFixed(1)} ${c.toFixed(1)}`} transform="rotate(-90 32 32)"/>}</svg>
     <span className="ring-center" aria-hidden="true">{children}</span>
     {badge&&<span className={"ring-badge "+badge.key} aria-hidden="true">{badge.mark}</span>}
@@ -1940,44 +1960,152 @@ function recoveryGlance(r,status) {
     Number.isFinite(r.hrv)&&{key:'hrv',text:`HRV ${r.hrv}`,level:sig('hrv')?.level||'good'},
     ...status.signals.filter(x=>(x.key==='restingHr'||x.key==='bodyBattery')&&x.level!=='good').map(x=>({key:x.key,text:x.short,level:x.level}))].filter(Boolean);
 }
-function DayRings({plan,viewKey,target,onOpenPlan,children}) {
-  const today=todayStr(),e=plan[viewKey]||{},sessions=getSessions(e);
+const LEVEL_COLOR={good:"var(--good)",caution:"var(--warn)",low:"var(--bad)"};
+const BF_START=16;   // where the goal started (16 % → 13–14 %); the ring shows the way covered
+function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,children}) {
+  const today=todayStr(),e=plan[viewKey]||{},isToday=viewKey===today,future=viewKey>today;
+  const [sheet,setSheet]=useState(null);
+  useEffect(()=>setSheet(null),[viewKey]);
   const protein=dayProtein(e),level=nutritionLevel(e.nutrition);
   const phase=phaseForDate(viewKey),week=isHoliday(viewKey)?{done:0,goal:0}:weekTargetProgress(plan,weekAround(viewKey),phase?.name);
-  const status=!sessions.length?"Ruhetag":e.completed?"erledigt":viewKey>today?"geplant":viewKey<today?"nicht eingetragen":"offen";
   const check=dayChecklist(e,viewKey,today,target);
   const summary=check.future?"Vorschau. Ernährung trägst du am Tag selbst ein."
-    :check.open.length?<>{viewKey===today?"Noch offen: ":"Nicht eingetragen: "}<strong>{check.open.join(" · ")}</strong></>
-    :viewKey===today?"Alles erledigt für heute. Stark.":"Alles eingetragen.";
-  const recovery=viewKey<=today?recoveryStatus(plan,viewKey):null;
-  const hasStatus=!!recovery||!!children;
+    :check.open.length?<>{isToday?"Noch offen: ":"Nicht eingetragen: "}<strong>{check.open.join(" · ")}</strong></>
+    :isToday?"Alles erledigt für heute. Stark.":"Alles eingetragen.";
+  const recovery=future?null:recoveryStatus(plan,viewKey);
+  const ok=recovery?recovery.signals.filter(x=>x.level==='good').length:0;
+  // The advice looks at today's plan and load, so it only speaks for today.
+  const load=isToday?loadStatus(plan,viewKey):null;
+  const advice=load&&(load.ready||load.historyDays)?loadAdvice(plan,viewKey,load,recovery,complaints):null;
+  const glance=!isToday&&recovery?recoveryGlance(e.recovery,recovery):[];
+  const bf=bodySnapshot(plan,viewKey).bodyFat,bfValue=bf?.current?.value;
+  const bfSub=bfValue==null?"keine Messung":bfValue<=BF_GOAL&&bfValue>=BF_GOAL_LOW?"im Ziel ✓":bfValue<BF_GOAL_LOW?"unter dem Ziel":`Ziel ${BF_GOAL} %`;
   return <section className="panel rings" aria-label="Tagesübersicht">
-    {hasStatus&&<div className="day-status">
-    {recovery&&<div className={"recovery "+recovery.level} role="status"
-      aria-label={"Erholung: "+RECOVERY_LABELS[recovery.level]+". "+recovery.signals.map(x=>x.text).join(", ")}>
-      <span className="recovery-badge"><span className="recovery-dot" aria-hidden="true"/>{RECOVERY_LABELS[recovery.level]}</span>
-      {/* First glance: sleep, sleep score and HRV; resting HR and Body Battery only when they stand out. */}
-      <span className="recovery-signals" aria-hidden="true">{recoveryGlance(plan[viewKey]?.recovery,recovery).map(x=>
-        <span key={x.key} className={x.level!=='good'?'flag':''}>{x.key==='sleep'&&<Icon name="rest" size={12}/>}{x.text}</span>)}</span>
-    </div>}
-    {children}</div>}
+    {(recovery||advice||children)&&<div className={"day-status "+(recovery?.level||"")}>
+      {(recovery||advice)&&<div role="status">
+        {recovery&&<strong className="verdict"><span className="verdict-dot" aria-hidden="true"/>{RECOVERY_LABELS[recovery.level]}</strong>}
+        {advice&&<p className="verdict-text">{advice}</p>}
+        {glance.length>0&&<p className="recovery-signals">{glance.map(x=>
+          <span key={x.key} className={x.level!=='good'?'flag':''}>{x.key==='sleep'&&<Icon name="rest" size={12}/>}{x.text}</span>)}</p>}
+      </div>}
+      {children}</div>}
     <div className="ring-row">
-      <Ring value={e.completed&&sessions.length?1:0} max={1} color="#9CCBD3" label="Training" sub={status}
-        ariaLabel={"Training: "+status} onClick={()=>scrollToId("today-session")}>
-        {e.completed&&sessions.length?<Chk size={20} color="#B3DCE2"/>:<Icon name={sessions.length?(isMatchDay(e)?"Match":sessions[0]):"rest"} size={22}/>}
+      <Ring value={ok} max={recovery?.signals.length||0} color={LEVEL_COLOR[recovery?.level]} label="Erholung"
+        sub={recovery?"Werte normal":"keine Daten"} dialog disabled={!recovery} onClick={()=>setSheet("recovery")}
+        ariaLabel={recovery?`Erholung: ${RECOVERY_LABELS[recovery.level]}, ${ok} von ${recovery.signals.length} Werten normal. Details öffnen`:"Erholung: keine Daten von der Uhr"}>
+        {recovery?<>{ok}<small>/{recovery.signals.length}</small></>:"–"}
       </Ring>
-      <Ring value={protein||0} max={target} color="#A9D8B8" label="Protein" sub={"von "+target+" g"} badge={level}
-        ariaLabel={"Protein: "+(protein==null?"nicht erfasst":protein+" von "+target+" Gramm")+(level?" · Ernährung "+level.label:"")}
-        onClick={()=>scrollToId("today-nutrition")}>
+      <Ring value={protein||0} max={target} color="var(--good-soft)" label="Protein" sub={"von "+target+" g"} badge={level} dialog={!future}
+        ariaLabel={"Protein: "+(protein==null?"nicht erfasst":protein+" von "+target+" Gramm")+(level?" · Ernährung "+level.label:"")+(future?"":". Eintragen")}
+        onClick={()=>future?scrollToId("today-nutrition"):setSheet("protein")}>
         {protein==null?"–":<>{protein}<small>g</small></>}
       </Ring>
-      <Ring value={week.done} max={week.goal} color="#B9B4E6" label="Woche" sub={week.goal?"Kraft · Reha":"Pause"}
-        ariaLabel={week.goal?`Wochenziele: ${week.done} von ${week.goal}. Plan öffnen`:"Keine Wochenziele. Plan öffnen"} onClick={onOpenPlan}>
-        {week.goal?<>{week.done}<small>/{week.goal}</small></>:"–"}
+      <Ring value={bfValue==null?0:BF_START-bfValue} max={BF_START-BF_GOAL} color="var(--accent)" label="Körperfett" sub={bfSub} dialog={bfValue!=null}
+        ariaLabel={bfValue==null?"Körperfett: noch keine Messung. Körper-Tab öffnen":`Körperfett ${fmt1(bfValue)} Prozent im 7-Tage-Mittel, Ziel ${BF_GOAL} Prozent. Verlauf öffnen`}
+        onClick={()=>bfValue==null?onOpenBody():setSheet("body")}>
+        {bfValue==null?"–":fmt1(bfValue)}
       </Ring>
     </div>
-    <p className="day-summary">{summary}</p>
+    <p className="day-summary">{summary}{week.goal>0&&<button className="day-week" onClick={onOpenPlan}
+      aria-label={`Wochenziele: ${week.done} von ${week.goal}. Plan öffnen`}>Wochenziele <strong>{week.done}/{week.goal}</strong>{week.done>=week.goal?" ✓":""}</button>}</p>
+    {sheet==="recovery"&&recovery&&<InfoSheet id="recovery-sheet" eyebrow={(isToday?"Heute":shortDate(viewKey))+" · Erholung"} title={RECOVERY_LABELS[recovery.level]} onClose={()=>setSheet(null)}>
+      {advice&&<p className="sheet-lede">{advice}</p>}
+      <SignalRows plan={plan} dk={viewKey} status={recovery}/>
+      <p className="chart-caption">Linie: die letzten 7 Nächte, Feld: dein Normalbereich. HRV mit deinem Bereich von Garmin, Ruhepuls mit den 14 Tagen davor. Eine Orientierung, kein medizinischer Befund.</p>
+    </InfoSheet>}
+    {sheet==="protein"&&<ProteinSheet entry={e} dk={viewKey} target={target} updDay={updDay} onClose={()=>setSheet(null)}
+      onMeals={()=>{setSheet(null);requestAnimationFrame(()=>scrollToId("today-nutrition"));}}/>}
+    {sheet==="body"&&bf&&<BodySheet plan={plan} dk={viewKey} bf={bf} onClose={()=>setSheet(null)} onOpenBody={()=>{setSheet(null);onOpenBody();}}/>}
   </section>;
+}
+// Bottom sheet in the app's own markup: focus moves in, Escape closes, the page stops scrolling.
+function InfoSheet({id,eyebrow,title,onClose,children}) {
+  const dialog=useSheetFocus(onClose);
+  return <>
+    <div className="sheet-backdrop" onClick={onClose}/>
+    <section className="sheet" ref={dialog} role="dialog" aria-modal="true" aria-labelledby={id} tabIndex={-1}>
+      <div className="sheet-handle"/>
+      <div className="sheet-heading"><div><div className="eyebrow">{eyebrow}</div><h2 id={id}>{title}</h2></div>
+        <button className="icon-btn" onClick={onClose} aria-label="Schliessen"><Icon name="close"/></button></div>
+      {children}
+    </section>
+  </>;
+}
+// The four watch values of one night, each with its last 7 nights against his normal range.
+const HRV_STATUS={BALANCED:"ausgeglichen",UNBALANCED:"unausgeglichen",LOW:"niedrig",POOR:"schwach"};
+function signalDetails(plan,dk) {
+  const r=plan[dk]?.recovery||{},num=Number.isFinite,base=restingHrBaseline(plan,dk);
+  const nights=Array.from({length:7},(_,i)=>daysBeforeStr(dk,6-i));
+  const hist=k=>nights.map(d=>{const v=plan[d]?.recovery?.[k];return num(v)?v:null;});
+  return {nights,rows:{
+    sleep:{label:"Schlaf",field:"sleepMin",unit:"h",band:[420,null],fmt:v=>fmtHM(v).replace(" h",""),
+      normal:"ab 7 h"+(num(r.sleepScore)?` · Score ${r.sleepScore}`:"")},
+    hrv:{label:"HRV",field:"hrv",unit:"ms",band:num(r.hrvLow)&&num(r.hrvHigh)?[r.hrvLow,r.hrvHigh]:[null,null],fmt:String,
+      normal:num(r.hrvLow)&&num(r.hrvHigh)?`${r.hrvLow}–${r.hrvHigh} ms`:HRV_STATUS[r.hrvStatus]?"Garmin: "+HRV_STATUS[r.hrvStatus]:""},
+    restingHr:{label:"Ruhepuls",field:"restingHr",unit:"",band:[null,base==null?null:base+3],fmt:String,normal:base==null?"":`Ø ${Math.round(base)}`},
+    bodyBattery:{label:"Body Battery",field:"bodyBattery",unit:"",band:[50,null],fmt:String,normal:"ab 50"},
+  },hist};
+}
+function SignalTrend({values,band,level}) {
+  const W=88,H=30,P=4,known=values.filter(v=>v!=null);
+  const ends=[...known,...band.filter(v=>v!=null)];
+  let lo=Math.min(...ends),hi=Math.max(...ends);const pad=Math.max((hi-lo)*0.12,1);lo-=pad;hi+=pad;
+  const y=v=>P+(1-(Math.max(lo,Math.min(hi,v))-lo)/(hi-lo))*(H-2*P),x=i=>P+i*(W-2*P)/(values.length-1);
+  const top=y(band[1]??hi),bottom=y(band[0]??lo),last=values.length-1;
+  const segs=[];let cur=[];values.forEach((v,i)=>{if(v==null){if(cur.length)segs.push(cur);cur=[];}else cur.push(`${x(i).toFixed(1)},${y(v).toFixed(1)}`);});
+  if(cur.length)segs.push(cur);
+  return <svg className="signal-trend" viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+    {(band[0]!=null||band[1]!=null)&&<rect x="0" width={W} y={top} height={Math.max(0,bottom-top)} rx="3" className="band"/>}
+    {segs.map((s,i)=>s.length>1?<polyline key={i} points={s.join(" ")} className="line"/>:null)}
+    {values[last]!=null&&<circle cx={x(last)} cy={y(values[last])} r="3.2" className={"dot "+level}/>}
+  </svg>;
+}
+function SignalRows({plan,dk,status}) {
+  const [open,setOpen]=useState(null),{nights,rows,hist}=signalDetails(plan,dk);
+  return <ul className="signal-rows">{status.signals.map(x=>{const d=rows[x.key],values=hist(d.field),v=values.at(-1);
+    return <li key={x.key}>
+      <button className="signal-row" aria-expanded={open===x.key} onClick={()=>setOpen(o=>o===x.key?null:x.key)}
+        aria-label={`${x.text}. Letzte 7 Nächte ${open===x.key?"ausblenden":"zeigen"}`}>
+        <span className="signal-name">{d.label}{d.normal&&<small>{d.normal}</small>}</span>
+        <SignalTrend values={values} band={d.band} level={x.level}/>
+        <span className={"signal-val "+x.level}>{v==null?"–":d.fmt(v)}{d.unit&&<small> {d.unit}</small>}
+          {x.level!=='good'&&<em className="signal-mark" aria-hidden="true">{x.key==='restingHr'?"↑":"↓"}</em>}</span>
+      </button>
+      {open===x.key&&<p className="signal-nights">{values.map((n,i)=><span key={nights[i]}>
+        <small>{DN[dow0(new Date(nights[i]+"T12:00:00"))]}</small>{n==null?"–":d.fmt(n)}</span>)}</p>}
+    </li>;})}</ul>;
+}
+// Quick protein from the ring; meals with photo or text stay in the Ernährung card.
+function ProteinSheet({entry,dk,target,updDay,onClose,onMeals}) {
+  const quick=validProtein(entry.protein)?entry.protein:null,protein=dayProtein(entry),[lastAdd,setLastAdd]=useState(null);
+  const add=g=>{updDay(dk,{protein:Math.min(500,(quick||0)+g)});setLastAdd({g,prev:quick});};
+  return <InfoSheet id="protein-sheet" eyebrow={(dk===todayStr()?"Heute":shortDate(dk))+" · Ernährung"} title="Protein" onClose={onClose}>
+    <p className="sheet-big">{protein??0}<small> / {target} g</small></p>
+    <div className="protein-bar" role="progressbar" aria-label="Protein" aria-valuemin={0} aria-valuemax={target} aria-valuenow={protein||0}>
+      <span style={{width:Math.min(100,(protein||0)/target*100)+"%"}}/></div>
+    <p className="sheet-lede" aria-live="polite">{protein!=null&&protein>=target?"Ziel erreicht ✓":`Noch ${target-(protein||0)} g bis zu deinem Ziel.`}</p>
+    <div className="protein-actions sheet-quick">{PROTEIN_STEPS.map(g=><button key={g} className="chip" aria-label={g+" Gramm Protein hinzufügen"} onClick={()=>add(g)}>+{g} g</button>)}</div>
+    {lastAdd&&<button className="text-btn undo-btn" onClick={()=>{updDay(dk,{protein:lastAdd.prev});setLastAdd(null);}}>+{lastAdd.g} g eingetragen · Rückgängig</button>}
+    <p className="protein-hint">Ohne Foto: Skyr oder Joghurt ≈ 20 g · Portion Fleisch oder Fisch ≈ 30 g · grosse Portion ≈ 40 g</p>
+    <button className="text-btn sheet-more" onClick={onMeals}><Icon name="camera" size={16}/> Mahlzeit fotografieren oder beschreiben</button>
+  </InfoSheet>;
+}
+// Body fat: the 7-day mean, its change over four weeks and the last four weeks as a line.
+function BodySheet({plan,dk,bf,onClose,onOpenBody}) {
+  const readings=bodyCompReadings(plan,"bodyFat").filter(r=>r.value<100&&r.date<=dk);
+  const month=bodyMean(readings,daysBeforeStr(bf.anchor,28)),cur=bf.current.value;
+  const change=month?(Math.abs(cur-month.value)<0.05?"Unverändert in 4 Wochen":(cur<month.value?"↓ ":"↑ ")+fmt1(Math.abs(cur-month.value))+" %-Punkte in 4 Wochen")
+    :deltaText(bf.current,bf.previous,"%-Punkte");
+  const series=rollingSeries(readings,daysBeforeStr(dk,27),dk);
+  return <InfoSheet id="body-sheet" eyebrow="7-Tage-Mittel" title="Körperfett" onClose={onClose}>
+    <p className="sheet-big">{fmt1(cur)}<small> %</small></p>
+    <p className="sheet-lede">{change}</p>
+    <GoalBar value={cur}/>
+    {series.some(p=>p.value!=null)&&<div className="sheet-chart"><TrendChart readings={readings} series={series} target={BF_GOAL}/>
+      <p className="chart-caption">Letzte 4 Wochen · Linie: 7-Tage-Mittel · Punkte: einzelne Messungen</p></div>}
+    <p className="hero-meta">{bf.current.count} {bf.current.count===1?"Messung":"Messungen"} · Stand {shortDate(bf.anchor)}{bf.ageDays>7?` · seit ${bf.ageDays} Tagen keine neue Messung`:""}</p>
+    <button className="text-btn sheet-more" onClick={onOpenBody}>Alles im Körper-Tab<Icon name="arrow" size={16}/></button>
+  </InfoSheet>;
 }
 
 // ─── Social matches (Today, Körper) ─────────────────────────────────────────────
@@ -2197,21 +2325,21 @@ function ComplaintStrip({complaints,onReport,onResolve}) {
 
 // ─── Load card (Today) ───────────────────────────────────────────────────────────
 const LOAD_SHORT={low:'Unter Bereich',optimal:'Im Bereich',high:'Über Bereich',veryHigh:'Deutlich darüber'};
-function LoadCard({plan,dk,complaints}) {
-  const status=loadStatus(plan,dk),advice=loadAdvice(plan,dk,status,recoveryStatus(plan,dk),complaints),[open,setOpen]=useState(false);
-  if(!status.ready&&!status.historyDays)return null;
-  const typical=status.ready?typicalLoads(plan,dk):{},planned=status.ready?plannedLoad(plan,dk,typical):{load:0};
-  const outlook=status.ready?loadOutlook(plan,dk,typical):null,peak=outlook?.peak;
-  const scaleMax=status.ready?Math.max(status.veryHigh*1.15,status.acute+planned.load,peak.load)*1.05:1;
+// The day's advice sits at the top of the ring card; this card holds the numbers behind it.
+function LoadCard({plan,dk}) {
+  const status=loadStatus(plan,dk),[open,setOpen]=useState(false);
+  if(!status.ready)return null;
+  const typical=typicalLoads(plan,dk),planned=plannedLoad(plan,dk,typical);
+  const outlook=loadOutlook(plan,dk,typical),peak=outlook.peak;
+  const scaleMax=Math.max(status.veryHigh*1.15,status.acute+planned.load,peak.load)*1.05;
   const pos=v=>Math.max(0,Math.min(100,v/scaleMax*100))+"%";
   return <section className="panel load-card" aria-label="Trainingsbelastung">
-    {status.ready?<button className="load-summary" aria-expanded={open} onClick={()=>setOpen(o=>!o)}>
+    <button className="load-summary" aria-expanded={open} onClick={()=>setOpen(o=>!o)}>
       <span className="eyebrow">Belastung</span>
       <span className="load-inline"><strong>{status.acute}</strong><small>7 Tage</small><span className={"load-tag "+status.status}>{LOAD_SHORT[status.status]}</span>
         <Icon name="chevron" size={16} className={"chev"+(open?" up":"")}/></span>
-    </button>:<div className="card-head"><span className="eyebrow">Belastung · 7 Tage</span></div>}
-    <p className="load-advice">{advice}</p>
-    {open&&status.ready&&<div className="load-details">
+    </button>
+    {open&&<div className="load-details">
       <div className="load-bar" aria-hidden="true">
         <span className="zone optimal" style={{left:pos(status.low),width:`calc(${pos(status.high)} - ${pos(status.low)})`}}/>
         <span className="zone high" style={{left:pos(status.high),width:`calc(${pos(status.veryHigh)} - ${pos(status.high)})`}}/>
@@ -2467,7 +2595,7 @@ function UpNextCard({plan,from,onSelect}) {
 }
 
 // ─── Today view ──────────────────────────────────────────────────────────────────
-function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,onOpenReport,complaints,onReportComplaint,onResolveComplaint,socialProps}) {
+function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,onOpenBody,meals,onOpenReport,complaints,onReportComplaint,onResolveComplaint,socialProps}) {
   const viewKey=offsetDate(dayOff), e=plan[viewKey]||{};
   const [sheetOpen,setSheetOpen]=useState(false);
   const [notesOpen,setNotesOpen]=useState(false);
@@ -2497,7 +2625,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
     {dayOff===0&&[1,2].includes(new Date().getDay())&&!readReport(lastCompletedWeek())?.read&&
       <button className="panel report-banner" onClick={()=>onOpenReport(lastCompletedWeek())}><Icon name="note" size={20}/>
         <span><strong>Dein Wochenreport ist da</strong><small>{weekLabel(lastCompletedWeek())}</small></span><Icon name="arrow" size={18}/></button>}
-    <DayRings plan={plan} viewKey={viewKey} target={proteinTarget} onOpenPlan={onOpenPlan}>
+    <DayRings plan={plan} viewKey={viewKey} target={proteinTarget} complaints={complaints} updDay={updDay} onOpenPlan={onOpenPlan} onOpenBody={onOpenBody}>
       {dayOff===0&&activeComplaints(complaints,viewKey).length>0&&<ComplaintStrip complaints={complaints} onReport={onReportComplaint} onResolve={onResolveComplaint}/>}
     </DayRings>
     {socialProps&&<SocialCard {...socialProps} viewKey={viewKey}/>}
@@ -2544,7 +2672,7 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,meals,
       {sessions.length>0&&<details className="session-details"><summary>Hinweise zur Einheit</summary>
         {sessions.map(s=><TipCard key={s} workout={s}/>)}</details>}
     </section>
-    {dayOff===0&&<LoadCard plan={plan} dk={viewKey} complaints={complaints}/>}
+    {dayOff===0&&<LoadCard plan={plan} dk={viewKey}/>}
     <NutritionCard key={"nutrition-"+viewKey} entry={e} dateKey={viewKey} updDay={updDay} target={proteinTarget} {...meals}
       onPlanSocial={dayOff>=0&&socialProps&&!socialMatches(socialProps.social.matches).some(m=>m.date===viewKey)?()=>socialProps.onPlan(dayOff>0?viewKey:undefined):null}/>
     <UpNextCard plan={plan} from={viewKey} onSelect={go}/>
@@ -3433,7 +3561,8 @@ export default function App() {
       <p className="subtitle">{playerName} <span style={{color:C.borderSt}}> / </span> {phase?phaseLabel(phase.name):today<SEASON_START?"Deine Saison beginnt bald":"Saison abgeschlossen"}</p>
     </header>
     {view==="today"&&<TodayView plan={plan} updDay={updDay} dayOff={dayOff} setDayOff={setDayOff} proteinTarget={proteinTarget} meals={mealHandlers} onOpenReport={openReport} complaints={complaints} onReportComplaint={reportComplaintNow} onResolveComplaint={resolveComplaintNow} socialProps={socialProps}
-      onOpenPlan={()=>{setWkOff(Math.floor((dow0(new Date())+dayOff)/7));setPlanMode("week");setView("plan");window.scrollTo(0,0);}}/>}
+      onOpenPlan={()=>{setWkOff(Math.floor((dow0(new Date())+dayOff)/7));setPlanMode("week");setView("plan");window.scrollTo(0,0);}}
+      onOpenBody={()=>{setView("body");window.scrollTo(0,0);}}/>}
     {view==="plan"&&<PlanView mode={planMode} setMode={setPlanMode} today={today} plan={plan} wkOff={wkOff} setWkOff={setWkOff}
       moOff={moOff} setMoOff={setMoOff} onGoToDay={goToDay} updDay={updDay} onSwapDays={swapDays} planner={planner}/>}
     {view==="body"&&<BodyView plan={plan} updDay={updDay} proteinTarget={proteinTarget} socialProps={socialProps}/>}

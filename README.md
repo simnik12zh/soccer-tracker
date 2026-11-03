@@ -34,17 +34,21 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   The season plan is generated from hard-coded `PHASES` +
   per-phase weekly `TEMPLATES` (with Ibiza and Tuscany holiday overrides) by
   `buildDefaultPlan()`, spanning 2026-06-29 → 2027-08-05.
-- **Heute** — compact day strip (‹ › jump a week, swipe moves a day). The ring card starts
-  with one status area (recovery line plus active complaints) and then three rings for the
-  selected day (Training, Protein vs. target, Wochenziele Kraft + Reha) with a sentence naming
-  what is still open (`dayChecklist`; past days say "nicht eingetragen", never "skipped"). The
-  session card keeps FERTIG next to the title so it stays above the tab bar on a phone; long
-  plan guidance is clamped to two lines, and its title drops a repeated session name
-  (`guidanceTitle`). The load card is one line (value, short status, advice) and expands to the
-  bar and explanation. The ring card's first line is the first-glance readiness: recovery
-  badge, sleep duration (moon icon), Garmin sleep score and HRV; resting HR and Body Battery only
-  when they stand out (`recoveryGlance`; the values wrap together to a second line on small
-  phones). The nutrition card: protein total with a pencil to correct it, +20/+30/+40 g buttons
+- **Heute** — compact day strip (‹ › jump a week, swipe moves a day). The ring card opens with
+  the first glance: the recovery verdict (Gut erholt / Eingeschränkt / Wenig erholt) and, for
+  today, the day's advice from `loadAdvice` in one sentence; past days show sleep, Garmin sleep
+  score and HRV instead (`recoveryGlance`), future days no verdict. Active complaints sit right
+  below. Then three rings: Erholung (watch values in their normal range, coloured by the verdict),
+  Protein vs. target and Körperfett (7-day mean; the arc is the way from 16 % to the 14 % goal,
+  `BF_START`). Each ring opens a sheet: Erholung lists sleep, HRV, resting HR and Body Battery with
+  the last 7 nights against his normal range (tap a row for the nightly values); Protein has
+  +20/+30/+40 g with undo and a link to the meal card; Körperfett shows the change over 4 weeks,
+  the goal bar and the last 4 weeks as a line, with a link to the Körper tab. Below the rings a
+  sentence names what is still open (`dayChecklist`; past days say "nicht eingetragen", never
+  "skipped") plus Wochenziele x/4, which opens the plan. The session card keeps FERTIG next to the
+  title so it stays above the tab bar on a phone; long plan guidance is clamped to two lines, and
+  its title drops a repeated session name (`guidanceTitle`). The load card is one line (value,
+  short status) and expands to the bar and explanation; its advice lives in the ring card. The nutrition card: protein total with a pencil to correct it, +20/+30/+40 g buttons
   right under the bar, Foto · Beschreiben · Mediathek, the saved meals as a list that folds open
   (open/closed remembered on the device), the day's meals, rating. No calorie totals anywhere: he
   does not log every meal, so sums and averages would mislead; single meals keep their kcal. Below: "Als Nächstes" (next two planned days plus the next game within seven days,
@@ -196,8 +200,8 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   load; nothing extra the day before a game, only walking/mobility the day after; an extra session
   only if the projected peak plus the extra stays at most ~1.1 × his average week
   (`LOAD_EXTRA_TARGET`), otherwise it names the planned sessions that fill the week. The expanded
-  card shows the projected peak as a hollow marker. Heute shows a load card for today (value,
-  range bar with the planned part, advice); Plan → Woche shows six weekly totals with the range.
+  card shows the projected peak as a hollow marker. Heute shows the advice at the top of the ring card and a load card for today (value,
+  range bar with the planned part); Plan → Woche shows six weekly totals with the range.
   The coach gets the whole block (`load`, whitelisted server-side). The Garmin endpoint now
   accepts up to 60 days: activities for the full window (paged by 99), steps/sleep/HRV/daily
   summaries for the last 28 days. Sync version 4 loads six weeks of activities once.
