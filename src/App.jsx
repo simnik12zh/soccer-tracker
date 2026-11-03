@@ -501,7 +501,8 @@ function reminderStatus(plan,today=todayStr(),target=DEFAULT_PROTEIN_TARGET,soci
 // 'soccer' resolves against the day's plan: game, team training or futsal.
 const GARMIN_TYPES=[[/strength/,'Gym'],[/pilates|yoga/,'Pilates'],[/mobility|stretch|breath/,'Mobility'],
   [/soccer|futsal|football/,'soccer'],[/run/,'Easy run'],[/walk|hik/,'Walking']];
-const GARMIN_LABELS={Gym:'Krafttraining',Pilates:'Pilates/Yoga',Mobility:'Mobilität',soccer:'Fussball','Easy run':'Laufen',Walking:'Gehen'};
+const GARMIN_LABELS={Gym:'Krafttraining',Pilates:'Pilates/Yoga',Mobility:'Mobilität',soccer:'Fussball','Easy run':'Laufen',Walking:'Gehen',
+  match:'Spiel',training:'Mannschaftstraining',futsal:'Freizeitkick'};
 function garminSessionType(typeKey) {
   const key=String(typeKey||'').toLowerCase();
   for(const [pattern,type] of GARMIN_TYPES)if(pattern.test(key))return type;
@@ -740,17 +741,28 @@ function socialForCoach(list,holidays,today=todayStr(),now=new Date()) {
 // rebuilds the idea from each activity's Garmin training load: acute = last 7 days,
 // normal range = 0.8–1.3 × his average week of the last 4 weeks. An orientation for
 // dosing training, not an injury predictor. Only activities recorded on the watch count.
-const LOAD_TYPE_FOR_SESSION={Gym:'Gym','Easy run':'Easy run',Walking:'Walking',Match:'soccer','Team Training':'soccer',Futsal:'soccer',Pilates:'Pilates',Mobility:'Mobility'};
+// Planned football is estimated by kind (games from games, team trainings from team trainings);
+// until two of a kind are recorded, from all football together.
+const LOAD_TYPE_FOR_SESSION={Gym:'Gym','Easy run':'Easy run',Walking:'Walking',Match:'match','Team Training':'training',Futsal:'futsal',Pilates:'Pilates',Mobility:'Mobility'};
+const LOAD_FALLBACK={match:'soccer',training:'soccer',futsal:'soccer'};
+function sessionLoad(typical,s) { const k=LOAD_TYPE_FOR_SESSION[s];return k?typical[k]??typical[LOAD_FALLBACK[k]]??0:0; }
 const LOAD_LABELS={low:'Unter deinem Bereich',optimal:'Im optimalen Bereich',high:'Über deinem Bereich',veryHigh:'Deutlich über deinem Bereich'};
 function dayLoad(e) { return (Array.isArray(e?.garmin)?e.garmin:[]).reduce((n,g)=>n+(Number.isFinite(g.load)&&g.load>0?g.load:0),0); }
-// Typical load per session type from his own last 60 days (median).
+// Typical load per session type from his own last 60 days (median, so one extreme game does
+// not move it). Football also per kind (match, training, futsal) once two of a kind exist.
 function typicalLoads(plan,dk=todayStr()) {
-  const by={};
-  for(let i=0;i<60;i++)for(const g of plan[daysBeforeStr(dk,i)]?.garmin||[]){
-    const t=garminSessionType(g.type);
-    if(t&&Number.isFinite(g.load)&&g.load>0)(by[t]=by[t]||[]).push(g.load);
+  const by={},add=(k,v)=>(by[k]=by[k]||[]).push(v);
+  for(let i=0;i<60;i++){
+    const d=daysBeforeStr(dk,i);
+    for(const g of plan[d]?.garmin||[]){
+      const t=garminSessionType(g.type);
+      if(!t||!Number.isFinite(g.load)||g.load<=0)continue;
+      add(t,g.load);
+      if(t==='soccer')add(reviewKind(plan[d],g),g.load);
+    }
   }
-  return Object.fromEntries(Object.entries(by).map(([t,v])=>{v.sort((a,b)=>a-b);const m=v.length>>1;return [t,Math.round(v.length%2?v[m]:(v[m-1]+v[m])/2)];}));
+  return Object.fromEntries(Object.entries(by).filter(([t,v])=>!LOAD_FALLBACK[t]||v.length>=2)
+    .map(([t,v])=>{v.sort((a,b)=>a-b);const m=v.length>>1;return [t,Math.round(v.length%2?v[m]:(v[m-1]+v[m])/2)];}));
 }
 function loadStatus(plan,dk=todayStr()) {
   const sum=(from,n)=>{let total=0;for(let i=from;i<from+n;i++)total+=dayLoad(plan[daysBeforeStr(dk,i)]);return total;};
@@ -767,8 +779,8 @@ function loadStatus(plan,dk=todayStr()) {
 function plannedLoad(plan,dk,typical) {
   const e=plan[dk]||{};
   if(e.completed||(e.garmin||[]).some(g=>g.matched))return {sessions:[],load:0};
-  const sessions=getSessions(e).filter(s=>LOAD_TYPE_FOR_SESSION[s]&&typical[LOAD_TYPE_FOR_SESSION[s]]);
-  return {sessions,load:sessions.reduce((n,s)=>n+typical[LOAD_TYPE_FOR_SESSION[s]],0)};
+  const sessions=getSessions(e).filter(s=>sessionLoad(typical,s)>0);
+  return {sessions,load:sessions.reduce((n,s)=>n+sessionLoad(typical,s),0)};
 }
 // Forward view: the rolling 7-day load for today and the next LOAD_HORIZON days, from what is
 // done plus the planned, not yet done sessions at his own typical load. An extra session today
@@ -1031,7 +1043,7 @@ function loadOutlookText(plan,dk,series,status,typical=typicalLoads(plan,dk)) {
   if(past.length)text+=` Bis ${weekday(past.at(-1).date)} liegt das schon an den letzten Tagen.`;
   // The planned sessions inside the peak's 7 days that add the most.
   const sessions=Array.from({length:7},(_,i)=>daysBeforeStr(peak.date,i)).filter(d=>d>=dk)
-    .flatMap(d=>plannedLoad(plan,d,typical).sessions.map(s=>({s,d,load:typical[LOAD_TYPE_FOR_SESSION[s]]||0})))
+    .flatMap(d=>plannedLoad(plan,d,typical).sessions.map(s=>({s,d,load:sessionLoad(typical,s)})))
     .filter(x=>x.load>=50).sort((a,b)=>b.load-a.load).slice(0,2);
   if(sessions.length)text+=` Am meisten trägt dein Plan mit ${joinWords(sessions.map(x=>`${displayName(x.s)} (${DN[dow0(new Date(x.d+'T12:00:00'))]})`))} bei.`;
   return text;

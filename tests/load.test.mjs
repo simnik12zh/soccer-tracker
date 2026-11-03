@@ -31,7 +31,26 @@ test('daily and typical loads come from the watch only',()=>{
   assert.equal(app.dayLoad({garmin:[g(1,'soccer',170),g(2,'walking',null),g(3,'running',-5)]}),170);
   assert.equal(app.dayLoad(undefined),0);
   const typical=app.typicalLoads(history(),TODAY);
-  assert.deepEqual(plain(typical),{Gym:60,'Easy run':52,soccer:170,Walking:20});
+  assert.deepEqual(plain(typical),{Gym:60,'Easy run':52,soccer:170,training:170,Walking:20},'football also per kind once two of a kind exist');
+});
+
+test('a planned game is estimated from earlier games, a training from trainings',()=>{
+  const plan=history();
+  // Two earlier games, both harder than the team trainings (170).
+  plan['2026-10-17']={sessions:['Match'],completed:true,match:{opponent:'A',home:true,kickoff:'20:00'},garmin:[g('x1','soccer',300)]};
+  plan['2026-10-24']={sessions:['Match'],completed:true,match:{opponent:'B',home:false,kickoff:'20:00'},garmin:[g('x2','soccer',320)]};
+  const typical=app.typicalLoads(plan,TODAY);
+  assert.equal(typical.match,310);
+  assert.equal(typical.training,170);
+  plan['2026-10-29']={sessions:['Match'],match:{opponent:'C',home:true,kickoff:'20:00'}};
+  plan['2026-10-30']={sessions:['Team Training']};
+  assert.equal(app.plannedLoad(plan,'2026-10-29',typical).load,310,'the game counts like his games');
+  assert.equal(app.plannedLoad(plan,'2026-10-30',typical).load,170,'the training like his trainings');
+  // With only one game recorded, a planned game falls back to all football together.
+  delete plan['2026-10-24'];
+  const few=app.typicalLoads(plan,TODAY);
+  assert.equal(few.match,undefined);
+  assert.equal(app.plannedLoad(plan,'2026-10-29',few).load,few.soccer);
 });
 
 test('acute load is compared with his own four-week average',()=>{

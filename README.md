@@ -210,7 +210,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   the app rebuilds them from each activity's Garmin training load (`activityTrainingLoad`):
   acute = last 7 days; normal range = 0.8–1.3 × his average week over the last 4 weeks
   (`loadStatus`, needs 21 days of watch data). `typicalLoads` = his own median per session type
-  over 60 days; `plannedLoad` adds planned, not yet done sessions. `loadOutlook` looks ahead:
+  over 60 days; football also per kind (Spiel, Mannschaftstraining, Freizeitkick, told apart by the plan) once two of a kind are recorded, so a planned game counts like his games; `plannedLoad` adds planned, not yet done sessions. `loadOutlook` looks ahead:
   the rolling 7-day load for today and the next 4 days with planned sessions at his typical load
   (peak = highest window). `dayGuidance` turns all of it into one traffic light for today with a
   sentence that names the deciding reason, so colour and words never disagree; the strictest reason
