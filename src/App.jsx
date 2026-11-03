@@ -1004,6 +1004,39 @@ function weeklyLoads(plan,dk=todayStr(),n=6) {
     let total=0;for(let d=0;d<7;d++)total+=dayLoad(plan[daysBeforeStr(from,-d)]);return {from,load:Math.round(total)};});
 }
 
+// Day by day the load of the 7 days up to each date, the number the day light uses:
+// recorded up to dk, then with his planned sessions (today's open ones included) at his
+// usual load per kind. `base` is the same without the plan, to tell the past from the plan.
+const LOAD_CHART_BACK=21,LOAD_CHART_AHEAD=7;
+function loadSeries(plan,dk=todayStr(),ahead=LOAD_CHART_AHEAD,back=LOAD_CHART_BACK,typical=typicalLoads(plan,dk)) {
+  const on=(d,withPlan)=>dayLoad(plan[d])+(withPlan&&d>=dk?plannedLoad(plan,d,typical).load:0);
+  const week=(d,withPlan)=>{let n=0;for(let i=0;i<7;i++)n+=on(daysBeforeStr(d,i),withPlan);return Math.round(n);};
+  return Array.from({length:back+ahead+1},(_,i)=>daysBeforeStr(dk,back-i)).map(date=>date<=dk
+    ?{date,load:week(date,false),future:false}:{date,load:week(date,true),base:week(date,false),future:true});
+}
+// One sentence on where the plan takes the load: over the range until when and why, or not.
+function loadOutlookText(plan,dk,series,status,typical=typicalLoads(plan,dk)) {
+  const future=series.filter(p=>p.future),weekday=d=>new Date(d+'T12:00:00').toLocaleDateString('de-CH',{weekday:'long'});
+  if(!status.ready||!future.length)return null;
+  const over=future.filter(p=>p.load>status.high),top=list=>list.reduce((a,b)=>b.load>a.load?b:a);
+  if(!over.length){
+    const peak=top(future),from=future.findIndex((p,i)=>future.slice(i).every(x=>x.load<status.low));
+    if(from===0)return 'Mit deinem Plan bleibst du die nächsten 7 Tage unter deinem Bereich. Da hat noch eine Einheit Platz.';
+    return `Mit deinem Plan kommst du die nächsten 7 Tage nicht über deinen Bereich, höchstens ≈\u00A0${peak.load} am ${weekday(peak.date)}.`
+      +(from>0?` Ab ${weekday(future[from].date)} liegst du darunter, da hat wieder etwas Platz.`:'');
+  }
+  const peak=top(over),last=over.at(-1);
+  let text=`Mit deinem Plan liegst du ${over.length===1?`am ${weekday(peak.date)}`:`bis ${weekday(last.date)}`} über deinem Bereich, am höchsten ≈\u00A0${peak.load} am ${weekday(peak.date)}.`;
+  const past=future.filter(p=>p.base>status.high);
+  if(past.length)text+=` Bis ${weekday(past.at(-1).date)} liegt das schon an den letzten Tagen.`;
+  // The planned sessions inside the peak's 7 days that add the most.
+  const sessions=Array.from({length:7},(_,i)=>daysBeforeStr(peak.date,i)).filter(d=>d>=dk)
+    .flatMap(d=>plannedLoad(plan,d,typical).sessions.map(s=>({s,d,load:typical[LOAD_TYPE_FOR_SESSION[s]]||0})))
+    .filter(x=>x.load>=50).sort((a,b)=>b.load-a.load).slice(0,2);
+  if(sessions.length)text+=` Am meisten trägt dein Plan mit ${joinWords(sessions.map(x=>`${displayName(x.s)} (${DN[dow0(new Date(x.d+'T12:00:00'))]})`))} bei.`;
+  return text;
+}
+
 // ─── Weekly plan proposal ────────────────────────────────────────────────────────
 // Fixed: games, team training, sick days, own custom sessions, finished or past days.
 // Applying changes only open days (and guidance on fixed days still ahead); the previous
@@ -1632,13 +1665,18 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .load-bar .planned{position:absolute;top:3px;bottom:3px;background:repeating-linear-gradient(90deg,var(--accent) 0 4px,transparent 4px 7px);opacity:.8}
 .load-bar .marker.peak{background:transparent;border:2px solid var(--text);box-shadow:none;width:8px}
 .load-bar .marker{position:absolute;top:-5px;width:4px;height:22px;border-radius:4px;background:var(--text);transform:translateX(-50%);box-shadow:0 0 0 3px #1B2935}
-.load-weeks{padding:18px 14px 14px}
-.load-plot{position:relative;height:88px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));align-items:end;border-bottom:1px solid var(--line-soft)}
-.load-band{position:absolute;left:0;right:0;background:rgba(143,209,158,.13);border-top:1px dashed rgba(143,209,158,.55);border-bottom:1px dashed rgba(143,209,158,.55)}
-.load-col{position:relative;z-index:1;height:100%;display:flex;align-items:flex-end;justify-content:center}.load-col .load-fill{display:block;width:18px;border-radius:6px 6px 2px 2px}
-.load-labels{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));text-align:center;margin-top:8px}.load-labels b{display:block;font-size:12px;font-weight:500;font-variant-numeric:tabular-nums}.load-labels small{display:block;font-size:11px;color:var(--muted);margin-top:2px}
-.band-key{display:inline-block;width:14px;height:8px;margin-right:6px;vertical-align:0;background:rgba(143,209,158,.25);border:1px dashed rgba(143,209,158,.7);border-radius:2px}
-.load-fill{position:relative;z-index:1;background:#647F93!important}.load-fill.current{background:var(--accent)!important}
+.load-trend{padding:16px 14px 14px}.load-trend-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+.load-trend-head strong{font-size:20px;font-weight:500;letter-spacing:-.03em;font-variant-numeric:tabular-nums}.load-trend-head strong small{font-size:12px;font-weight:400;color:var(--muted);letter-spacing:0;margin-left:4px}
+.load-trend svg{display:block;width:100%;height:auto;overflow:visible}.load-trend .band{fill:rgba(143,209,158,.12)}.load-trend .band-edge{stroke:rgba(143,209,158,.55);stroke-width:1;stroke-dasharray:3 3}
+.load-trend .grid{stroke:var(--line-soft);stroke-width:1}.load-trend .axis{font-size:9px;fill:var(--faint);font-variant-numeric:tabular-nums}.load-trend .axis.now{fill:var(--accent-ink)}
+.load-trend .today{stroke:var(--accent);stroke-width:1;opacity:.6}
+.load-trend .past,.load-trend .future{fill:none;stroke:var(--accent-ink);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}.load-trend .future{stroke-dasharray:4 4;opacity:.85}
+.load-trend .pt{fill:var(--panel);stroke:var(--accent-ink);stroke-width:1.5}.load-trend .pt.over{fill:var(--warn);stroke:var(--warn)}.load-trend .pt.very{fill:var(--bad);stroke:var(--bad)}
+.load-trend circle.now{fill:var(--accent);stroke:var(--panel);stroke-width:2}
+.load-key{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;font-size:11px;color:var(--muted)}.load-key span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.load-key i{display:inline-block;width:16px;height:0;border-top:2px solid var(--accent-ink)}.load-key i.dash{border-top-style:dashed}
+.load-key i.band{height:8px;border:1px dashed rgba(143,209,158,.7);background:rgba(143,209,158,.25);border-radius:2px}
+.load-outlook{font-size:13px;line-height:1.5;color:var(--text);margin-top:12px;text-wrap:pretty}
 .report-banner{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:14px 16px;margin-bottom:12px;color:var(--accent-ink);border-color:var(--edge)}
 .report-banner span{flex:1}.report-banner strong{display:block;font-size:14px;font-weight:500;color:var(--text)}.report-banner small{display:block;font-size:12px;color:var(--muted);margin-top:2px}
 .report-group+.report-group{margin-top:18px}.report-group>.eyebrow{margin-bottom:8px}
@@ -3001,7 +3039,7 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays,planner
     </div>
     {planner&&wkOff>=0&&wkOff<=1&&<PlanProposal plan={plan} weekStart={days[0]} {...planner}/>}
     <WeeklyTargets plan={plan} date={days[0]}/>
-    <WeeklyLoad plan={plan} dk={days[6]<today?days[6]:today}/>
+    <LoadTrend plan={plan} dk={days[6]<today?days[6]:today}/>
     <section aria-label="Taktischer Fokus"><div className="section-heading"><h2>Taktik</h2><small>Fokus der Woche</small></div>
       <TacticalCard dk={days[0]}/></section>
     {sheetDk&&<WorkoutSheet dateKey={sheetDk} entry={plan[sheetDk]||{}} updDay={updDay} onClose={()=>setSheetDk(null)}
@@ -3010,22 +3048,47 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays,planner
 }
 
 // Six weekly bars with his normal range as one continuous band behind them.
-function WeeklyLoad({plan,dk}) {
-  const weeks=weeklyLoads(plan,dk,6),status=loadStatus(plan,dk);
-  if(!weeks.some(w=>w.load>0))return null;
-  const max=Math.max(...weeks.map(w=>w.load),status.ready?status.high:0,1)*1.08;
-  const pct=v=>Math.min(100,v/max*100)+"%";
-  const date=from=>new Date(from+"T12:00:00").toLocaleDateString("de-CH",{day:"numeric",month:"numeric"});
-  return <section aria-label="Belastung der letzten sechs Wochen">
-    <div className="section-heading"><h2>Belastung</h2><small>letzte 6 Wochen</small></div>
-    <div className="panel load-weeks">
-      <div className="load-plot">
-        {status.ready&&<span className="load-band" aria-hidden="true" style={{bottom:pct(status.low),height:`calc(${pct(status.high)} - ${pct(status.low)})`}}/>}
-        {weeks.map((w,i)=><div key={w.from} className="load-col" role="img" aria-label={`Woche ab ${shortDate(w.from)}: Belastung ${w.load}`}>
-          <span className={"load-fill"+(i===weeks.length-1?" current":"")} style={{height:w.load?`max(4px, ${pct(w.load)})`:0}}/></div>)}
-      </div>
-      <div className="load-labels" aria-hidden="true">{weeks.map(w=><div key={w.from}><b>{w.load}</b><small>{date(w.from)}</small></div>)}</div>
-      {status.ready&&<p className="chart-caption"><span className="band-key" aria-hidden="true"/>Dein Bereich {status.low}–{status.high} pro Woche · hell: diese Woche</p>}
+// The load of the last 7 days, day by day: three weeks measured, then the next seven days with
+// the plan (dashed), inside his range. The same number as the day light, so both always agree;
+// changing a session in the week above redraws it. Past weeks show the measured part only.
+function LoadTrend({plan,dk}) {
+  const today=todayStr(),ahead=dk>=today?LOAD_CHART_AHEAD:0,status=loadStatus(plan,dk),series=loadSeries(plan,dk,ahead);
+  if(!series.some(p=>p.load>0))return null;
+  const now=series.find(p=>p.date===dk),text=ahead?loadOutlookText(plan,dk,series,status):null;
+  const W=340,H=150,L=4,R=30,T=8,B=20,vals=series.map(p=>p.load);
+  // The axis starts below his lowest week, not at zero, so the line uses the height.
+  const max=Math.max(...vals,status.ready?status.high*1.15:1),min=Math.min(...vals,status.ready?status.low:Infinity)*.8;
+  const x=i=>L+i*(W-L-R)/(series.length-1),y=v=>T+(1-(v-min)/((max-min)||1))*(H-T-B);
+  const ti=series.findIndex(p=>p.date===dk),pts=series.map((p,i)=>[i,p]);
+  const path=list=>list.map(([i,p],k)=>`${k?"L":"M"}${x(i).toFixed(1)},${y(p.load).toFixed(1)}`).join(" ");
+  const mondays=pts.filter(([,p])=>dow0(new Date(p.date+"T12:00:00"))===0);
+  const level=v=>!status.ready?"":v>status.veryHigh?" very":v>status.high?" over":"";
+  const peak=ahead?Math.max(...series.filter(p=>p.future).map(p=>p.load)):null;
+  return <section aria-label="Belastung">
+    <div className="section-heading"><h2>Belastung</h2><small>letzte 7 Tage, Tag für Tag</small></div>
+    <div className="panel load-trend">
+      <div className="load-trend-head"><strong>{now.load}<small>{dk===today?"heute":shortDate(dk)}</small></strong>
+        {status.ready&&<span className={"load-tag "+status.status}>{LOAD_SHORT[status.status]}</span>}</div>
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Belastung der letzten 7 Tage: ${now.load}`+(status.ready?`, dein Bereich ${status.low} bis ${status.high}`:"")+(ahead?`, mit deinem Plan in den nächsten 7 Tagen höchstens ${peak}`:"")}>
+        {status.ready&&<>
+          <rect x={L} width={W-L-R} y={y(status.high)} height={y(status.low)-y(status.high)} className="band"/>
+          <line x1={L} x2={W-R} y1={y(status.high)} y2={y(status.high)} className="band-edge"/>
+          <line x1={L} x2={W-R} y1={y(status.low)} y2={y(status.low)} className="band-edge"/>
+          <text x={W-R+4} y={y(status.high)+3} className="axis">{status.high}</text>
+          <text x={W-R+4} y={y(status.low)+3} className="axis">{status.low}</text></>}
+        {mondays.map(([i,p])=><g key={p.date}><line x1={x(i)} x2={x(i)} y1={T} y2={H-B} className="grid"/>
+          {Math.abs(i-ti)>2&&<text x={x(i)} y={H-6} className="axis" textAnchor="middle">{Number(p.date.slice(8))}.{Number(p.date.slice(5,7))}.</text>}</g>)}
+        <line x1={x(ti)} x2={x(ti)} y1={T} y2={H-B} className="today"/>
+        <text x={x(ti)} y={H-6} className="axis now" textAnchor={ahead?"middle":"end"}>{dk===today?"Heute":shortDate(dk)}</text>
+        <path d={path(pts.filter(([i])=>i<=ti))} className="past"/>
+        {ahead>0&&<path d={path(pts.filter(([i])=>i>=ti))} className="future"/>}
+        {pts.filter(([i])=>i>ti).map(([i,p])=><circle key={p.date} cx={x(i)} cy={y(p.load)} r="3" className={"pt"+level(p.load)}/>)}
+        <circle cx={x(ti)} cy={y(now.load)} r="4.5" className="now"/>
+      </svg>
+      <p className="load-key"><span><i/>gemessen</span>{ahead>0&&<span><i className="dash"/>mit deinem Plan</span>}
+        {status.ready&&<span><i className="band"/>dein Bereich {status.low}–{status.high}</span>}</p>
+      {text&&<p className="load-outlook">{text}</p>}
+      {!status.ready&&<p className="chart-caption">Dein Bereich kommt nach 21 Tagen mit Uhrdaten. Bisher {status.historyDays}.</p>}
     </div>
   </section>;
 }

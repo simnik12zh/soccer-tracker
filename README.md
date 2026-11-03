@@ -105,7 +105,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   marks them `fromFavorite`.
 - **Plan** — Woche/Monat toggle. The week view marks today, has one edit button per day (swap
   lives in the session sheet: "Mit einem anderen Tag tauschen"), then Plan-Vorschlag,
-  Wochenziele, Belastung (six weekly bars with the normal range as one band) and Taktik.
+  Wochenziele, Belastung (a line of the 7-day load day by day: three weeks measured, the next 7 days dashed from the plan, inside his range, with a sentence on when the plan takes him over it and which sessions add most; `LoadTrend`, `loadSeries`, `loadOutlookText`) and Taktik.
 - **Körper** — body-fat 7-day mean as hero with delta vs. the previous 7 days and a 12–13 %
   goal bar; weight, fat mass and lean mass tiles (mass needs weight and body fat in the same
   window, `bodySnapshot`); trend chart (Körperfett/Gewicht, 4 Wochen / 3 Monate / Saison);
@@ -229,7 +229,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   Bereich, bald über Bereich, deutlich darüber), and Spiel gestern / heute / morgen or an active
   complaint when they apply. The Erholung ring keeps showing the night only. The expanded
   card shows the projected peak as a hollow marker. Heute shows the advice at the top of the ring card and a load card for today (value,
-  range bar with the planned part); Plan → Woche shows six weekly totals with the range.
+  range bar with the planned part); Plan → Woche shows the same 7-day number as a line, measured and planned, so chart and day light always agree; past weeks show the measured part only.
   The coach gets the whole block (`load`, whitelisted server-side). The Garmin endpoint now
   accepts up to 60 days: activities for the full window (paged by 99), steps/sleep/HRV/daily
   summaries for the last 28 days. Sync version 4 loads six weeks of activities once.

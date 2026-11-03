@@ -8,7 +8,7 @@ const source=readFileSync(new URL('../src/App.jsx',import.meta.url),'utf8');
 const helpers=source.slice(source.indexOf('const SK ='),source.indexOf('// Midnight & Ice.'))
   +source.slice(source.indexOf('const PHASE_LABELS'),source.indexOf('function Icon'));
 const FixedDate=class extends Date{constructor(...args){super(...(args.length?args:['2026-10-28T12:00:00+01:00']));}};
-const app=vm.runInNewContext(helpers+'\n({dayLoad,typicalLoads,loadStatus,plannedLoad,dayGuidance,loadOutlook,outlookLabel,weeklyLoads,buildCoachContext,daysBeforeStr})',{Date:FixedDate});
+const app=vm.runInNewContext(helpers+'\n({dayLoad,typicalLoads,loadStatus,plannedLoad,dayGuidance,loadOutlook,loadSeries,loadOutlookText,outlookLabel,weeklyLoads,buildCoachContext,daysBeforeStr})',{Date:FixedDate});
 
 const TODAY='2026-10-28';
 const g=(id,type,load,matched=true)=>({id,type,load,matched});
@@ -151,6 +151,31 @@ test('day light: a second reason of another kind joins the sentence, and the fac
   assert.equal(app.dayGuidance(plan,TODAY,[],st,mild).advice,'Gestern war Spiel, und dein Schlaf war mässig. Heute nur Spazieren oder Mobilität.');
   // Without a night from the watch: no colour, and sleep says so.
   assert.equal(app.dayGuidance(plan,TODAY,[],st,null).factors[0].text,'Schlaf ohne Daten');
+});
+
+test('the load line: measured up to today, then the plan, matching the day light outlook',()=>{
+  const plan=history();
+  plan[TODAY]={sessions:[]};
+  plan['2026-10-29']={sessions:['Team Training']};
+  plan['2026-10-30']={sessions:['Match'],match:{opponent:'X',home:true,kickoff:'20:00'}};
+  plan['2026-11-01']={sessions:['Match'],match:{opponent:'Y',home:false,kickoff:'15:00'}};
+  const st=app.loadStatus(plan,TODAY),series=app.loadSeries(plan,TODAY);
+  assert.equal(series.length,29,'21 days back, today and 7 ahead');
+  const today=series.find(p=>p.date===TODAY);
+  assert.equal(today.load,st.acute);
+  assert.equal(today.future,false);
+  const out=app.loadOutlook(plan,TODAY);
+  for(const p of out.projected.slice(1))assert.equal(series.find(x=>x.date===p.date).load,p.load,'same numbers as the day light looks at');
+  const sat=series.find(p=>p.date==='2026-10-31');
+  assert.equal(sat.load-sat.base,340,'team training and the Friday game fall inside that week, Sunday not yet');
+  const text=app.loadOutlookText(plan,TODAY,series,st);
+  assert.match(text,/^Mit deinem Plan liegst du bis \w+ über deinem Bereich, am höchsten ≈\u00A0\d+ am \w+\./);
+  assert.match(text,/Am meisten trägt dein Plan mit (Spiel|Mannschaftstraining) \(\w+\) und (Spiel|Mannschaftstraining) \(\w+\) bei\.$/);
+  // Without the games the week stays inside the range.
+  delete plan['2026-10-30'];delete plan['2026-11-01'];
+  const calm=app.loadOutlookText(plan,TODAY,app.loadSeries(plan,TODAY),st);
+  assert.match(calm,/^Mit deinem Plan kommst du die nächsten 7 Tage nicht über deinen Bereich/);
+  assert.equal(app.loadOutlookText({},TODAY,app.loadSeries({},TODAY),app.loadStatus({},TODAY)),null,'no range yet: no sentence');
 });
 
 test('weekly totals and coach context',()=>{
