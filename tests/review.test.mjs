@@ -85,11 +85,11 @@ test('the evening after a game: share of the week, tomorrow is a calm day, and t
   const first=app.reviewOutlook(only,'2026-11-02',186,[],'2026-11-02');
   assert.equal(first.share,null,'no usual week yet');
   assert.deepEqual(plain(first.next),{when:'Morgen',level:'caution',label:'Ruhiger Tag',text:'Nach dem Spiel nur Spazieren oder Mobilität.'});
-  // With the two heavy trainings in the same week the load is far above his range: red wins.
+  // With the two heavy trainings the load is high as well, but the game the day before decides tomorrow.
   const plan=season();
   const out=app.reviewOutlook(plan,'2026-11-02',186,[],'2026-11-02');
   assert.match(out.share,/^186 sind \d+ % deiner üblichen Woche \(≈ \d+\)\.$/);
-  assert.deepEqual(plain(out.next),{when:'Morgen',level:'low',label:'Erholungstag',text:'Du liegst deutlich über deinem Bereich.'});
+  assert.deepEqual(plain(out.next),{when:'Morgen',level:'caution',label:'Ruhiger Tag',text:'Nach dem Spiel nur Spazieren oder Mobilität.'});
   assert.equal(app.reviewOutlook(plan,'2026-10-26',155,[],'2026-11-02').next,null,'older sessions get no outlook');
   const ctx=app.buildCoachContext(plan,'Test','2026-11-02','2026-11-02');
   const game=ctx.sessionReviews.find(x=>x.date==='2026-11-02');

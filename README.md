@@ -105,7 +105,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   marks them `fromFavorite`.
 - **Plan** — Woche/Monat toggle. The week view marks today, has one edit button per day (swap
   lives in the session sheet: "Mit einem anderen Tag tauschen"), then Plan-Vorschlag,
-  Wochenziele, Belastung (a line of the 7-day load day by day: three weeks measured, the next 7 days dashed from the plan, inside his range, with a sentence on when the plan takes him over it and which sessions add most; `LoadTrend`, `loadSeries`, `loadOutlookText`) and Taktik.
+  Wochenziele, Belastung (a line of the acute load day by day: three weeks measured, the next 7 days dashed from the plan, inside his range, with a sentence on when the plan takes him over it and which sessions add most; `LoadTrend`, `loadSeries`, `loadOutlookText`) and Taktik.
 - **Körper** — body-fat 7-day mean as hero with delta vs. the previous 7 days and a 12–13 %
   goal bar; weight, fat mass and lean mass tiles (mass needs weight and body fat in the same
   window, `bodySnapshot`); trend chart (Körperfett/Gewicht, 4 Wochen / 3 Monate / Saison);
@@ -207,15 +207,20 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   assessment, with instructions to adapt load and not over-read one night. Sync version 3 reloads
   28 days once so baselines exist.
 - **Training load** — Garmin's own Acute Load / Training Status are not in the personal API, so
-  the app rebuilds them from each activity's Garmin training load (`activityTrainingLoad`):
-  acute = last 7 days; normal range = 0.8–1.3 × his average week over the last 4 weeks
-  (`loadStatus`, needs 21 days of watch data). `typicalLoads` = his own median per session type
+  the app rebuilds them from each activity's Garmin training load (`activityTrainingLoad`) the
+  way Garmin describes Acute Load (a weighted sum of recent days): each day's load counts fully
+  that day and fades by a seventh per day (`acuteLoads`, `LOAD_DECAY`, fitted to his Garmin
+  chart, where acute load drops about 13–17 % a day after a game); chronic = the average acute
+  load of the last 28 days, which settles at his usual weekly total; optimal = 0.8–1.4 × chronic,
+  high from 1.5, very high from 2.0 (Garmin's load-ratio bands at one decimal, `LOAD_BANDS`)
+  (`loadStatus`, needs 28 days of watch data). Values should be close to Garmin's, not identical:
+  Garmin does not publish its weights. `typicalLoads` = his own median per session type
   over 60 days; football also per kind (Spiel, Mannschaftstraining, Freizeitkick, told apart by the plan) once two of a kind are recorded, so a planned game counts like his games; `plannedLoad` adds planned, not yet done sessions. `loadOutlook` looks ahead:
-  the rolling 7-day load for today and the next 4 days with planned sessions at his typical load
+  the acute load for today and the next 4 days with planned sessions at his typical load
   (peak = highest window). `dayGuidance` turns all of it into one traffic light for today with a
   sentence that names the deciding reason, so colour and words never disagree; the strictest reason
-  wins. Red (Erholungstag, only easy or rest): complaint Stark, low recovery, load above 1.5 × his
-  average week. Orange (Ruhiger Tag, keep quality, trim volume, nothing extra): complaint Mittel,
+  wins. Red (Erholungstag, only easy or rest): complaint Stark, low recovery, load very high (from 2.0 ×
+  his chronic load). Orange (Ruhiger Tag, keep quality, trim volume, nothing extra): complaint Mittel,
   the day before a game (the next game wins), the day after a game, limited recovery, load above
   the range, today's plan or the next 4 days pushing above it. Green (Bereit, do the plan fully)
   otherwise; the game day itself stays green after a good night. Without a night from the watch
@@ -229,7 +234,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   Bereich, bald über Bereich, deutlich darüber), and Spiel gestern / heute / morgen or an active
   complaint when they apply. The Erholung ring keeps showing the night only. The expanded
   card shows the projected peak as a hollow marker. Heute shows the advice at the top of the ring card and a load card for today (value,
-  range bar with the planned part); Plan → Woche shows the same 7-day number as a line, measured and planned, so chart and day light always agree; past weeks show the measured part only.
+  range bar with the planned part); Plan → Woche shows the same acute load as a line, with his range moving along with the chronic load like in Garmin's chart, measured and planned, so chart and day light always agree; past weeks show the measured part only.
   The coach gets the whole block (`load`, whitelisted server-side). The Garmin endpoint now
   accepts up to 60 days: activities for the full window (paged by 99), steps/sleep/HRV/daily
   summaries for the last 28 days. Sync version 4 loads six weeks of activities once.

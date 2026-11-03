@@ -8,12 +8,12 @@ const source=readFileSync(new URL('../src/App.jsx',import.meta.url),'utf8');
 const helpers=source.slice(source.indexOf('const SK ='),source.indexOf('// Midnight & Ice.'))
   +source.slice(source.indexOf('const PHASE_LABELS'),source.indexOf('function Icon'));
 const FixedDate=class extends Date{constructor(...args){super(...(args.length?args:['2026-10-28T12:00:00+01:00']));}};
-const app=vm.runInNewContext(helpers+'\n({dayLoad,typicalLoads,loadStatus,plannedLoad,dayGuidance,loadOutlook,loadSeries,loadOutlookText,outlookLabel,weeklyLoads,buildCoachContext,daysBeforeStr})',{Date:FixedDate});
+const app=vm.runInNewContext(helpers+'\n({dayLoad,typicalLoads,loadStatus,plannedLoad,dayGuidance,loadOutlook,loadSeries,loadOutlookText,acuteLoads,outlookLabel,weeklyLoads,buildCoachContext,daysBeforeStr})',{Date:FixedDate});
 
 const TODAY='2026-10-28';
 const g=(id,type,load,matched=true)=>({id,type,load,matched});
-// Four weeks with ~400 load per week: Gym 60 Mon, run 50 Tue, team 170 Thu, run 50 Sat, walk 20 Sun, futsal 50.
-function history(weeks=4){
+// Eight weeks with ~354 load per week: Gym 60 Mon, run 50 Tue, team 170 Thu, run 50 Sat, walk 20 Sun, futsal 50.
+function history(weeks=8){
   const plan={};
   for(let w=0;w<weeks;w++){
     const base=app.daysBeforeStr(TODAY,7*w+6); // a Thursday-anchored week ending today
@@ -53,10 +53,15 @@ test('a planned game is estimated from earlier games, a training from trainings'
   assert.equal(app.plannedLoad(plan,'2026-10-29',few).load,few.soccer);
 });
 
-test('acute load is compared with his own four-week average',()=>{
+test('acute load fades day by day; chronic is its four-week average, on the scale of a usual week',()=>{
+  // Eight steady weeks of ~354 per week: the chronic level settles at the weekly total.
+  const st=app.loadStatus(history(8),TODAY);
+  assert.deepEqual(plain(st),{ready:true,acute:334,weekly:353,low:282,high:512,veryHigh:688,ratio:0.95,status:'optimal',headroom:178});
+  // A single session counts fully that day, then loses a seventh per day.
+  const one={'2026-10-21':{garmin:[g('s','soccer',140)]}};
+  const days=app.acuteLoads(one,'2026-10-21','2026-10-24').map(p=>Math.round(p.load));
+  assert.deepEqual(plain(days),[140,120,103,88]);
   const plan=history();
-  const st=app.loadStatus(plan,TODAY);
-  assert.deepEqual(plain(st),{ready:true,acute:354,weekly:354,low:283,high:460,veryHigh:531,ratio:1,status:'optimal',headroom:106});
   // A big extra week pushes the ratio up.
   plan[TODAY]={...plan[TODAY],garmin:[...plan[TODAY].garmin,g('x','soccer',250)]};
   const heavy=app.loadStatus(plan,TODAY);
@@ -76,9 +81,9 @@ test('advice uses the planned session, spare room and recovery',()=>{
   assert.deepEqual(plain(planned),{sessions:['Team Training'],load:170});
   const advice=app.dayGuidance(plan,TODAY,[],st,null).advice;
   assert.match(advice,/Mannschaftstraining \(≈ 170\)/);
-  // Nothing planned and right at his average: no extra needed (extras only up to ~1.1 × average).
+  // Nothing planned, mid-week a little below his usual level: room for an easy run (extras only up to ~1.1 × usual).
   plan[TODAY]={sessions:[]};
-  assert.equal(app.dayGuidance(plan,TODAY,[],app.loadStatus(plan,TODAY),null).advice,'Du bist im Bereich. Mehr braucht es heute nicht.');
+  assert.equal(app.dayGuidance(plan,TODAY,[],app.loadStatus(plan,TODAY),null).advice,'Spielraum ca. 73: Ein lockerer Lauf (≈ 52) liegt noch drin.');
   // Low recovery overrules spare load.
   assert.match(app.dayGuidance(plan,TODAY,[],app.loadStatus(plan,TODAY),{level:'low'}).advice,/Erholung ist heute niedrig/);
   // Above the range: no extras.
@@ -156,7 +161,7 @@ test('day light: one colour with a matching sentence, looking ahead to games',()
 test('day light: a second reason of another kind joins the sentence, and the factors show all of them',()=>{
   const plan=history();
   // A game yesterday instead of the easy run: a good night, but the load is above the range.
-  plan['2026-10-27']={sessions:['Match'],completed:true,match:{opponent:'X',home:true,kickoff:'20:00'},garmin:[g('m','soccer',260)]};
+  plan['2026-10-27']={sessions:['Match'],completed:true,match:{opponent:'X',home:true,kickoff:'20:00'},garmin:[g('m','soccer',400)]};
   plan[TODAY]={sessions:['Walking']};
   const st=app.loadStatus(plan,TODAY);
   assert.equal(st.status,'high');
@@ -186,7 +191,7 @@ test('the load line: measured up to today, then the plan, matching the day light
   const out=app.loadOutlook(plan,TODAY);
   for(const p of out.projected.slice(1))assert.equal(series.find(x=>x.date===p.date).load,p.load,'same numbers as the day light looks at');
   const sat=series.find(p=>p.date==='2026-10-31');
-  assert.equal(sat.load-sat.base,340,'team training and the Friday game fall inside that week, Sunday not yet');
+  assert.equal(sat.load-sat.base,270,'Thursday training and Friday game, faded by two days and one day; Sunday not yet');
   const text=app.loadOutlookText(plan,TODAY,series,st);
   assert.match(text,/^Mit deinem Plan liegst du bis \w+ über deinem Bereich, am höchsten ≈\u00A0\d+ am \w+\./);
   assert.match(text,/Am meisten trägt dein Plan mit (Spiel|Mannschaftstraining) \(\w+\) und (Spiel|Mannschaftstraining) \(\w+\) bei\.$/);
@@ -205,7 +210,7 @@ test('weekly totals and coach context',()=>{
   assert.ok(weeks.every(w=>Number.isInteger(w.load)));
   const ctx=app.buildCoachContext(plan,'Test',TODAY,TODAY);
   assert.equal(ctx.load.ready,true);
-  assert.deepEqual(plain(ctx.load.optimalRange),[283,460]);
+  assert.deepEqual(plain(ctx.load.optimalRange),[277,501]);
   assert.equal(ctx.load.typicalLoadBySession.Fussball,170);
   assert.equal(ctx.load.last6Weeks.length,6);
   assert.equal(typeof ctx.load.appAdvice,'string');

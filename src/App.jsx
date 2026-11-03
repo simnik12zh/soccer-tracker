@@ -738,8 +738,11 @@ function socialForCoach(list,holidays,today=todayStr(),now=new Date()) {
 
 // ─── Training load ───────────────────────────────────────────────────────────────
 // Garmin's own Acute Load / Training Status is not in the personal API, so the app
-// rebuilds the idea from each activity's Garmin training load: acute = last 7 days,
-// normal range = 0.8–1.3 × his average week of the last 4 weeks. An orientation for
+// rebuilds it from each activity's Garmin training load, the way Garmin describes it:
+// acute = a weighted sum where each day's load counts fully that day and fades by about
+// a seventh per day (fitted to his Garmin chart); chronic = the average acute load of the
+// last 28 days; optimal = 0.8–1.4 × chronic, high from 1.5, very high from 2.0 (Garmin's
+// bands, rounded to one decimal like Garmin shows the ratio). An orientation for
 // dosing training, not an injury predictor. Only activities recorded on the watch count.
 // Planned football is estimated by kind (games from games, team trainings from team trainings);
 // until two of a kind are recorded, from all football together.
@@ -764,16 +767,29 @@ function typicalLoads(plan,dk=todayStr()) {
   return Object.fromEntries(Object.entries(by).filter(([t,v])=>!LOAD_FALLBACK[t]||v.length>=2)
     .map(([t,v])=>{v.sort((a,b)=>a-b);const m=v.length>>1;return [t,Math.round(v.length%2?v[m]:(v[m-1]+v[m])/2)];}));
 }
+const LOAD_DECAY=6/7,LOAD_CHRONIC_DAYS=28,LOAD_WARMUP=120;
+const LOAD_BANDS={low:.75,high:1.45,veryHigh:1.95};   // Garmin's 0.8 / 1.4 / 1.5 / 2.0 at one decimal
+// Day by day from `from` to `to`: yesterday's acute load fades by a seventh, the day's own
+// load comes on top. From `plannedFrom` on, planned sessions count at his usual load.
+function acuteLoads(plan,from,to,plannedFrom=null,typical=null) {
+  const out=[];let a=0;
+  for(let d=from;d<=to;d=daysBeforeStr(d,-1)){
+    a=a*LOAD_DECAY+dayLoad(plan[d])+(plannedFrom&&d>=plannedFrom?plannedLoad(plan,d,typical).load:0);
+    out.push({date:d,load:a});
+  }
+  return out;
+}
+const chronicOf=(series,i)=>{const w=series.slice(Math.max(0,i-LOAD_CHRONIC_DAYS+1),i+1);return w.reduce((n,p)=>n+p.load,0)/LOAD_CHRONIC_DAYS;};
+const loadBand=chronic=>({low:Math.round(chronic*.8),high:Math.round(chronic*LOAD_BANDS.high),veryHigh:Math.round(chronic*LOAD_BANDS.veryHigh)});
 function loadStatus(plan,dk=todayStr()) {
-  const sum=(from,n)=>{let total=0;for(let i=from;i<from+n;i++)total+=dayLoad(plan[daysBeforeStr(dk,i)]);return total;};
   const tracked=Object.keys(plan).filter(d=>d<=dk&&Array.isArray(plan[d]?.garmin)&&plan[d].garmin.length).sort();
   const utc=x=>{const [y,m,d]=x.split('-').map(Number);return Date.UTC(y,m-1,d);};
   const historyDays=tracked.length?Math.round((utc(dk)-utc(tracked[0]))/86400000)+1:0;
-  const acute=Math.round(sum(0,7)),weekly=sum(0,28)/4;
-  if(historyDays<21||weekly<=0)return {ready:false,historyDays,acute};
-  const ratio=acute/weekly,low=Math.round(weekly*0.8),high=Math.round(weekly*1.3);
-  return {ready:true,acute,weekly:Math.round(weekly),low,high,veryHigh:Math.round(weekly*1.5),ratio:Math.round(ratio*100)/100,
-    status:ratio<0.8?'low':ratio<=1.3?'optimal':ratio<=1.5?'high':'veryHigh',headroom:Math.max(0,high-acute)};
+  const series=acuteLoads(plan,daysBeforeStr(dk,LOAD_WARMUP),dk),acute=Math.round(series.at(-1).load),chronic=chronicOf(series,series.length-1);
+  if(historyDays<LOAD_CHRONIC_DAYS||chronic<=0)return {ready:false,historyDays,acute};
+  const ratio=acute/chronic,band=loadBand(chronic);
+  return {ready:true,acute,weekly:Math.round(chronic),...band,ratio:Math.round(ratio*100)/100,
+    status:ratio<LOAD_BANDS.low?'low':ratio<LOAD_BANDS.high?'optimal':ratio<LOAD_BANDS.veryHigh?'high':'veryHigh',headroom:Math.max(0,band.high-acute)};
 }
 // Today's planned sessions that are not done yet, with their typical load (when known).
 function plannedLoad(plan,dk,typical) {
@@ -782,16 +798,14 @@ function plannedLoad(plan,dk,typical) {
   const sessions=getSessions(e).filter(s=>sessionLoad(typical,s)>0);
   return {sessions,load:sessions.reduce((n,s)=>n+sessionLoad(typical,s),0)};
 }
-// Forward view: the rolling 7-day load for today and the next LOAD_HORIZON days, from what is
-// done plus the planned, not yet done sessions at his own typical load. An extra session today
-// counts in every one of these windows, so it fits only if the highest one stays near his
-// average week (LOAD_EXTRA_TARGET × weekly): planning up to the top of the range is not the goal.
+// Forward view: the acute load for today and the next LOAD_HORIZON days, from what is done
+// plus the planned, not yet done sessions at his own typical load. An extra session today
+// lifts every one of these days, so it fits only if the highest one stays near his usual
+// level (LOAD_EXTRA_TARGET × chronic): planning up to the top of the range is not the goal.
 const LOAD_HORIZON=4,LOAD_EXTRA_TARGET=1.1;
 function loadOutlook(plan,dk=todayStr(),typical=typicalLoads(plan,dk),horizon=LOAD_HORIZON) {
-  const loadOn=x=>dayLoad(plan[x])+(x<dk?0:plannedLoad(plan,x,typical).load);
   const days=Array.from({length:horizon+1},(_,i)=>daysBeforeStr(dk,-i));
-  const windowLoad=d=>{let n=0;for(let i=0;i<7;i++)n+=loadOn(daysBeforeStr(d,i));return Math.round(n);};
-  const projected=days.map(date=>({date,load:windowLoad(date)}));
+  const projected=acuteLoads(plan,daysBeforeStr(dk,LOAD_WARMUP),days.at(-1),dk,typical).slice(-days.length).map(p=>({date:p.date,load:Math.round(p.load)}));
   const upcoming=days.slice(1).map(date=>({date,...plannedLoad(plan,date,typical)})).filter(u=>u.load>0);
   return {projected,peak:projected.reduce((a,b)=>b.load>a.load?b:a),upcoming};
 }
@@ -832,7 +846,7 @@ function dayLightRule(plan,dk,complaints,status,recovery) {
   if(recovery?.level==='caution')return out('caution',`${night}. ${calm}`,'night');
   // Green when the night was fine; without watch data from the night there is no colour.
   const fine=recovery?'good':null;
-  if(!status.ready)return out(fine,`Noch zu wenig Daten von der Uhr: ${status.historyDays} von 21 Tagen.`);
+  if(!status.ready)return out(fine,`Noch zu wenig Daten von der Uhr: ${status.historyDays} von ${LOAD_CHRONIC_DAYS} Tagen.`);
   const typical=typicalLoads(plan,dk),planned=plannedLoad(plan,dk,typical),label=planned.sessions.map(displayName).join(' + ');
   if(status.status==='high')return out('caution',matchToday?'Du liegst schon über deinem Bereich. Vor dem Spiel nichts extra.'
     :planned.load?`Du liegst schon über deinem Bereich. ${label} (≈ ${planned.load}) heute kürzer oder lockerer halten.`
@@ -1016,30 +1030,31 @@ function weeklyLoads(plan,dk=todayStr(),n=6) {
     let total=0;for(let d=0;d<7;d++)total+=dayLoad(plan[daysBeforeStr(from,-d)]);return {from,load:Math.round(total)};});
 }
 
-// Day by day the load of the 7 days up to each date, the number the day light uses:
-// recorded up to dk, then with his planned sessions (today's open ones included) at his
-// usual load per kind. `base` is the same without the plan, to tell the past from the plan.
+// Day by day the acute load, the number the day light uses, with that day's range: measured
+// up to dk, then with his planned sessions (today's open ones included) at his usual load per
+// kind. `base` is the same without the plan, to tell the past from the plan.
 const LOAD_CHART_BACK=21,LOAD_CHART_AHEAD=7;
 function loadSeries(plan,dk=todayStr(),ahead=LOAD_CHART_AHEAD,back=LOAD_CHART_BACK,typical=typicalLoads(plan,dk)) {
-  const on=(d,withPlan)=>dayLoad(plan[d])+(withPlan&&d>=dk?plannedLoad(plan,d,typical).load:0);
-  const week=(d,withPlan)=>{let n=0;for(let i=0;i<7;i++)n+=on(daysBeforeStr(d,i),withPlan);return Math.round(n);};
-  return Array.from({length:back+ahead+1},(_,i)=>daysBeforeStr(dk,back-i)).map(date=>date<=dk
-    ?{date,load:week(date,false),future:false}:{date,load:week(date,true),base:week(date,false),future:true});
+  const from=daysBeforeStr(dk,back+LOAD_WARMUP),to=daysBeforeStr(dk,-ahead);
+  const measured=acuteLoads(plan,from,to),planned=acuteLoads(plan,from,to,dk,typical);
+  const used=measured.map((p,i)=>p.date<=dk?p:planned[i]),n=back+ahead+1;
+  return used.slice(-n).map((p,k)=>{const i=used.length-n+k,band=loadBand(chronicOf(used,i));
+    return {date:p.date,load:Math.round(p.load),future:p.date>dk,...(p.date>dk?{base:Math.round(measured[i].load)}:{}),...band};});
 }
 // One sentence on where the plan takes the load: over the range until when and why, or not.
 function loadOutlookText(plan,dk,series,status,typical=typicalLoads(plan,dk)) {
   const future=series.filter(p=>p.future),weekday=d=>new Date(d+'T12:00:00').toLocaleDateString('de-CH',{weekday:'long'});
   if(!status.ready||!future.length)return null;
-  const over=future.filter(p=>p.load>status.high),top=list=>list.reduce((a,b)=>b.load>a.load?b:a);
+  const over=future.filter(p=>p.load>p.high),top=list=>list.reduce((a,b)=>b.load>a.load?b:a);
   if(!over.length){
-    const peak=top(future),from=future.findIndex((p,i)=>future.slice(i).every(x=>x.load<status.low));
+    const peak=top(future),from=future.findIndex((p,i)=>future.slice(i).every(x=>x.load<x.low));
     if(from===0)return 'Mit deinem Plan bleibst du die nächsten 7 Tage unter deinem Bereich. Da hat noch eine Einheit Platz.';
     return `Mit deinem Plan kommst du die nächsten 7 Tage nicht über deinen Bereich, höchstens ≈\u00A0${peak.load} am ${weekday(peak.date)}.`
       +(from>0?` Ab ${weekday(future[from].date)} liegst du darunter, da hat wieder etwas Platz.`:'');
   }
   const peak=top(over),last=over.at(-1);
   let text=`Mit deinem Plan liegst du ${over.length===1?`am ${weekday(peak.date)}`:`bis ${weekday(last.date)}`} über deinem Bereich, am höchsten ≈\u00A0${peak.load} am ${weekday(peak.date)}.`;
-  const past=future.filter(p=>p.base>status.high);
+  const past=future.filter(p=>p.base>p.high);
   if(past.length)text+=` Bis ${weekday(past.at(-1).date)} liegt das schon an den letzten Tagen.`;
   // The planned sessions inside the peak's 7 days that add the most.
   const sessions=Array.from({length:7},(_,i)=>daysBeforeStr(peak.date,i)).filter(d=>d>=dk)
@@ -1328,13 +1343,13 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
     history:{allTime:stats(dates[0]&&dates[0]<referenceDate?dates[0]:referenceDate,referenceDate),
       last8Weeks:Array.from({length:8},(_,i)=>{const from=daysBeforeStr(weekDays[0],(8-i)*7);return stats(from,daysBeforeStr(from,-6));})},
     body:{weight:bodyMetric('weight'),bodyFat:bodyMetric('bodyFat')},
-    load:(()=>{const st=loadStatus(plan,referenceDate);if(!st.ready)return {ready:false,daysOfWatchData:st.historyDays,acute7Days:st.acute};
+    load:(()=>{const st=loadStatus(plan,referenceDate);if(!st.ready)return {ready:false,daysOfWatchData:st.historyDays,acuteLoad:st.acute};
       const typical=typicalLoads(plan,referenceDate),planned=plannedLoad(plan,referenceDate,typical);
-      return {ready:true,acute7Days:st.acute,averageWeek4Weeks:st.weekly,optimalRange:[st.low,st.high],ratio:st.ratio,status:st.status,headroomToday:st.headroom,
+      return {ready:true,acuteLoad:st.acute,chronicLoad:st.weekly,optimalRange:[st.low,st.high],ratio:st.ratio,status:st.status,headroomToday:st.headroom,
         plannedTodayLoad:planned.load||null,typicalLoadBySession:Object.fromEntries(Object.entries(typical).map(([k,v])=>[GARMIN_LABELS[k]||k,v])),
         last6Weeks:weeklyLoads(plan,referenceDate,6),
         outlook:(o=>({plannedNextDays:o.upcoming.map(u=>({date:u.date,sessions:u.sessions.map(displayName),typicalLoad:u.load})),
-          projected7Days:o.projected,projectedPeak:o.peak}))(loadOutlook(plan,referenceDate,typical)),
+          projectedAcute:o.projected,projectedPeak:o.peak}))(loadOutlook(plan,referenceDate,typical)),
         appAdvice:dayGuidance(plan,referenceDate,complaints,st).advice};})(),
     complaints:complaintsForCoach(complaints,referenceDate),
     social:socialForCoach(social?.matches,social?.holidays,referenceDate),
@@ -1679,7 +1694,7 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .load-bar .marker{position:absolute;top:-5px;width:4px;height:22px;border-radius:4px;background:var(--text);transform:translateX(-50%);box-shadow:0 0 0 3px #1B2935}
 .load-trend{padding:16px 14px 14px}.load-trend-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
 .load-trend-head strong{font-size:20px;font-weight:500;letter-spacing:-.03em;font-variant-numeric:tabular-nums}.load-trend-head strong small{font-size:12px;font-weight:400;color:var(--muted);letter-spacing:0;margin-left:4px}
-.load-trend svg{display:block;width:100%;height:auto;overflow:visible}.load-trend .band{fill:rgba(143,209,158,.12)}.load-trend .band-edge{stroke:rgba(143,209,158,.55);stroke-width:1;stroke-dasharray:3 3}
+.load-trend svg{display:block;width:100%;height:auto;overflow:visible}.load-trend .band{fill:rgba(143,209,158,.12)}.load-trend .band-edge{fill:none;stroke:rgba(143,209,158,.55);stroke-width:1;stroke-dasharray:3 3}
 .load-trend .grid{stroke:var(--line-soft);stroke-width:1}.load-trend .axis{font-size:9px;fill:var(--faint);font-variant-numeric:tabular-nums}.load-trend .axis.now{fill:var(--accent-ink)}
 .load-trend .today{stroke:var(--accent);stroke-width:1;opacity:.6}
 .load-trend .past,.load-trend .future{fill:none;stroke:var(--accent-ink);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}.load-trend .future{stroke-dasharray:4 4;opacity:.85}
@@ -2658,7 +2673,7 @@ function LoadCard({plan,dk}) {
   return <section className="panel load-card" aria-label="Trainingsbelastung">
     <button className="load-summary" aria-expanded={open} onClick={()=>setOpen(o=>!o)}>
       <span className="eyebrow">Belastung</span>
-      <span className="load-inline"><strong>{status.acute}</strong><small>7 Tage</small><span className={"load-tag "+status.status}>{LOAD_SHORT[status.status]}</span>
+      <span className="load-inline"><strong>{status.acute}</strong><small>akut</small><span className={"load-tag "+status.status}>{LOAD_SHORT[status.status]}</span>
         <Icon name="chevron" size={16} className={"chev"+(open?" up":"")}/></span>
     </button>
     {open&&<div className="load-details">
@@ -2672,7 +2687,7 @@ function LoadCard({plan,dk}) {
       </div>
       <p className="load-range">Dein Bereich {status.low}–{status.high}{planned.load>0?` · heute geplant ≈ ${planned.load}`:""}</p>
       {outlook.upcoming.length>0&&<p className="load-range">Mit deinem Plan: bis ≈ {peak.load} ({DN[dow0(new Date(peak.date+"T12:00:00"))]})</p>}
-      <p className="chart-caption">Garmin-Trainingsbelastung der letzten 7 Tage. Bereich: dein Wochenschnitt der letzten 4 Wochen × 0.8–1.3. Zählt nur, was die Uhr aufzeichnet. Vorschau (Rahmen): geplante Einheiten der nächsten {LOAD_HORIZON} Tage mit deiner üblichen Belastung. Eine Zusatzeinheit gibt es nur, wenn du damit höchstens etwa 10 % über deinem Wochenschnitt landest.</p>
+      <p className="chart-caption">Gerechnet wie Garmins «Acute Load»: Jede Einheit zählt am Tag voll und klingt danach jeden Tag um etwa ein Siebtel ab. Bereich: 0.8–1.4 × deine langfristige Belastung (Schnitt der letzten 4 Wochen). Zählt nur, was die Uhr aufzeichnet. Vorschau (Rahmen): geplante Einheiten der nächsten {LOAD_HORIZON} Tage mit deiner üblichen Belastung. Eine Zusatzeinheit gibt es nur, wenn du damit höchstens etwa 10 % über deinem üblichen Niveau landest.</p>
     </div>}
   </section>;
 }
@@ -3069,38 +3084,39 @@ function LoadTrend({plan,dk}) {
   const now=series.find(p=>p.date===dk),text=ahead?loadOutlookText(plan,dk,series,status):null;
   const W=340,H=150,L=4,R=30,T=8,B=20,vals=series.map(p=>p.load);
   // The axis starts below his lowest week, not at zero, so the line uses the height.
-  const max=Math.max(...vals,status.ready?status.high*1.15:1),min=Math.min(...vals,status.ready?status.low:Infinity)*.8;
+  const max=Math.max(...vals,...(status.ready?series.map(p=>p.high*1.1):[1])),min=Math.min(...vals,...(status.ready?series.map(p=>p.low):[Infinity]))*.8;
   const x=i=>L+i*(W-L-R)/(series.length-1),y=v=>T+(1-(v-min)/((max-min)||1))*(H-T-B);
   const ti=series.findIndex(p=>p.date===dk),pts=series.map((p,i)=>[i,p]);
   const path=list=>list.map(([i,p],k)=>`${k?"L":"M"}${x(i).toFixed(1)},${y(p.load).toFixed(1)}`).join(" ");
   const mondays=pts.filter(([,p])=>dow0(new Date(p.date+"T12:00:00"))===0);
-  const level=v=>!status.ready?"":v>status.veryHigh?" very":v>status.high?" over":"";
+  const level=p=>!status.ready?"":p.load>p.veryHigh?" very":p.load>p.high?" over":"";
+  // His range moves with his chronic load, as in Garmin's chart.
+  const edge=k=>pts.map(([i,p])=>`${x(i).toFixed(1)},${y(p[k]).toFixed(1)}`).join(" "),end=series.at(-1);
   const peak=ahead?Math.max(...series.filter(p=>p.future).map(p=>p.load)):null;
   return <section aria-label="Belastung">
-    <div className="section-heading"><h2>Belastung</h2><small>letzte 7 Tage, Tag für Tag</small></div>
+    <div className="section-heading"><h2>Belastung</h2><small>akut, Tag für Tag</small></div>
     <div className="panel load-trend">
       <div className="load-trend-head"><strong>{now.load}<small>{dk===today?"heute":shortDate(dk)}</small></strong>
         {status.ready&&<span className={"load-tag "+status.status}>{LOAD_SHORT[status.status]}</span>}</div>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Belastung der letzten 7 Tage: ${now.load}`+(status.ready?`, dein Bereich ${status.low} bis ${status.high}`:"")+(ahead?`, mit deinem Plan in den nächsten 7 Tagen höchstens ${peak}`:"")}>
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Akute Belastung: ${now.load}`+(status.ready?`, dein Bereich ${status.low} bis ${status.high}`:"")+(ahead?`, mit deinem Plan in den nächsten 7 Tagen höchstens ${peak}`:"")}>
         {status.ready&&<>
-          <rect x={L} width={W-L-R} y={y(status.high)} height={y(status.low)-y(status.high)} className="band"/>
-          <line x1={L} x2={W-R} y1={y(status.high)} y2={y(status.high)} className="band-edge"/>
-          <line x1={L} x2={W-R} y1={y(status.low)} y2={y(status.low)} className="band-edge"/>
-          <text x={W-R+4} y={y(status.high)+3} className="axis">{status.high}</text>
-          <text x={W-R+4} y={y(status.low)+3} className="axis">{status.low}</text></>}
+          <polygon points={edge("high")+" "+pts.slice().reverse().map(([i,p])=>`${x(i).toFixed(1)},${y(p.low).toFixed(1)}`).join(" ")} className="band"/>
+          <polyline points={edge("high")} className="band-edge"/><polyline points={edge("low")} className="band-edge"/>
+          <text x={W-R+4} y={y(end.high)+3} className="axis">{end.high}</text>
+          <text x={W-R+4} y={y(end.low)+3} className="axis">{end.low}</text></>}
         {mondays.map(([i,p])=><g key={p.date}><line x1={x(i)} x2={x(i)} y1={T} y2={H-B} className="grid"/>
           {Math.abs(i-ti)>2&&<text x={x(i)} y={H-6} className="axis" textAnchor="middle">{Number(p.date.slice(8))}.{Number(p.date.slice(5,7))}.</text>}</g>)}
         <line x1={x(ti)} x2={x(ti)} y1={T} y2={H-B} className="today"/>
         <text x={x(ti)} y={H-6} className="axis now" textAnchor={ahead?"middle":"end"}>{dk===today?"Heute":shortDate(dk)}</text>
         <path d={path(pts.filter(([i])=>i<=ti))} className="past"/>
         {ahead>0&&<path d={path(pts.filter(([i])=>i>=ti))} className="future"/>}
-        {pts.filter(([i])=>i>ti).map(([i,p])=><circle key={p.date} cx={x(i)} cy={y(p.load)} r="3" className={"pt"+level(p.load)}/>)}
+        {pts.filter(([i])=>i>ti).map(([i,p])=><circle key={p.date} cx={x(i)} cy={y(p.load)} r="3" className={"pt"+level(p)}/>)}
         <circle cx={x(ti)} cy={y(now.load)} r="4.5" className="now"/>
       </svg>
       <p className="load-key"><span><i/>gemessen</span>{ahead>0&&<span><i className="dash"/>mit deinem Plan</span>}
-        {status.ready&&<span><i className="band"/>dein Bereich {status.low}–{status.high}</span>}</p>
+        {status.ready&&<span><i className="band"/>dein Bereich, heute {status.low}–{status.high}</span>}</p>
       {text&&<p className="load-outlook">{text}</p>}
-      {!status.ready&&<p className="chart-caption">Dein Bereich kommt nach 21 Tagen mit Uhrdaten. Bisher {status.historyDays}.</p>}
+      {!status.ready&&<p className="chart-caption">Dein Bereich kommt nach {LOAD_CHRONIC_DAYS} Tagen mit Uhrdaten. Bisher {status.historyDays}.</p>}
     </div>
   </section>;
 }
