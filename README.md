@@ -25,7 +25,10 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 
 - **`src/App.jsx`** — entire UI in one file by design. Four bottom-tab views (Heute / Plan /
   Körper / Saison), a full-screen Coach chat (header button "Trainer") and a settings screen
-  (gear icon in the header, also linked at the end of Saison). Midnight & Ice dark palette:
+  (gear icon in the header, also linked at the end of Saison). The header logo is the runner
+  from the app icon next to the Athlete wordmark (drawn with GPT Image): two transparent ice-blue
+  PNGs in `src/assets/brand/`, cut out of their navy backgrounds, a little smaller on screens
+  under 360 px. Midnight & Ice dark palette:
   CSS tokens on `:root` in `UI_CSS` (`--bg`, `--surface`, `--panel`, `--line*`, `--text`,
   `--muted`, `--faint`, `--accent*`, `--good`, `--warn`, `--bad`, `--gold*`; radii `--r-s` 12,
   `--r-m` 14, `--r-l` 22, `--r-pill`), legacy inline styles still use `C`. Text is at least

@@ -1,4 +1,6 @@
 import { Fragment, useState, useEffect, useRef } from "react";
+import logoMark from "./assets/brand/logo-mark.png";
+import logoWord from "./assets/brand/logo-word.png";
 
 const SK = "soccer-v3";
 const SK_PREV = "soccer-v2";   // migrated from on first load of this version
@@ -1535,6 +1537,11 @@ function Icon({name,size=22,...props}) {
 function SessionMarks({entry,size=16}) {
   return <span className="session-marks">{getSessions(entry).map(s=><Icon key={s} name={s} size={size}/>)}</span>;
 }
+// The runner from the app icon and the Athlete wordmark, both in the accent ice blue.
+function BrandLogo() {
+  return <span className="brand-logo"><img className="brand-mark" src={logoMark} alt="" width="95" height="112"/>
+    <img className="brand-word" src={logoWord} alt="Athlete" width="424" height="80"/></span>;
+}
 function PitchTexture() {
   return <svg className="pitch-texture" viewBox="0 0 500 300" fill="none" aria-hidden="true">
     <g transform="translate(270 -95) rotate(28)" stroke="currentColor" strokeWidth="1">
@@ -1557,6 +1564,8 @@ button,a,input,summary{touch-action:manipulation}h1,h2,h3,p{margin:0}h1,h2,h3{fo
 .pitch-texture{position:absolute;inset:0;width:100%;height:100%;color:var(--accent);opacity:.14;z-index:-1;pointer-events:none}
 .brand-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:8px}
 .brand{font-size:11px;letter-spacing:.26em;color:var(--accent-ink);font-weight:600}
+.brand-logo{--h:clamp(14px,calc((100vw - 214px) / 7),20px);display:flex;align-items:center;gap:calc(var(--h) / 2);min-width:0}
+.brand-logo img{display:block;width:auto;flex:none}.brand-mark{height:calc(var(--h) * 1.4)}.brand-word{height:var(--h)}
 .icon-btn{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;border:0;border-radius:var(--r-s);background:transparent;color:var(--muted)}
 .app-header h1{font-size:clamp(28px,7.6vw,38px);line-height:1.1;margin-bottom:4px;letter-spacing:-.05em}
 .subtitle{color:var(--muted);font-size:13px;line-height:1.5}
@@ -2241,7 +2250,7 @@ function SetupScreen({initName,initProteinTarget=DEFAULT_PROTEIN_TARGET,isEdit,o
   };
 
   return <main className="app-shell settings-screen">
-    <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Athlete</span>
+    <header className="app-header"><PitchTexture/><div className="brand-row"><BrandLogo/>
       {onBack&&<button className="icon-btn" aria-label="Zurück" onClick={onBack}><Icon name="close"/></button>}</div>
       <h1>{isEdit?"Dein Profil.":"Deine Saison.\nDein Fortschritt."}</h1>
       <p className="header-subtitle">{isEdit?"Deine Daten bleiben bei dir.":"Trainiere bewusst. Bleib im Spiel."}</p></header>
@@ -4230,7 +4239,7 @@ export default function App() {
   else if(screen==="coach")content=<CoachScreen viewKey={view==="today"?offsetDate(dayOff):today} plan={plan} playerName={playerName} proteinTarget={proteinTarget} complaints={complaints} social={social}
     initialInput={coachDraft} onBack={()=>{setCoachDraft("");setScreen("main");}}/>;
   else content=<main className="app-shell">
-    <header className="app-header"><PitchTexture/><div className="brand-row"><span className="brand">Athlete</span>
+    <header className="app-header"><PitchTexture/><div className="brand-row"><BrandLogo/>
       <div className="head-actions"><button className="icon-btn head-settings" aria-label="Einstellungen" onClick={()=>{setScreen("setup");window.scrollTo(0,0);}}><Icon name="settings" size={20}/></button>
         <button className="coach-pill" aria-label="Trainer öffnen" onClick={()=>setScreen("coach")}><Icon name="coach" size={17}/><span>Trainer</span></button></div></div>
       <h1>{headings[view]}</h1>
