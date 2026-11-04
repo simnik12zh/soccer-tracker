@@ -1158,6 +1158,53 @@ function applyWithingsImport(plan,days,today=todayStr(),cleanFrom=null) {
   return {plan:next,updated,removed};
 }
 
+// ─── Early warning: weigh-ins, tempo, steps ─────────────────────────────────────
+// From his own history: every rebound came with fewer than three weigh-ins a week, and
+// losing more than about 0.8 kg a month cost lean mass. Weight is the alarm, not lean mass:
+// the scale's lean mass moves with water and glycogen, so it only counts over many weeks.
+const WEIGH_MIN=3,TEMPO_FAST=-0.8,TEMPO_GOOD=-0.3,TEMPO_UP=0.3,STEP_GOAL=10000;
+const bodyValue=(e,field)=>{const v=e?.[field];return Number.isFinite(v)&&v>0&&(field==='weight'?v<=500:v<100)?v:null;};
+const hasBodyReading=e=>bodyValue(e,'weight')!=null||bodyValue(e,'bodyFat')!=null;
+// Days with a scale reading in the 7 days up to dk. Quiet until the first reading exists.
+function weighIns(plan,dk) {
+  const count=Array.from({length:7},(_,i)=>daysBeforeStr(dk,i)).filter(d=>hasBodyReading(plan[d])).length;
+  const known=count>0||Object.keys(plan).some(d=>d<=dk&&hasBodyReading(plan[d]));
+  return {count,known,low:known&&count<WEIGH_MIN};
+}
+// Weight per month: the 7-day mean up to dk against the 7-day mean four weeks earlier,
+// each with at least three readings, from one scale only (a new scale reads differently).
+// Fat and lean mass split the change with the body fat of the same days.
+function bodyTempo(plan,dk) {
+  const dates=Object.keys(plan).filter(d=>d<=dk&&bodyValue(plan[d],'weight')!=null).sort();
+  if(!dates.length)return null;
+  const scale=d=>plan[d].bodySource==='withings'?'withings':'other',src=scale(dates.at(-1)),same=dates.filter(d=>scale(d)===src);
+  const week=to=>{const from=daysBeforeStr(to,6),ds=same.filter(d=>d>=from&&d<=to);
+    const mean=f=>{const v=ds.map(d=>bodyValue(plan[d],f)).filter(x=>x!=null);return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;};
+    return {count:ds.length,weight:mean('weight'),bodyFat:mean('bodyFat')};};
+  const then=daysBeforeStr(dk,28),now=week(dk),before=week(then);
+  if(now.count<WEIGH_MIN||before.count<WEIGH_MIN)
+    return {ready:false,reason:same[0]>daysBeforeStr(then,6)?'history':'few',since:same[0]};
+  const r1=v=>Math.round(v*10)/10,rate=(now.weight-before.weight)/28*30.44;
+  const mass=w=>w.bodyFat==null?null:{fat:w.weight*w.bodyFat/100,lean:w.weight*(1-w.bodyFat/100)};
+  const a=mass(before),b=mass(now);
+  return {ready:true,from:then,to:dk,rate:r1(rate),
+    status:rate<TEMPO_FAST?'fast':rate<=TEMPO_GOOD?'good':rate<TEMPO_UP?'flat':'up',
+    weight:r1(now.weight),change:r1(now.weight-before.weight),
+    fat:a&&b?r1(b.fat-a.fat):null,lean:a&&b?r1(b.lean-a.lean):null};
+}
+const TEMPO_LABELS={fast:'Zu schnell',good:'Gutes Tempo',flat:'Stabil',up:'Steigt'};
+// Steps as a 7-day mean: busy football days make up for quiet ones. Today counts with its
+// steps so far; needToday is what still brings the mean to the goal.
+function stepsWeek(plan,dk,today=todayStr()) {
+  const isToday=dk===today,days=Array.from({length:7},(_,i)=>{const date=daysBeforeStr(dk,6-i),v=plan[date]?.steps;
+    return {date,steps:Number.isInteger(v)&&v>=0?v:null};});
+  const known=days.filter(d=>d.steps!=null);
+  if(!days.slice(0,6).some(d=>d.steps!=null)&&!days[6].steps)return null;
+  const n=known.length+(isToday&&days[6].steps==null?1:0),sum=known.reduce((s,d)=>s+d.steps,0);
+  return {days,avg:Math.round(sum/n),daysWithData:n,goal:STEP_GOAL,needToday:isToday?Math.max(0,STEP_GOAL*n-sum):null};
+}
+const fmtSteps=v=>v.toLocaleString('de-CH');
+
 // Bottom-sheet options. Every change is a draft until Save, including Ruhetag.
 const ALTS = [
   { emoji:'⚽', label:'Match' },
@@ -1355,7 +1402,11 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
     week:{...stats(weekDays[0],weekDays[6]),targets},
     history:{allTime:stats(dates[0]&&dates[0]<referenceDate?dates[0]:referenceDate,referenceDate),
       last8Weeks:Array.from({length:8},(_,i)=>{const from=daysBeforeStr(weekDays[0],(8-i)*7);return stats(from,daysBeforeStr(from,-6));})},
-    body:{weight:bodyMetric('weight'),bodyFat:bodyMetric('bodyFat')},
+    body:{weight:bodyMetric('weight'),bodyFat:bodyMetric('bodyFat'),weighInsLast7Days:weighIns(plan,referenceDate).count,
+      tempo:(t=>!t?null:t.ready?{weightKgPerMonth:t.rate,status:t.status,from:t.from,to:t.to,weightChangeKg:t.change,fatMassChangeKg:t.fat,leanMassChangeKg:t.lean}
+        :{ready:false,reason:t.reason==='history'?'scale history shorter than five weeks':'fewer than 3 weigh-ins in one of the two weeks'})(bodyTempo(plan,referenceDate))},
+    steps:(s=>s?{last7DaysAverage:s.avg,daysWithData:s.daysWithData,goalAverage:s.goal,stillNeededToday:s.needToday}:null)(stepsWeek(plan,referenceDate,referenceDate)),
+    ...(coachText(extra.background,12000)?{athleteHistory:coachText(extra.background,12000)}:{}),
     load:(()=>{const st=loadStatus(plan,referenceDate);if(!st.ready)return {ready:false,daysOfWatchData:st.historyDays,acuteLoad:st.acute};
       const typical=typicalLoads(plan,referenceDate),planned=plannedLoad(plan,referenceDate,typical);
       return {ready:true,acuteLoad:st.acute,chronicLoad:st.weekly,optimalRange:[st.low,st.high],ratio:st.ratio,status:st.status,headroomToday:st.headroom,
@@ -1576,7 +1627,8 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .day-nav{display:flex;align-items:center;gap:2px;margin:0 0 12px}
 .week-step{flex-shrink:0;width:26px;min-height:44px;border:0;background:transparent;color:var(--faint);font-size:22px;padding:0;border-radius:10px}
 .rings{padding:16px 8px 12px;margin-bottom:12px}
-.ring-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+.ring-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px}
+@media(max-width:360px){.ring>svg{width:56px;height:56px}.ring-center{width:56px;height:56px;font-size:15px}.ring-badge{right:calc(50% - 34px)}}
 .ring{position:relative;display:flex;flex-direction:column;align-items:center;gap:1px;border:0;background:transparent;padding:4px 0;border-radius:var(--r-m);min-width:0}
 .ring>svg{width:64px;height:64px;display:block}
 .ring-track{fill:none;stroke:#2A3C4B;stroke-width:6}.ring-value{fill:none;stroke-width:6;transition:stroke-dasharray .4s ease-out}
@@ -1624,6 +1676,18 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .goal-band{position:absolute;top:0;bottom:0;background:rgba(169,216,184,.35);border-left:1px solid var(--good-soft);border-right:1px solid var(--good-soft)}
 .goal-marker{position:absolute;top:-5px;width:4px;height:20px;border-radius:4px;background:var(--text);transform:translateX(-50%);box-shadow:0 0 0 3px #1B2935}
 .goal-legend{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--muted)}
+.goal-marker.warn{background:var(--warn)}.tempo-zero{position:absolute;top:-3px;bottom:-3px;width:1px;background:var(--faint)}
+.tempo-panel{padding:20px;margin-top:14px}.tempo-panel .goal-bar{margin-top:18px}.tempo-compact{margin-top:18px;padding-top:16px;border-top:1px solid var(--line-soft)}
+.tempo-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-top:8px}
+.tempo-head strong{font-size:26px;font-weight:500;letter-spacing:-.04em;font-variant-numeric:tabular-nums;white-space:nowrap}.tempo-head strong small{font-size:13px;font-weight:400;color:var(--muted);letter-spacing:0}
+.tempo-status{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;white-space:nowrap}.tempo-status i{width:8px;height:8px;border-radius:50%;background:var(--good)}.tempo-status.warn{color:var(--warn)}.tempo-status.warn i{background:var(--warn)}.tempo-status.flat i{background:var(--faint)}
+.tempo-split{font-size:13px;color:var(--text);margin-top:12px;font-variant-numeric:tabular-nums}.tempo-split span{color:var(--muted)}
+.tempo-text{font-size:13px;line-height:1.5;color:var(--muted);margin-top:6px}
+.ring-warn{color:var(--warn)}.section-heading>span.warn{color:var(--warn)}
+.weigh-note{font-size:12px;line-height:1.5;color:var(--warn);margin:-6px 0 12px}.weigh-note.sheet-warn{margin:14px 0 0;font-size:13px}.weigh-note strong{font-weight:600}
+.steps-goal{position:relative}.steps-goal:before{content:"";position:absolute;left:8px;right:8px;top:calc(16px + 64px * (1 - var(--g)));border-top:1px dashed var(--faint);pointer-events:none}
+.steps-goal .steps-bar span{background:var(--social)}.steps-day.today .steps-bar span{opacity:.55}
+.background-input{display:block;margin:12px 0 0;resize:vertical;line-height:1.5;min-height:180px}.background-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px}.background-foot small{font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
 .body-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
 .body-tile{padding:14px 12px;border-radius:var(--r-m);min-width:0}.body-tile small{display:block;font-size:11px;color:var(--muted);letter-spacing:.04em}.body-tile strong{display:block;font-size:20px;font-weight:500;margin-top:6px;letter-spacing:-.03em;font-variant-numeric:tabular-nums}.body-tile strong span{font-size:11px;color:var(--muted);letter-spacing:0}.body-tile em{display:block;font-style:normal;font-size:11px;color:var(--faint);margin-top:4px}
 .add-measure{margin-top:4px;padding:0;color:var(--accent-ink);font-size:13px}
@@ -1995,6 +2059,22 @@ const REMINDER_COPY={
   off:"Täglich zwischen 12 und 13 Uhr und zwischen 21 und 22 Uhr. Die Mitteilung zeigt, was an dem Tag noch offen ist.",
   on:"Aktiv: täglich zwischen 12 und 13 Uhr und zwischen 21 und 22 Uhr.",
 };
+// What the coach should always know about him, e.g. his own analysis of past cuts and rebounds.
+function CoachBackground() {
+  const [saved,setSaved]=useState(readBackground),[text,setText]=useState(saved),[note,setNote]=useState("");
+  const save=()=>{const t=text.trim();
+    try{if(t)localStorage.setItem(BACKGROUND_KEY,t);else localStorage.removeItem(BACKGROUND_KEY);setSaved(t);setText(t);setNote(t?"Gespeichert. Der Coach liest das ab jetzt bei jeder Frage mit.":"Entfernt.");}
+    catch{setNote("Speichern hat nicht geklappt. Bitte prüfe den verfügbaren Speicher.");}};
+  return <section className="settings-backup" aria-label="Hintergrund für den Coach"><div className="section-heading"><h2>Hintergrund für den Coach</h2></div>
+    <p className="helper-text">Was der Coach immer wissen soll, zum Beispiel deine Analyse der Cuts und Rebounds und die Regeln, die du dir gesetzt hast. Bleibt auf diesem Gerät und geht nur mit deinen Fragen an den Coach.</p>
+    <textarea className="modal-input background-input" rows={8} maxLength={BACKGROUND_MAX} value={text} aria-label="Hintergrund für den Coach"
+      placeholder="Zum Beispiel: Was in meinen Cuts funktioniert hat, was zu den Rebounds geführt hat, meine Regeln für Ferien …"
+      onChange={e=>{setText(e.target.value);setNote("");}}/>
+    <div className="background-foot"><small>{fmtSteps(text.length)} / {fmtSteps(BACKGROUND_MAX)} Zeichen</small>
+      <button className="secondary" style={{flex:"0 0 auto"}} disabled={text.trim()===saved} onClick={save}>Speichern</button></div>
+    {note&&<p role="status" className="helper-text">{note}</p>}
+  </section>;
+}
 function ReminderSettings() {
   const [state,setState]=useState("loading"),[busy,setBusy]=useState(false),[note,setNote]=useState("");
   const keyRef=useRef(null);
@@ -2121,6 +2201,7 @@ function SetupScreen({initName,initProteinTarget=DEFAULT_PROTEIN_TARGET,isEdit,o
     </section>
     {isEdit&&connections&&<ConnectionSettings {...connections}/>}
     {isEdit&&<ReminderSettings/>}
+    {isEdit&&<CoachBackground/>}
     <section className="settings-backup"><div className="section-heading"><h2>Deine Daten</h2></div>
       <p className="helper-text">Alles wird nur auf diesem Gerät gespeichert. Speichere eine Sicherung zum Beispiel in iCloud Drive.</p>
       {isEdit&&<button className="secondary" onClick={exportData}>Daten exportieren</button>}
@@ -2277,6 +2358,15 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
   const offNight=recovery?recovery.signals.filter(x=>x.level!=='good'&&x.why).map(x=>x.why):[];
   const bf=bodySnapshot(plan,viewKey).bodyFat,bfValue=bf?.current?.value;
   const bfSub=bfValue==null?"keine Messung":bfValue<=BF_GOAL&&bfValue>=BF_GOAL_LOW?"im Ziel ✓":bfValue<BF_GOAL_LOW?"unter dem Ziel":`Ziel ${BF_GOAL_LOW}–${BF_GOAL} %`;
+  // The body ring stays quiet while he weighs regularly and the weight moves at a good pace;
+  // only then it turns into the early warning.
+  const weigh=isToday?weighIns(plan,viewKey):null,tempo=isToday?bodyTempo(plan,viewKey):null;
+  const tempoWarn=tempo?.ready&&(tempo.status==='fast'||tempo.status==='up');
+  const bodyWarn=weigh?.low?(weigh.count?`${weigh.count}× gewogen`:"nicht gewogen"):tempoWarn?TEMPO_LABELS[tempo.status].toLowerCase():null;
+  const bodyWarnText=weigh?.low?` Achtung: ${weigh.count===1?"eine Messung":weigh.count+" Messungen"} in 7 Tagen.`
+    :tempoWarn?` Achtung: Gewicht ${signedKg(tempo.rate)} Kilo pro Monat, ${TEMPO_LABELS[tempo.status].toLowerCase()}.`:"";
+  const steps=future?null:stepsWeek(plan,viewKey,today);
+  const stepsSub=!steps?"keine Daten":isToday?(steps.needToday?"noch "+fmtSteps(steps.needToday):"im Ziel ✓"):steps.avg>=STEP_GOAL?"im Ziel ✓":"Ø 7 Tage";
   return <section className="panel rings" aria-label="Tagesübersicht">
     {(advice||glance.length>0||children)&&<div className={"day-status "+((isToday?guide?.level:recovery?.level)||"")}>
       {(advice||glance.length>0)&&<div role="status">
@@ -2299,8 +2389,13 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
         onClick={()=>future?scrollToId("today-nutrition"):setSheet("protein")}>
         {protein==null?"–":<>{protein}<small>g</small></>}
       </Ring>
-      <Ring value={bfValue==null?0:BF_START-bfValue} max={BF_START-BF_GOAL} color="var(--accent)" label="Körperfett" sub={bfSub} dialog={bfValue!=null}
-        ariaLabel={bfValue==null?"Körperfett: noch keine Messung. Körper-Tab öffnen":`Körperfett ${fmt1(bfValue)} Prozent im 7-Tage-Mittel, Ziel ${BF_GOAL_LOW} bis ${BF_GOAL} Prozent. Verlauf öffnen`}
+      <Ring value={steps?.avg||0} max={STEP_GOAL} color="var(--social)" label="Schritte" sub={stepsSub} dialog disabled={!steps} onClick={()=>setSheet("steps")}
+        ariaLabel={steps?`Schritte: im Schnitt ${fmtSteps(steps.avg)} über 7 Tage, Ziel ${fmtSteps(STEP_GOAL)}.${isToday?steps.needToday?` Heute noch ${fmtSteps(steps.needToday)}.`:" Im Ziel.":""} Details öffnen`:"Schritte: keine Daten von der Uhr"}>
+        {steps?(steps.avg>=1000?Math.round(steps.avg/100)/10+"k":steps.avg):"–"}
+      </Ring>
+      <Ring value={bfValue==null?0:BF_START-bfValue} max={BF_START-BF_GOAL} color="var(--accent)" label="Körperfett" dialog={bfValue!=null}
+        sub={bodyWarn?<span className="ring-warn">{bodyWarn}</span>:bfSub} badge={bodyWarn?{key:"amber",mark:"!"}:null}
+        ariaLabel={(bfValue==null?"Körperfett: noch keine Messung.":`Körperfett ${fmt1(bfValue)} Prozent im 7-Tage-Mittel, Ziel ${BF_GOAL_LOW} bis ${BF_GOAL} Prozent.`)+bodyWarnText+(bfValue==null?" Körper-Tab öffnen":" Verlauf öffnen")}
         onClick={()=>bfValue==null?onOpenBody():setSheet("body")}>
         {bfValue==null?"–":fmt1(bfValue)}
       </Ring>
@@ -2316,8 +2411,53 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
     {sheet==="protein"&&<ProteinSheet entry={e} dk={viewKey} target={target} updDay={updDay} onClose={()=>setSheet(null)}
       onMeals={()=>{setSheet(null);requestAnimationFrame(()=>scrollToId("today-nutrition"));}}/>}
     {sheet==="body"&&bf&&<BodySheet plan={plan} dk={viewKey} bf={bf} onClose={()=>setSheet(null)} onOpenBody={()=>{setSheet(null);onOpenBody();}}/>}
+    {sheet==="steps"&&steps&&<InfoSheet id="steps-sheet" eyebrow={(isToday?"Heute":shortDate(viewKey))+" · Bewegung"} title="Schritte" onClose={()=>setSheet(null)}>
+      <p className="sheet-big">{fmtSteps(steps.avg)}<small> Ø 7 Tage</small></p>
+      <p className="sheet-lede">{isToday?(steps.needToday?`Heute noch ${fmtSteps(steps.needToday)} Schritte, dann liegt dein Schnitt bei ${fmtSteps(STEP_GOAL)}.`
+        :`Dein Schnitt liegt bei ${fmtSteps(STEP_GOAL)} oder mehr. Heute musst du nichts aufholen.`)
+        :steps.avg>=STEP_GOAL?"Im Ziel.":`${fmtSteps(STEP_GOAL-steps.avg)} unter dem Ziel.`}</p>
+      <StepsBars s={steps} today={isToday?viewKey:null}/>
+      <p className="chart-caption">Ziel: im Schnitt {fmtSteps(STEP_GOAL)} pro Tag über 7 Tage (Linie). Fussballtage gleichen ruhige Tage aus.{isToday?" Heute zählt mit den Schritten bis jetzt.":""}</p>
+    </InfoSheet>}
   </section>;
 }
+const signedKg=v=>(v>0?"+":v<0?"−":"±")+Math.abs(v).toFixed(1);
+// The last 7 days of steps with the goal as a dashed line; today's bar is still growing.
+function StepsBars({s,today}) {
+  const max=Math.max(s.goal,...s.days.map(d=>d.steps||0));
+  return <div className="steps-week steps-goal" style={{"--g":(s.goal/max).toFixed(3)}}>{s.days.map(d=>
+    <div key={d.date} className={"steps-day"+(d.date===today?" today":"")} role="img"
+      aria-label={shortDate(d.date)+": "+(d.steps!=null?fmtSteps(d.steps)+" Schritte":"keine Daten")+(d.date===today?" bis jetzt":"")}>
+      <span className="steps-bar"><span style={{height:(d.steps!=null?Math.max(4,d.steps/max*100):0)+"%"}}/></span>
+      <b>{d.steps!=null?(d.steps>=1000?Math.round(d.steps/100)/10+"k":d.steps):"–"}</b><small>{DN[dow0(new Date(d.date+"T12:00:00"))]}</small></div>)}</div>;
+}
+// Weight per month over four weeks against the pace that kept his lean mass: about 0.5 kg,
+// never more than 0.8. Lean mass is shown, but the alarm comes from the weight.
+const TEMPO_TEXT={fast:"Zu schnell: So ging bei dir Magermasse mit. Iss etwas mehr und halte die Bewegung hoch.",
+  good:"Im Plan. In diesem Tempo hast du früher kaum Magermasse verloren.",flat:"Das Gewicht hält sich.",
+  up:"Das Gewicht steigt. So haben deine Rebounds angefangen."};
+function TempoBlock({tempo,compact}) {
+  if(!tempo)return null;
+  if(!tempo.ready)return <p className={compact?"hero-meta":"tempo-text"}>{tempo.reason==="history"
+    ?`Tempo ab ${shortDate(daysBeforeStr(tempo.since,-34))}: Dafür braucht es 5 Wochen Verlauf von dieser Waage.`
+    :"Tempo: Dafür braucht es mindestens 3 Messungen pro Woche, jetzt und vor 4 Wochen."}</p>;
+  const warn=tempo.status==="fast"||tempo.status==="up",lo=-1.5,hi=1,pos=v=>Math.max(0,Math.min(100,(v-lo)/(hi-lo)*100));
+  const split=tempo.fat!=null&&<p className="tempo-split">Fett {signedKg(tempo.fat)} kg · Magermasse {signedKg(tempo.lean)} kg <span>in 4 Wochen</span></p>;
+  const head=<div className="tempo-head"><strong>{signedKg(tempo.rate)}<small> kg pro Monat</small></strong>
+    <span className={"tempo-status "+(warn?"warn":tempo.status)}><i aria-hidden="true"/>{TEMPO_LABELS[tempo.status]}</span></div>;
+  if(compact)return <div className="tempo-compact"><div className="eyebrow">Tempo · letzte 4 Wochen</div>{head}{split}<p className="tempo-text">{TEMPO_TEXT[tempo.status]}</p></div>;
+  return <section className="panel tempo-panel" aria-label="Tempo">
+    <div className="eyebrow">Tempo · letzte 4 Wochen</div>{head}
+    <div className="goal-bar" aria-hidden="true">
+      <span className="goal-band" style={{left:pos(TEMPO_FAST)+"%",width:(pos(TEMPO_GOOD)-pos(TEMPO_FAST))+"%"}}/>
+      <span className="tempo-zero" style={{left:pos(0)+"%"}}/>
+      <span className={"goal-marker"+(warn?" warn":"")} style={{left:pos(tempo.rate)+"%"}}/></div>
+    <div className="goal-legend"><span>Ziel 0.3–0.8 kg weniger pro Monat</span><span>Gewicht {fmt1(tempo.weight)} kg</span></div>
+    {split}<p className="tempo-text">{TEMPO_TEXT[tempo.status]}</p>
+    <p className="chart-caption">Gewicht der Waage, 7-Tage-Mittel heute gegen vor 4 Wochen. Die Magermasse der Waage schwankt mit Wasser und Glykogen: Sie zählt erst über mehrere Wochen.</p>
+  </section>;
+}
+const WEIGH_NOTE="Unter 3 Messungen pro Woche haben deine Rebounds angefangen. Am besten jeden Morgen kurz auf die Waage.";
 // Bottom sheet in the app's own markup: focus moves in, Escape closes, the page stops scrolling.
 function InfoSheet({id,eyebrow,title,onClose,children}) {
   const dialog=useSheetFocus(onClose);
@@ -2396,11 +2536,13 @@ function BodySheet({plan,dk,bf,onClose,onOpenBody}) {
   const month=bodyMean(readings,daysBeforeStr(bf.anchor,28)),cur=bf.current.value;
   const change=month?(Math.abs(cur-month.value)<0.05?"Unverändert in 4 Wochen":(cur<month.value?"↓ ":"↑ ")+fmt1(Math.abs(cur-month.value))+" %-Punkte in 4 Wochen")
     :deltaText(bf.current,bf.previous,"%-Punkte");
-  const series=rollingSeries(readings,daysBeforeStr(dk,27),dk);
+  const series=rollingSeries(readings,daysBeforeStr(dk,27),dk),weigh=weighIns(plan,dk);
   return <InfoSheet id="body-sheet" eyebrow="7-Tage-Mittel" title="Körperfett" onClose={onClose}>
     <p className="sheet-big">{fmt1(cur)}<small> %</small></p>
     <p className="sheet-lede">{change}</p>
     <GoalBar value={cur}/>
+    {weigh.low&&<p className="weigh-note sheet-warn"><strong>{weigh.count?`Nur ${weigh.count}× gewogen in 7 Tagen.`:"In 7 Tagen nicht gewogen."}</strong> {WEIGH_NOTE}</p>}
+    <TempoBlock tempo={bodyTempo(plan,dk)} compact/>
     {series.some(p=>p.value!=null)&&<div className="sheet-chart"><TrendChart readings={readings} series={series} target={BF_GOAL}/>
       <p className="chart-caption">Letzte 4 Wochen · Linie: 7-Tage-Mittel · Punkte: einzelne Messungen</p></div>}
     <p className="hero-meta">{bf.current.count} {bf.current.count===1?"Messung":"Messungen"} · Stand {shortDate(bf.anchor)}{bf.ageDays>7?` · seit ${bf.ageDays} Tagen keine neue Messung`:""}</p>
@@ -3298,7 +3440,8 @@ function weeklyReportFacts(plan,weekStart,target=DEFAULT_PROTEIN_TARGET,complain
       games:days.filter(dk=>plan[dk]?.match).map(dk=>({date:dk,opponent:plan[dk].match.opponent,venue:matchVenue(plan[dk].match),played:logged(dk)&&types(dk).includes('Match')})),
       watch:{activities:acts.length,minutes:Math.round(total(acts,'minutes')),footballKm:football.length?Math.round(total(football,'distanceKm')*10)/10:null,topSpeedKmh:speeds.length?Math.max(...speeds):null}},
     load:{week:Math.round(days.reduce((n,dk)=>n+dayLoad(plan[dk]),0)),...(load.ready?{range:[load.low,load.high],status:load.status}:{})},
-    body:{bodyFat:metric('bodyFat'),weight:metric('weight')},
+    body:{bodyFat:metric('bodyFat'),weight:metric('weight'),weighIns:days.filter(dk=>hasBodyReading(plan[dk])).length,
+      tempo:(t=>t?.ready?{weightKgPerMonth:t.rate,status:t.status,fatMassChangeKg:t.fat,leanMassChangeKg:t.lean}:null)(bodyTempo(plan,weekEnd))},
     nutrition:{proteinTarget:target,proteinHitDays:nut.hits,proteinDays:nut.proteinDays,avgProtein:nut.avgProtein,ratings:nut.counts},
     recovery:{nights:rec.length,avgSleepMin:avg(rec,'sleepMin'),avgHrv:avg(rec,'hrv'),avgRestingHr:avg(rec,'restingHr'),prevAvgRestingHr:avg(prevRec,'restingHr'),
       cautionDays:levels.filter(l=>l==='caution').length,lowDays:levels.filter(l=>l==='low').length},
@@ -3420,9 +3563,7 @@ function BodyView({plan,updDay,proteinTarget,socialProps}) {
   const nights=Array.from({length:7},(_,i)=>{const date=daysBeforeStr(today,6-i);return {date,r:plan[date]?.recovery||null};});
   const sleeps=nights.map(n=>n.r?.sleepMin).filter(Number.isFinite);
   const sleepAvg=sleeps.length?Math.round(sleeps.reduce((a,b)=>a+b,0)/sleeps.length):null;
-  const stepDays=Array.from({length:7},(_,i)=>{const date=daysBeforeStr(today,6-i),v=plan[date]?.steps;return {date,steps:Number.isInteger(v)?v:null};});
-  const stepValues=stepDays.map(d=>d.steps).filter(v=>v!=null);
-  const stepAvg=stepValues.length?Math.round(stepValues.reduce((n,v)=>n+v,0)/stepValues.length):0,stepMax=Math.max(1,...stepValues);
+  const steps=stepsWeek(plan,today,today),weigh=weighIns(plan,today);
   return <div className="view">
     <section className="panel body-hero" aria-label="Körperfett">
       <div className="eyebrow">Körperfett · 7-Tage-Mittel</div>
@@ -3441,6 +3582,7 @@ function BodyView({plan,updDay,proteinTarget,socialProps}) {
       <BodyTile label="Magermasse" value={m?.current?.lean} cur={m?.current?.lean} prev={m?.previous?.lean}/>
     </div>
     <p className="chart-caption" style={{marginTop:0}}>Fett- und Magermasse = Gewicht × Körperfett der Waage. Schätzwerte, die Richtung zählt.</p>
+    <TempoBlock tempo={bodyTempo(plan,today)}/>
     <section className="panel trend-panel" aria-label="Verlauf" style={{marginTop:14}}>
       <div className="trend-head"><div className="metric-switch">{[["bodyFat","Körperfett"],["weight","Gewicht"]].map(([key,label])=>
         <button key={key} aria-pressed={metric===key} onClick={()=>setMetric(key)}>{label}</button>)}</div></div>
@@ -3470,12 +3612,10 @@ function BodyView({plan,updDay,proteinTarget,socialProps}) {
       </div>
     </section>
     {socialProps&&<SocialSection {...socialProps}/>}
-    {stepDays.some(d=>d.steps!=null)&&<section aria-label="Schritte der letzten sieben Tage">
-      <div className="section-heading"><h2>Schritte</h2><span>Ø {stepAvg.toLocaleString("de-CH")} · letzte 7 Tage</span></div>
-      <div className="panel steps-week">{stepDays.map(d=><div key={d.date} className="steps-day" role="img"
-        aria-label={shortDate(d.date)+": "+(d.steps!=null?d.steps+" Schritte":"keine Daten")}>
-        <span className="steps-bar"><span style={{height:(d.steps!=null?Math.max(4,d.steps/stepMax*100):0)+"%"}}/></span>
-        <b>{d.steps!=null?(d.steps>=1000?Math.round(d.steps/100)/10+"k":d.steps):"–"}</b><small>{DN[dow0(new Date(d.date+"T12:00:00"))]}</small></div>)}</div>
+    {steps&&<section aria-label="Schritte der letzten sieben Tage">
+      <div className="section-heading"><h2>Schritte</h2><span>Ø {fmtSteps(steps.avg)} · Ziel Ø {fmtSteps(STEP_GOAL)}</span></div>
+      <div className="panel"><StepsBars s={steps} today={today}/></div>
+      <p className="chart-caption">{steps.needToday?`Heute noch ${fmtSteps(steps.needToday)} Schritte für den Schnitt von ${fmtSteps(STEP_GOAL)}.`:"Im Schnitt der letzten 7 Tage im Ziel."} Heute zählt mit den Schritten bis jetzt.</p>
     </section>}
     {nights.some(n=>n.r)&&<section aria-label="Schlaf und Erholung der letzten sieben Tage">
       <div className="section-heading"><h2>Schlaf & Erholung</h2><span>{sleepAvg!=null?`Ø ${fmtHM(sleepAvg)} Schlaf`:"letzte 7 Tage"}</span></div>
@@ -3490,7 +3630,8 @@ function BodyView({plan,updDay,proteinTarget,socialProps}) {
       <p className="chart-caption">Balken: Schlafdauer · Farbe: Erholung des Tages (grün gut, gelb eingeschränkt, rot niedrig) · HRV in ms</p>
     </section>}
     {recent.length>0&&<section aria-label="Letzte Messungen">
-      <div className="section-heading"><h2>Messungen</h2><span>Antippen zum Bearbeiten</span></div>
+      <div className="section-heading"><h2>Messungen</h2><span className={weigh.low?"warn":""}>{weigh.count}× in 7 Tagen</span></div>
+      {weigh.low&&<p className="weigh-note">{WEIGH_NOTE}</p>}
       <div className="panel measure-list">{recent.map(dk=>{const e=plan[dk];
         return <button key={dk} className="measure-row" onClick={()=>setEditor(dk)} aria-label={"Messung vom "+shortDate(dk)+" bearbeiten"}>
           <span>{shortDate(dk)}</span><span>{validBody(e.weight)?fmt1(e.weight)+" kg":"–"}</span>
@@ -3677,8 +3818,12 @@ const reportKey=weekStart=>`coach-report-${weekStart}`;
 // What every coach call adds beyond the plan: the local time and the latest weekly report.
 function coachExtras(beforeWeek=null) {
   const week=beforeWeek?daysBeforeStr(beforeWeek,7):lastCompletedWeek(),r=readReport(week);
-  return {localTime:nowTime(),lastReport:r?.text?{week:weekLabel(week),text:r.text}:null};
+  return {localTime:nowTime(),lastReport:r?.text?{week:weekLabel(week),text:r.text}:null,background:readBackground()};
 }
+// His own background for the coach (history of cuts and rebounds, his rules). Kept on this
+// device only under coach-* so backups include it; it never goes into the code.
+const BACKGROUND_KEY="coach-background",BACKGROUND_MAX=12000;
+function readBackground() { try { return localStorage.getItem(BACKGROUND_KEY)||""; } catch { return ""; } }
 function readReport(weekStart) { try { return JSON.parse(localStorage.getItem(reportKey(weekStart))||"null"); } catch { return null; } }
 function writeReport(weekStart,data) { try { localStorage.setItem(reportKey(weekStart),JSON.stringify(data)); } catch {} }
 const weekLabel=from=>`${shortDate(from)} – ${shortDate(daysBeforeStr(from,-6))}`;

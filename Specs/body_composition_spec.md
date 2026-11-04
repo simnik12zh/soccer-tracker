@@ -54,8 +54,8 @@ Note that a body comp entry can exist on a day with **no session logged** (e.g. 
 
 ## 4. Explicit non-goals
 
-- **No daily weigh-in target, streak, or reminder.** The player logs a few times a week; gaps are expected and fine.
-- **No judgement in the copy.** No "you haven't logged in X days," no red states, no nudging.
+- **No weigh-in target, streak, or reminder.** Weighing is not a weekly goal. Update (Nov 2026): his own history showed that every rebound began with fewer than 3 weigh-ins a week, so the count is shown quietly in Körper ("N× in 7 Tagen") and only below 3 does it become a small warning on the Today body-fat ring and in its sheet. Gaps of a day or two stay fine.
+- **No judgement in the copy.** No red states, no shaming. The early warnings (fewer than 3 weigh-ins, weight falling faster than 0.8 kg a month or rising by 0.3 or more) use the warning colour and say what helps.
 - **Do not put this in the readiness row.** Readiness (hip/legs) is for today's training decisions; body comp is a slow background metric and belongs in Journey.
 - **Do not lead with the raw daily number anywhere.** The rolling average is always the headline; a single reading is never presented as meaningful progress.
 

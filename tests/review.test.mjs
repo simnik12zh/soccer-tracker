@@ -98,5 +98,5 @@ test('the evening after a game: share of the week, tomorrow is a calm day, and t
   assert.equal(game.comparedWithPrevious,5);
   assert.deepEqual(plain(game.values[0]),{metric:'Belastung',value:'186',average:'151',range:'139–186',status:'Höchstwert von 6'});
   const coach=readFileSync(new URL('../api/coach.js',import.meta.url),'utf8');
-  assert.match(coach,/'trends','sessionReviews','lastWeeklyReport'/,'the server passes the reviews on');
+  assert.match(coach,/'athleteHistory','sessionReviews','lastWeeklyReport'/,'the server passes the reviews on');
 });

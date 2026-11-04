@@ -40,13 +40,18 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   the first glance: for today the day light (`dayGuidance`, see Training load) with its colour,
   name and one sentence; past days show sleep, Garmin sleep score and HRV instead
   (`recoveryGlance`), future days nothing. Active complaints sit right
-  below. Then three rings: Erholung (the night only: watch values in their normal range, coloured and
+  below. Then four rings: Erholung (the night only: watch values in their normal range, coloured and
   labelled Gut erholt / Eingeschränkt / Wenig erholt from `recoveryStatus`),
-  Protein vs. target and Körperfett (7-day mean; the arc is the way from 16 % to the 13 % goal,
-  `BF_START`). Each ring opens a sheet: Erholung lists sleep, HRV, resting HR and Body Battery with
+  Protein vs. target, Schritte (`stepsWeek`: the 7-day mean against Ø 10'000, today counting with its
+  steps so far; the line below says how many steps today still bring the mean to the goal) and
+  Körperfett (7-day mean; the arc is the way from 16 % to the 13 % goal, `BF_START`). The
+  Körperfett ring is the body early warning: it stays quiet while he weighs at least 3 times in
+  7 days and the weight moves at a good pace, otherwise it shows "2× gewogen", "zu schnell" or
+  "steigt" with an "!" (`weighIns`, `bodyTempo`). Each ring opens a sheet: Erholung lists sleep, HRV, resting HR and Body Battery with
   the last 7 nights against his normal range (tap a row for the nightly values); Protein has
-  +20/+30/+40 g with undo and a link to the meal card; Körperfett shows the change over 4 weeks,
-  the goal bar and the last 4 weeks as a line, with a link to the Körper tab. Below the rings a
+  +20/+30/+40 g with undo and a link to the meal card; Schritte shows the mean, today's remainder
+  and the 7 days as bars with the goal line; Körperfett shows the change over 4 weeks,
+  the goal bar, the weigh-in warning, the tempo and the last 4 weeks as a line, with a link to the Körper tab. Below the rings a
   sentence names what is still open (`dayChecklist`; past days say "nicht eingetragen", never
   "skipped") plus Wochenziele x/4, which opens the plan. The session card keeps FERTIG next to the
   title so it stays above the tab bar on a phone; long plan guidance is clamped to two lines, and
@@ -108,9 +113,14 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   Wochenziele, Belastung (a line of the acute load day by day: three weeks measured, the next 7 days dashed from the plan, inside his range, with a sentence on when the plan takes him over it and which sessions add most; `LoadTrend`, `loadSeries`, `loadOutlookText`) and Taktik.
 - **Körper** — body-fat 7-day mean as hero with delta vs. the previous 7 days and a 12–13 %
   goal bar; weight, fat mass and lean mass tiles (mass needs weight and body fat in the same
-  window, `bodySnapshot`); trend chart (Körperfett/Gewicht, 4 Wochen / 3 Monate / Saison);
+  window, `bodySnapshot`); Tempo (`bodyTempo`: weight per month, the 7-day mean today against the
+  one four weeks earlier, at least 3 readings in each week and from one scale only, so an old and
+  a new scale never mix; Zu schnell below −0.8, Gutes Tempo to −0.3, Stabil, Steigt from +0.3;
+  with the fat and lean split. Weight is the alarm, lean mass only context, because the scale's
+  lean mass moves with water); trend chart (Körperfett/Gewicht, 4 Wochen / 3 Monate / Saison);
   dated measurement editor (any date up to today, empty field removes a value); the last five
-  measurements; a seven-day nutrition overview (traffic lights, protein hits, average); steps;
+  measurements with "N× in 7 Tagen" (warning colour and a note below 3); a seven-day nutrition
+  overview (traffic lights, protein hits, average); steps as a 7-day mean with the goal line;
   sleep & recovery with labelled rows (Schlaf, HRV, Puls). Manual entry is a text link, since
   the scale delivers automatically.
 - **Saison** ("Deine Saison.") — season progress, weekly reports, phase timeline (earlier phases folded behind
@@ -336,6 +346,11 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   dated weight/body-fat readings with current/previous seven-day means and sample counts,
   and nutrition: per-day `{proteinGrams, rating}` up to today plus `nutrition.last7Days` /
   `previous7Days` (target hits, average on logged days, rating counts) against the target.
+  The early warning goes along: `body.weighInsLast7Days`, `body.tempo` and `steps` (7-day mean,
+  goal, still needed today); the weekly report adds weigh-ins and tempo for its week. Settings →
+  "Hintergrund für den Coach" holds his own background (for example his analysis of cuts and
+  rebounds and his rules), stored only on the device under `coach-background` (part of backups)
+  and sent as `athleteHistory`. Personal history never goes into the code: the repository is public.
   One logged day can contain two session types; days and session totals are separate.
   Future-dated completions/measurements never count as actual history. `not_logged` does
   not mean skipped; `no_entry` does not mean confirmed rest. Match participation is separate
