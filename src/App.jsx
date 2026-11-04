@@ -1177,7 +1177,7 @@ function weighIns(plan,dk) {
 function bodyTempo(plan,dk) {
   const dates=Object.keys(plan).filter(d=>d<=dk&&bodyValue(plan[d],'weight')!=null).sort();
   if(!dates.length)return null;
-  const scale=d=>plan[d].bodySource==='withings'?'withings':'other',src=scale(dates.at(-1)),same=dates.filter(d=>scale(d)===src);
+  const era=scaleEra(dates.at(-1)),same=dates.filter(d=>scaleEra(d)===era);
   const week=to=>{const from=daysBeforeStr(to,6),ds=same.filter(d=>d>=from&&d<=to);
     const mean=f=>{const v=ds.map(d=>bodyValue(plan[d],f)).filter(x=>x!=null);return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;};
     return {count:ds.length,weight:mean('weight'),bodyFat:mean('bodyFat')};};
@@ -1193,6 +1193,49 @@ function bodyTempo(plan,dk) {
     fat:a&&b?r1(b.fat-a.fat):null,lean:a&&b?r1(b.lean-a.lean):null};
 }
 const TEMPO_LABELS={fast:'Zu schnell',good:'Gutes Tempo',flat:'Stabil',up:'Steigt'};
+
+// ─── Scale change and goal path ──────────────────────────────────────────────────
+// The new Withings scale (from 27 Oct 2026) reads about 2 points lower than the old one, so
+// body values are only compared within one scale. His plan: the first 14 days on the new
+// scale (at least 10 readings) give the start value, then −0.5 points a month until the end
+// of June 2027. Over the festive days (20 Dec – 6 Jan) he may gain at most 0.5 points.
+const SCALE_SINCE='2026-10-27',PATH_END='2027-06-30',PATH_RATE=-0.5,START_DAYS=14,START_MIN=10,ON_TRACK=0.3,XMAS_ALLOW=0.5;
+const scaleEra=dk=>dk>=SCALE_SINCE?'new':'old';
+const isFestive=dk=>{const md=dk.slice(5);return md>='12-20'||md<='01-06';};
+const utcDay=dk=>{const [y,m,d]=dk.split('-').map(Number);return Date.UTC(y,m-1,d);};
+const daysBetween=(a,b)=>Math.round((utcDay(b)-utcDay(a))/86400000);
+function goalPath(plan,dk) {
+  if(dk<SCALE_SINCE)return null;
+  const bf=Object.keys(plan).filter(d=>d>=SCALE_SINCE&&d<=dk&&bodyValue(plan[d],'bodyFat')!=null).sort();
+  if(!bf.length)return null;
+  const first=bf[0],upTo=e=>bf.filter(d=>d<=e);
+  let end=daysBeforeStr(first,-(START_DAYS-1));
+  while(upTo(end).length<START_MIN&&end<dk)end=daysBeforeStr(end,-1);
+  if(end>dk||upTo(end).length<START_MIN){
+    const have=new Set(bf);
+    return {phase:'start',first,day:Math.min(START_DAYS,daysBetween(first,dk)+1),readings:upTo(dk).length,
+      readyOn:end>dk&&upTo(dk).length+daysBetween(dk,end)>=START_MIN?end:null,
+      days:Array.from({length:START_DAYS},(_,i)=>{const date=daysBeforeStr(first,-i);return {date,weighed:have.has(date)};})};
+  }
+  const mean=ds=>ds.reduce((n,d)=>n+plan[d].bodyFat,0)/ds.length,start=mean(upTo(end));
+  const at=d=>start+PATH_RATE*daysBetween(end,d<PATH_END?d:PATH_END)/30.44;
+  const last=bf.at(-1),current=mean(bf.filter(d=>d>=daysBeforeStr(last,6))),dev=current-at(last);
+  const r1=v=>Math.round(v*10)/10,out={phase:'path',start:r1(start),startDate:end,end:r1(at(PATH_END)),endDate:PATH_END,
+    planNow:r1(at(last)),current:r1(current),deviation:r1(dev),anchor:last,at};
+  if(isFestive(last)&&last>end){
+    // Against the week before the festive days: at most +0.5 points.
+    const y=Number(last.slice(0,4))-(last.slice(5)<='01-06'?1:0),eve=y+'-12-19',before=bf.filter(d=>d<=eve&&d>=daysBeforeStr(eve,6));
+    const base=before.length?mean(before):at(eve),gain=current-base;
+    return {...out,status:gain>XMAS_ALLOW?'festiveOver':'festive',festive:{base:r1(base),gain:r1(gain),allowed:XMAS_ALLOW}};
+  }
+  return {...out,status:dev>ON_TRACK?'behind':dev<-ON_TRACK?'ahead':'onTrack'};
+}
+// The short line under the body-fat ring; `warn` turns it amber.
+function pathLine(gp) {
+  if(gp.phase==='start')return {text:gp.day<START_DAYS?`Start ${gp.day}/${START_DAYS}`:`Start: ${START_MIN-gp.readings} fehlen`};
+  if(gp.status==='festive'||gp.status==='festiveOver')return {text:`Festtage ${gp.festive.gain>=0?'+':'−'}${Math.abs(gp.festive.gain).toFixed(1)}`,warn:gp.status==='festiveOver'};
+  return gp.status==='behind'?{text:`${gp.deviation.toFixed(1)} über Plan`,warn:true}:gp.status==='ahead'?{text:'vor dem Plan'}:{text:'auf Kurs ✓'};
+}
 // Steps as a 7-day mean: busy football days make up for quiet ones. Today counts with its
 // steps so far; needToday is what still brings the mean to the goal.
 function stepsWeek(plan,dk,today=todayStr()) {
@@ -1306,14 +1349,15 @@ function weeklyTrends(plan,referenceDate=todayStr(),target=DEFAULT_PROTEIN_TARGE
     const days=Array.from({length:7},(_,j)=>daysBeforeStr(from,-j)).filter(d=>d<=referenceDate),es=days.map(d=>plan[d]||{});
     const done=days.filter(d=>plan[d]?.completed&&getSessions(plan[d]).length),count=t=>done.filter(d=>getSessions(plan[d]).includes(t)).length;
     const vals=(f,ok)=>es.map(f).filter(v=>Number.isFinite(v)&&ok(v));
-    const weight=avg(vals(e=>e.weight,v=>v>0&&v<=500)),bodyFat=avg(vals(e=>e.bodyFat,v=>v>0&&v<100));
+    const era=scaleEra(days.at(-1)||from),bodyVals=(f,ok)=>days.filter(d=>scaleEra(d)===era).map(d=>plan[d]?.[f]).filter(v=>Number.isFinite(v)&&ok(v));
+    const weight=avg(bodyVals('weight',v=>v>0&&v<=500)),bodyFat=avg(bodyVals('bodyFat',v=>v>0&&v<100));
     const protein=days.map(d=>dayProtein(plan[d])).filter(v=>v!=null),rec=es.map(e=>e.recovery).filter(Boolean);
     const recAvg=(k,ok=v=>v>0)=>r0(avg(rec.map(r=>r[k]).filter(v=>Number.isFinite(v)&&ok(v))));
     const soccer=es.flatMap(e=>(Array.isArray(e.garmin)?e.garmin:[]).filter(g=>garminSessionType(g.type)==='soccer'));
     const sm=social?.matches?socialTable(social.matches,from,to,referenceDate):null,load=days.reduce((n,d)=>n+dayLoad(plan[d]),0);
     return {from,...(i===weeks?{currentWeekSoFar:true,daysSoFar:days.length}:{}),
       trainingDays:done.length,gym:count('Gym'),reha:count('Mobility'),games:count('Match'),load:load?Math.round(load):null,
-      weightKg:r1(weight),bodyFatPct:r1(bodyFat),
+      weightKg:r1(weight),bodyFatPct:r1(bodyFat),...(weight!=null||bodyFat!=null?{scale:era==='new'?'new':'old'}:{}),
       fatMassKg:weight!=null&&bodyFat!=null?r1(weight*bodyFat/100):null,leanMassKg:weight!=null&&bodyFat!=null?r1(weight*(1-bodyFat/100)):null,
       avgProteinG:r0(avg(protein)),proteinTargetDays:protein.filter(v=>v>=target).length,proteinLoggedDays:protein.length,
       redDays:es.filter(e=>e.nutrition==='red').length,
@@ -1380,7 +1424,7 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
     done:weekDays.filter(dk=>logged(dk)&&types(dk).includes(type)).length,
     planned:weekDays.filter(dk=>types(dk).includes(type)).length}));
   const bodyMetric=field=>{
-    const readings=dates.filter(dk=>dk<=referenceDate).map(date=>({date,value:plan[date][field]}))
+    const readings=dates.filter(dk=>dk<=referenceDate&&scaleEra(dk)===scaleEra(referenceDate)).map(date=>({date,value:plan[date][field]}))
       .filter(r=>typeof r.value==='number'&&Number.isFinite(r.value)&&r.value>0&&(field==='weight'?r.value<=500:r.value<100));
     const average=(from,to)=>{const points=readings.filter(r=>r.date>=from&&r.date<=to);
       return {from,to,count:points.length,value:points.length?Math.round(points.reduce((n,r)=>n+r.value,0)/points.length*100)/100:null};};
@@ -1405,6 +1449,12 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
     body:{weight:bodyMetric('weight'),bodyFat:bodyMetric('bodyFat'),weighInsLast7Days:weighIns(plan,referenceDate).count,
       tempo:(t=>!t?null:t.ready?{weightKgPerMonth:t.rate,status:t.status,from:t.from,to:t.to,weightChangeKg:t.change,fatMassChangeKg:t.fat,leanMassChangeKg:t.lean}
         :{ready:false,reason:t.reason==='history'?'scale history shorter than five weeks':'fewer than 3 weigh-ins in one of the two weeks'})(bodyTempo(plan,referenceDate))},
+    bodyGoal:(()=>{const gp=goalPath(plan,referenceDate),oldUntil=dates.filter(dk=>dk<SCALE_SINCE&&hasBodyReading(plan[dk])).at(-1)||null;
+      const scale={newScaleSince:SCALE_SINCE,oldScaleLastReading:oldUntil};
+      if(!gp)return {scale,goalPath:null};
+      if(gp.phase==='start')return {scale,goalPath:{phase:'start',day:gp.day,of:START_DAYS,readings:gp.readings,minReadings:START_MIN,startValueOn:gp.readyOn}};
+      return {scale,goalPath:{phase:'path',startValue:gp.start,startDate:gp.startDate,ratePerMonth:PATH_RATE,endValue:gp.end,endDate:gp.endDate,
+        planToday:gp.planNow,current7DayMean:gp.current,asOf:gp.anchor,deviation:gp.deviation,status:gp.status,...(gp.festive?{festive:gp.festive}:{})}};})(),
     steps:(s=>s?{last7DaysAverage:s.avg,daysWithData:s.daysWithData,goalAverage:s.goal,stillNeededToday:s.needToday}:null)(stepsWeek(plan,referenceDate,referenceDate)),
     ...(coachText(extra.background,12000)?{athleteHistory:coachText(extra.background,12000)}:{}),
     load:(()=>{const st=loadStatus(plan,referenceDate);if(!st.ready)return {ready:false,daysOfWatchData:st.historyDays,acuteLoad:st.acute};
@@ -1676,7 +1726,12 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .goal-band{position:absolute;top:0;bottom:0;background:rgba(169,216,184,.35);border-left:1px solid var(--good-soft);border-right:1px solid var(--good-soft)}
 .goal-marker{position:absolute;top:-5px;width:4px;height:20px;border-radius:4px;background:var(--text);transform:translateX(-50%);box-shadow:0 0 0 3px #1B2935}
 .goal-legend{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--muted)}
-.goal-marker.warn{background:var(--warn)}.tempo-zero{position:absolute;top:-3px;bottom:-3px;width:1px;background:var(--faint)}
+.goal-marker.warn{background:var(--warn)}
+.path-block{margin-top:4px}.path-done{position:absolute;top:0;bottom:0;background:rgba(156,203,211,.32)}
+.path-tick{position:absolute;top:-3px;bottom:-3px;width:2px;border-radius:1px;transform:translateX(-50%);background:var(--faint)}.path-tick.goal{background:var(--good-soft)}.path-tick.plan{top:-6px;bottom:-6px;background:var(--accent-ink)}
+.path-status{font-size:13px;line-height:1.5;color:var(--text);margin-top:10px}.path-status.warn{color:var(--warn)}.path-status span{color:var(--muted)}
+.path-note{font-size:12px;line-height:1.5;color:var(--muted);margin-top:10px}
+.start-days{display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:3px;margin:22px 0 8px}.start-days span{height:10px;border-radius:3px;background:var(--track)}.start-days span.on{background:var(--accent)}.start-days span.today{outline:2px solid var(--accent-ink);outline-offset:1px}.tempo-zero{position:absolute;top:-3px;bottom:-3px;width:1px;background:var(--faint)}
 .tempo-panel{padding:20px;margin-top:14px}.tempo-panel .goal-bar{margin-top:18px}.tempo-compact{margin-top:18px;padding-top:16px;border-top:1px solid var(--line-soft)}
 .tempo-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-top:8px}
 .tempo-head strong{font-size:26px;font-weight:500;letter-spacing:-.04em;font-variant-numeric:tabular-nums;white-space:nowrap}.tempo-head strong small{font-size:13px;font-weight:400;color:var(--muted);letter-spacing:0}
@@ -2356,8 +2411,15 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
   const advice=guide&&(guide.level||load.ready||load.historyDays>0)?guide.advice:null;
   const glance=!isToday&&recovery?recoveryGlance(e.recovery,recovery):[];
   const offNight=recovery?recovery.signals.filter(x=>x.level!=='good'&&x.why).map(x=>x.why):[];
-  const bf=bodySnapshot(plan,viewKey).bodyFat,bfValue=bf?.current?.value;
-  const bfSub=bfValue==null?"keine Messung":bfValue<=BF_GOAL&&bfValue>=BF_GOAL_LOW?"im Ziel ✓":bfValue<BF_GOAL_LOW?"unter dem Ziel":`Ziel ${BF_GOAL_LOW}–${BF_GOAL} %`;
+  const bf=bodySnapshot(plan,viewKey).bodyFat,bfValue=bf?.current?.value,gp=bfValue!=null?goalPath(plan,viewKey):null;
+  // On the new scale the ring follows his plan: the start phase, then the way from the start value
+  // to the June goal. Before the scale change it keeps the old 12–13 % goal.
+  const gpLine=gp?pathLine(gp):null;
+  const bfSub=bfValue==null?"keine Messung":gpLine?gpLine.text:bfValue<=BF_GOAL&&bfValue>=BF_GOAL_LOW?"im Ziel ✓":bfValue<BF_GOAL_LOW?"unter dem Ziel":`Ziel ${BF_GOAL_LOW}–${BF_GOAL} %`;
+  const bfArc=!gp?{value:bfValue==null?0:BF_START-bfValue,max:BF_START-BF_GOAL}:gp.phase==="start"?{value:gp.day,max:START_DAYS}:{value:gp.start-gp.current,max:gp.start-gp.end};
+  const bfAria=bfValue==null?"Körperfett: noch keine Messung.":!gp?`Körperfett ${fmt1(bfValue)} Prozent im 7-Tage-Mittel, Ziel ${BF_GOAL_LOW} bis ${BF_GOAL} Prozent.`
+    :gp.phase==="start"?`Körperfett ${fmt1(bfValue)} Prozent. Startphase der neuen Waage, Tag ${gp.day} von ${START_DAYS}.`
+    :`Körperfett ${fmt1(gp.current)} Prozent im 7-Tage-Mittel, Plan heute ${fmt1(gp.planNow)}, Ziel ${fmt1(gp.end)} Prozent Ende Juni. ${gpLine.text.replace(" ✓","").replace(/^./,c=>c.toUpperCase())}.`;
   // The body ring stays quiet while he weighs regularly and the weight moves at a good pace;
   // only then it turns into the early warning.
   const weigh=isToday?weighIns(plan,viewKey):null,tempo=isToday?bodyTempo(plan,viewKey):null;
@@ -2393,9 +2455,9 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
         ariaLabel={steps?`Schritte: im Schnitt ${fmtSteps(steps.avg)} über 7 Tage, Ziel ${fmtSteps(STEP_GOAL)}.${isToday?steps.needToday?` Heute noch ${fmtSteps(steps.needToday)}.`:" Im Ziel.":""} Details öffnen`:"Schritte: keine Daten von der Uhr"}>
         {steps?(steps.avg>=1000?Math.round(steps.avg/100)/10+"k":steps.avg):"–"}
       </Ring>
-      <Ring value={bfValue==null?0:BF_START-bfValue} max={BF_START-BF_GOAL} color="var(--accent)" label="Körperfett" dialog={bfValue!=null}
-        sub={bodyWarn?<span className="ring-warn">{bodyWarn}</span>:bfSub} badge={bodyWarn?{key:"amber",mark:"!"}:null}
-        ariaLabel={(bfValue==null?"Körperfett: noch keine Messung.":`Körperfett ${fmt1(bfValue)} Prozent im 7-Tage-Mittel, Ziel ${BF_GOAL_LOW} bis ${BF_GOAL} Prozent.`)+bodyWarnText+(bfValue==null?" Körper-Tab öffnen":" Verlauf öffnen")}
+      <Ring value={bfArc.value} max={bfArc.max} color="var(--accent)" label="Körperfett" dialog={bfValue!=null}
+        sub={bodyWarn?<span className="ring-warn">{bodyWarn}</span>:gpLine?.warn?<span className="ring-warn">{bfSub}</span>:bfSub} badge={bodyWarn?{key:"amber",mark:"!"}:null}
+        ariaLabel={bfAria+bodyWarnText+(bfValue==null?" Körper-Tab öffnen":" Verlauf öffnen")}
         onClick={()=>bfValue==null?onOpenBody():setSheet("body")}>
         {bfValue==null?"–":fmt1(bfValue)}
       </Ring>
@@ -2533,17 +2595,17 @@ function ProteinSheet({entry,dk,target,updDay,onClose,onMeals}) {
 // Body fat: the 7-day mean, its change over four weeks and the last four weeks as a line.
 function BodySheet({plan,dk,bf,onClose,onOpenBody}) {
   const readings=bodyCompReadings(plan,"bodyFat").filter(r=>r.value<100&&r.date<=dk);
-  const month=bodyMean(readings,daysBeforeStr(bf.anchor,28)),cur=bf.current.value;
+  const month=bodyMean(readings.filter(r=>scaleEra(r.date)===scaleEra(bf.anchor)),daysBeforeStr(bf.anchor,28)),cur=bf.current.value;
   const change=month?(Math.abs(cur-month.value)<0.05?"Unverändert in 4 Wochen":(cur<month.value?"↓ ":"↑ ")+fmt1(Math.abs(cur-month.value))+" %-Punkte in 4 Wochen")
     :deltaText(bf.current,bf.previous,"%-Punkte");
-  const series=rollingSeries(readings,daysBeforeStr(dk,27),dk),weigh=weighIns(plan,dk);
+  const series=eraSeries(readings,daysBeforeStr(dk,27),dk),weigh=weighIns(plan,dk),gp=goalPath(plan,dk);
   return <InfoSheet id="body-sheet" eyebrow="7-Tage-Mittel" title="Körperfett" onClose={onClose}>
     <p className="sheet-big">{fmt1(cur)}<small> %</small></p>
     <p className="sheet-lede">{change}</p>
-    <GoalBar value={cur}/>
+    {gp?<PathBlock gp={gp} today={dk}/>:<GoalBar value={cur}/>}
     {weigh.low&&<p className="weigh-note sheet-warn"><strong>{weigh.count?`Nur ${weigh.count}× gewogen in 7 Tagen.`:"In 7 Tagen nicht gewogen."}</strong> {WEIGH_NOTE}</p>}
     <TempoBlock tempo={bodyTempo(plan,dk)} compact/>
-    {series.some(p=>p.value!=null)&&<div className="sheet-chart"><TrendChart readings={readings} series={series} target={BF_GOAL}/>
+    {series.some(p=>p.value!=null)&&<div className="sheet-chart"><TrendChart readings={readings} series={series} target={gp?null:BF_GOAL} path={gp?.phase==="path"?gp:null}/>
       <p className="chart-caption">Letzte 4 Wochen · Linie: 7-Tage-Mittel · Punkte: einzelne Messungen</p></div>}
     <p className="hero-meta">{bf.current.count} {bf.current.count===1?"Messung":"Messungen"} · Stand {shortDate(bf.anchor)}{bf.ageDays>7?` · seit ${bf.ageDays} Tagen keine neue Messung`:""}</p>
     <button className="text-btn sheet-more" onClick={onOpenBody}>Alles im Körper-Tab<Icon name="arrow" size={16}/></button>
@@ -3398,8 +3460,11 @@ function bodyMean(readings,to) {
 // Fat and lean mass need weight and body fat within the same window.
 function bodySnapshot(plan,today=todayStr()) {
   const utc=s=>{const [y,m,d]=s.split('-').map(Number);return Date.UTC(y,m-1,d);};
-  const weight=bodyCompReadings(plan,'weight').filter(r=>r.date<=today&&r.value<=500);
-  const bodyFat=bodyCompReadings(plan,'bodyFat').filter(r=>r.date<=today&&r.value<100);
+  const all=f=>bodyCompReadings(plan,f).filter(r=>r.date<=today&&(f==='weight'?r.value<=500:r.value<100));
+  const latest=[all('weight').at(-1)?.date,all('bodyFat').at(-1)?.date].filter(Boolean).sort().at(-1);
+  // One scale at a time: the old one read about 2 points higher.
+  const weight=all('weight').filter(r=>scaleEra(r.date)===scaleEra(latest||today));
+  const bodyFat=all('bodyFat').filter(r=>scaleEra(r.date)===scaleEra(latest||today));
   const metric=readings=>{const last=readings.at(-1);if(!last)return null;
     return {anchor:last.date,ageDays:Math.round((utc(today)-utc(last.date))/86400000),
       current:bodyMean(readings,last.date),previous:bodyMean(readings,daysBeforeStr(last.date,7))};};
@@ -3425,7 +3490,7 @@ function weeklyReportFacts(plan,weekStart,target=DEFAULT_PROTEIN_TARGET,complain
   const speeds=football.map(g=>g.maxSpeedKmh).filter(Number.isFinite);
   const load=loadStatus(plan,weekEnd);
   const metric=field=>{
-    const r=bodyCompReadings(plan,field).filter(x=>x.date<=weekEnd&&(field==='weight'?x.value<=500:x.value<100));
+    const r=bodyCompReadings(plan,field).filter(x=>x.date<=weekEnd&&scaleEra(x.date)===scaleEra(weekEnd)&&(field==='weight'?x.value<=500:x.value<100));
     const now=bodyMean(r,weekEnd),prev=bodyMean(r,daysBeforeStr(weekEnd,7));
     return now?{value:Math.round(now.value*10)/10,readings:now.count,deltaVsPrevWeek:prev?Math.round((now.value-prev.value)*10)/10:null}:null;
   };
@@ -3452,42 +3517,64 @@ function weeklyReportFacts(plan,weekStart,target=DEFAULT_PROTEIN_TARGET,complain
 
 // Minimal responsive SVG line chart: rolling-average line (gap-aware), raw
 // readings as de-emphasized dots, optional dashed horizontal target.
-function TrendChart({readings, series, target}) {
-  const W=340,H=150, L=34,R=10,T=12,B=22;
-  const days=series.map(p=>p.date);
-  const vals=[...series.map(p=>p.value),...readings.map(r=>r.value)].filter(v=>v!=null);
+// Each date's 7-day mean from its own scale only, so the line breaks at the scale change.
+function eraSeries(readings,fromDk,toDk) {
+  const by=era=>rollingSeries(readings.filter(r=>scaleEra(r.date)===era),fromDk,toDk),old=by("old"),neu=by("new");
+  return old.map((p,i)=>scaleEra(p.date)==="new"?{...neu[i],era:"new"}:{...p,era:"old"});
+}
+// Minimal responsive SVG line chart: rolling-average line (gap-aware), raw readings as
+// de-emphasized dots, an optional dashed target or plan line. Old-scale values are faint and
+// the scale change is marked, so the drop at the switch never reads as progress.
+function TrendChart({readings, series:all, target, path}) {
+  const W=340,H=150, L=34,R=10,T=14,B=22;
+  const days=all.map(p=>p.date),inRange=readings.filter(r=>days.includes(r.date));
+  // The old scale only shows when one of its readings lies in view, not as a trailing mean.
+  const series=inRange.some(r=>scaleEra(r.date)==="old")?all:all.map(p=>p.era==="old"?{...p,value:null}:p);
+  const pathFrom=path&&path.startDate>days[0]?path.startDate:days[0],showPath=path&&pathFrom<=days[days.length-1];
+  const vals=[...series.map(p=>p.value),...inRange.map(r=>r.value)].filter(v=>v!=null);
   if (target!=null) vals.push(target);
+  if (showPath) vals.push(path.at(pathFrom),path.at(days[days.length-1]));
   let lo=Math.min(...vals), hi=Math.max(...vals);
   const pad=Math.max((hi-lo)*0.15,0.4); lo-=pad; hi+=pad;
   const x=(dk)=>{ const i=days.indexOf(dk); return L+(i/Math.max(days.length-1,1))*(W-L-R); };
   const y=(v)=>T+(1-(v-lo)/(hi-lo))*(H-T-B);
-  // Split the average line into segments at gaps.
+  // Split the average line into segments at gaps and at the scale change.
   const segs=[]; let cur=[];
   for (const p of series) {
-    if (p.value==null) { if (cur.length>1) segs.push(cur); cur=[]; }
+    if (p.value==null||(cur.length&&cur[cur.length-1].era!==p.era)) { if (cur.length>1) segs.push(cur); cur=p.value==null?[]:[p]; }
     else cur.push(p);
   }
   if (cur.length>1) segs.push(cur);
   const fmtD=(dk)=>new Date(dk+"T00:00:00").toLocaleDateString("de-CH",{month:"short",day:"numeric"});
-  const midDk=days[Math.floor(days.length/2)];
+  const midDk=days[Math.floor(days.length/2)],switchShown=days[0]<SCALE_SINCE&&days.includes(SCALE_SINCE);
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{display:"block",width:"100%",height:"auto"}}>
       {/* y labels */}
       {[lo+pad,hi-pad].map((v,i)=>(
         <text key={i} x={L-5} y={y(v)+3} fontSize="9" fill={C.muted} textAnchor="end">{v.toFixed(1)}</text>
       ))}
+      {/* scale change */}
+      {switchShown&&(<>
+        <line x1={x(SCALE_SINCE)} x2={x(SCALE_SINCE)} y1={T-4} y2={H-B} stroke={C.muted} strokeWidth="1" strokeDasharray="2 3" opacity="0.6"/>
+        <text x={x(SCALE_SINCE)+4} y={T+2} fontSize="9" fill={C.muted}>neue Waage</text>
+      </>)}
       {/* target reference */}
       {target!=null&&(<>
         <line x1={L} x2={W-R} y1={y(target)} y2={y(target)} stroke={C.muted} strokeWidth="1" strokeDasharray="4 4" opacity="0.7"/>
         <text x={W-R} y={y(target)-4} fontSize="9" fill={C.muted} textAnchor="end">{target}% Ziel</text>
       </>)}
+      {/* his plan on the new scale */}
+      {showPath&&(<>
+        <line x1={x(pathFrom)} x2={x(days[days.length-1])} y1={y(path.at(pathFrom))} y2={y(path.at(days[days.length-1]))} stroke={C.muted} strokeWidth="1.2" strokeDasharray="4 4" opacity="0.8"/>
+        <text x={W-R} y={y(path.at(days[days.length-1]))+12} fontSize="9" fill={C.muted} textAnchor="end">Plan</text>
+      </>)}
       {/* raw readings — visible noise, clearly secondary */}
-      {readings.filter(r=>days.includes(r.date)).map(r=>(
-        <circle key={r.date} cx={x(r.date)} cy={y(r.value)} r="2.2" fill={C.sage} opacity="0.45"/>
+      {inRange.map(r=>(
+        <circle key={r.date} cx={x(r.date)} cy={y(r.value)} r="2.2" fill={C.sage} opacity={scaleEra(r.date)==="old"?0.2:0.45}/>
       ))}
       {/* rolling-average line (hero) */}
       {segs.map((seg,i)=>(
-        <path key={i} fill="none" stroke={C.done} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        <path key={i} fill="none" stroke={C.done} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={seg[0].era==="old"?0.35:1}
           d={seg.map((p,j)=>`${j===0?"M":"L"}${x(p.date).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ")}/>
       ))}
       {/* x labels */}
@@ -3496,6 +3583,31 @@ function TrendChart({readings, series, target}) {
       <text x={W-R} y={H-6} fontSize="9" fill={C.muted} textAnchor="end">{fmtD(days[days.length-1])}</text>
     </svg>
   );
+}
+// His plan on the new scale: the start phase as 14 days, then the way to the June goal.
+function PathBlock({gp,today}) {
+  if(gp.phase==="start")return <div className="path-block">
+    <div className="start-days" aria-hidden="true">{gp.days.map(d=><span key={d.date} className={(d.weighed?"on":"")+(d.date===today?" today":"")}/>)}</div>
+    <div className="goal-legend"><span>Startphase · Tag {gp.day} von {START_DAYS}</span>
+      <span>{gp.readyOn?`Startwert am ${shortDate(gp.readyOn)}`:`noch ${START_MIN-gp.readings} ${START_MIN-gp.readings===1?"Messung":"Messungen"}`}</span></div>
+    <p className="path-note">Die neue Waage misst rund 2 Punkte tiefer als die alte. Aus den ersten {START_DAYS} Tagen ({START_MIN} Messungen oder mehr) entsteht dein Startwert. Danach gilt −0.5 Punkte pro Monat bis Ende Juni.</p>
+  </div>;
+  const lo=Math.min(gp.end,gp.current)-0.6,hi=Math.max(gp.start,gp.current)+0.6,pos=v=>Math.max(0,Math.min(100,(v-lo)/(hi-lo)*100));
+  const line=pathLine(gp),done=Math.min(gp.current,gp.start),abs=v=>Math.abs(v).toFixed(1);
+  const sentence={onTrack:"Auf Kurs.",behind:`${abs(gp.deviation)} Punkte über dem Plan.`,
+    ahead:`${abs(gp.deviation)} Punkte vor dem Plan. Achte darauf, dass das Tempo nicht zu hoch wird.`,
+    festive:`Festtage: ${gp.festive?.gain>=0?"+":"−"}${abs(gp.festive?.gain||0)} Punkte gegenüber der Woche davor, erlaubt sind +0.5.`,
+    festiveOver:`Festtage: +${abs(gp.festive?.gain||0)} Punkte gegenüber der Woche davor, mehr als die erlaubten +0.5.`}[gp.status];
+  return <div className="path-block">
+    <div className="goal-bar" aria-hidden="true">
+      <span className="path-done" style={{left:pos(done)+"%",width:Math.max(0,pos(gp.start)-pos(done))+"%"}}/>
+      <span className="path-tick goal" style={{left:pos(gp.end)+"%"}}/>
+      <span className="path-tick start" style={{left:pos(gp.start)+"%"}}/>
+      <span className="path-tick plan" style={{left:pos(gp.planNow)+"%"}}/>
+      <span className={"goal-marker"+(line.warn?" warn":"")} style={{left:pos(gp.current)+"%"}}/></div>
+    <div className="goal-legend"><span>Ziel {fmt1(gp.end)} % · {shortDate(gp.endDate)}</span><span>Plan heute {fmt1(gp.planNow)} %</span></div>
+    <p className={"path-status"+(line.warn?" warn":"")}>{sentence} <span>Start {fmt1(gp.start)} % am {shortDate(gp.startDate)}, dann −0.5 Punkte pro Monat.</span></p>
+  </div>;
 }
 
 // ─── Körper view ─────────────────────────────────────────────────────────────────
@@ -3555,7 +3667,7 @@ function BodyView({plan,updDay,proteinTarget,socialProps}) {
   const readings=bodyCompReadings(plan,metric).filter(r=>metric==="weight"?r.value<=500:r.value<100);
   const span=BODY_RANGES.find(r=>r[0]===range)[2];
   const from=span!=null?daysBeforeStr(today,span):readings[0]&&readings[0].date<SEASON_START?readings[0].date:SEASON_START;
-  const series=from<=today?rollingSeries(readings,from,today):[];
+  const series=from<=today?eraSeries(readings,from,today):[],gp=goalPath(plan,today);
   const hasLine=series.some(p=>p.value!=null);
   const recent=Object.keys(plan).filter(dk=>dk<=today&&(validBody(plan[dk]?.weight)||validBody(plan[dk]?.bodyFat))).sort().reverse().slice(0,5);
   const nut=nutritionSummary(plan,Array.from({length:7},(_,i)=>daysBeforeStr(today,6-i)),proteinTarget);
@@ -3570,7 +3682,7 @@ function BodyView({plan,updDay,proteinTarget,socialProps}) {
       {bf?<>
         <div className="hero-value">{fmt1(bf.current.value)}<span> %</span></div>
         <p className="hero-delta">{deltaText(bf.current,bf.previous,"%-Punkte")}</p>
-        <GoalBar value={bf.current.value}/>
+        {gp?<PathBlock gp={gp} today={today}/>:<GoalBar value={bf.current.value}/>}
         <p className="hero-meta">{bf.current.count} {bf.current.count===1?"Messung":"Messungen"} · Stand {shortDate(bf.anchor)}{plan[bf.anchor]?.bodySource==="withings"?" · Withings":""}{bf.ageDays>7?` · seit ${bf.ageDays} Tagen keine neue Messung`:""}</p>
       </>:<p className="helper-text">Noch keine Körperfett-Messung. Trag deine Waage-Werte ein: Es zählt die Entwicklung, nicht der einzelne Tag.</p>}
       {!editor&&<button className="text-btn add-measure" onClick={()=>setEditor(today)}><Icon name="plus" size={16}/> Messung von Hand eintragen</button>}
@@ -3588,7 +3700,7 @@ function BodyView({plan,updDay,proteinTarget,socialProps}) {
         <button key={key} aria-pressed={metric===key} onClick={()=>setMetric(key)}>{label}</button>)}</div></div>
       <div className="range-switch" role="group" aria-label="Zeitraum" style={{marginBottom:14}}>{BODY_RANGES.map(([key,label])=>
         <button key={key} aria-pressed={range===key} onClick={()=>setRange(key)}>{label}</button>)}</div>
-      {hasLine?<><TrendChart readings={readings} series={series} target={metric==="bodyFat"?BF_GOAL:null}/>
+      {hasLine?<><TrendChart readings={readings} series={series} target={metric==="bodyFat"&&!gp?BF_GOAL:null} path={metric==="bodyFat"&&gp?.phase==="path"?gp:null}/>
         <p className="chart-caption">Linie: 7-Tage-Mittel · Punkte: einzelne Messungen</p></>
         :<p className="helper-text">Keine Messungen in diesem Zeitraum.</p>}
     </section></>}

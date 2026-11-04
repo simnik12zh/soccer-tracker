@@ -1,6 +1,6 @@
 # Body Composition Tracking — Weight & Body Fat %
 
-Add optional weight + body fat % logging, with trend-first display. The player uses a smart scale a few times a week (not daily), which gives both numbers together. Goal: 16% → 12–13% body fat, sustained over months.
+Add optional weight + body fat % logging, with trend-first display. The player uses a smart scale a few times a week (not daily), which gives both numbers together. Goal: 16% → 12–13% body fat, sustained over months. Update (Nov 2026): since 27 Oct 2026 a new Withings scale reads about 2 points lower; the goal is now a path on the new scale — the start value from the first 14 days (≥ 10 readings), then −0.5 points a month to 30 June 2027 (≈ 13 % on the old scale). Values from the two scales are never compared.
 
 **Design principle:** smart-scale readings are directionally useful but individually noisy (bioimpedance reads hydration as much as fat). A single day's number means little; the multi-week trend is the real signal. The app must therefore lean on trend display and treat gaps in logging as completely normal — never as a missed target or broken streak.
 

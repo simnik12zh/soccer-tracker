@@ -38,8 +38,9 @@ test('week facts are computed exactly from the plan',()=>{
     {date:'2026-10-31',opponent:'FC Ränte',venue:'Auswärts',played:false}]);
   assert.deepEqual(plain(f.training.watch),{activities:3,minutes:180,footballKm:8.4,topSpeedKmh:27.9});
   assert.equal(f.load.week,265);
-  assert.deepEqual(plain(f.body.weight),{value:78.6,readings:1,deltaVsPrevWeek:-0.4});
-  assert.deepEqual(plain(f.body.bodyFat),{value:15.8,readings:1,deltaVsPrevWeek:-0.3});
+  // 21 Oct is from the old scale (new one from 27 Oct): no comparison across scales.
+  assert.deepEqual(plain(f.body.weight),{value:78.6,readings:1,deltaVsPrevWeek:null});
+  assert.deepEqual(plain(f.body.bodyFat),{value:15.8,readings:1,deltaVsPrevWeek:null});
   assert.deepEqual([f.nutrition.proteinHitDays,f.nutrition.avgProtein],[2,92]);
   assert.equal(f.nutrition.avgKcal,undefined,'no calorie totals');
   assert.deepEqual(plain(f.nutrition.ratings),{green:1,amber:1,red:0});

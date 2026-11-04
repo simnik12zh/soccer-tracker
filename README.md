@@ -44,7 +44,10 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   labelled Gut erholt / Eingeschränkt / Wenig erholt from `recoveryStatus`),
   Protein vs. target, Schritte (`stepsWeek`: the 7-day mean against Ø 10'000, today counting with its
   steps so far; the line below says how many steps today still bring the mean to the goal) and
-  Körperfett (7-day mean; the arc is the way from 16 % to the 13 % goal, `BF_START`). The
+  Körperfett (7-day mean on the current scale; the arc follows his plan, `goalPath`: during the
+  start phase the 14 days, then the way from the start value to the June goal, with "auf Kurs ✓",
+  "vor dem Plan", "0.4 über Plan" or "Festtage +0.3" below; before the scale change it was the way
+  from 16 % to 13 %, `BF_START`). The
   Körperfett ring is the body early warning: it stays quiet while he weighs at least 3 times in
   7 days and the weight moves at a good pace, otherwise it shows "2× gewogen", "zu schnell" or
   "steigt" with an "!" (`weighIns`, `bodyTempo`). Each ring opens a sheet: Erholung lists sleep, HRV, resting HR and Body Battery with
@@ -111,15 +114,25 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 - **Plan** — Woche/Monat toggle. The week view marks today, has one edit button per day (swap
   lives in the session sheet: "Mit einem anderen Tag tauschen"), then Plan-Vorschlag,
   Wochenziele, Belastung (a line of the acute load day by day: three weeks measured, the next 7 days dashed from the plan, inside his range, with a sentence on when the plan takes him over it and which sessions add most; `LoadTrend`, `loadSeries`, `loadOutlookText`) and Taktik.
-- **Körper** — body-fat 7-day mean as hero with delta vs. the previous 7 days and a 12–13 %
-  goal bar; weight, fat mass and lean mass tiles (mass needs weight and body fat in the same
+- **Scale change and goal path** — a new Withings scale since 27 Oct 2026 (`SCALE_SINCE`) reads
+  about 2 points lower than the old one (last reading 4 Oct). Body values are only compared within
+  one scale (`scaleEra`): the snapshot, weekly deltas, tempo, weekly trends, the coach and the
+  report. His plan (`goalPath`): the first 14 days on the new scale with at least 10 readings
+  give the start value (the window grows until there are 10), then −0.5 points a month until
+  30 June 2027 (about 13 % on the old scale). Within 0.3 points of the plan is on track. Over the
+  festive days (20 Dec – 6 Jan) the check is against the week before: at most +0.5 points.
+- **Körper** — body-fat 7-day mean as hero with delta vs. the previous 7 days and his plan
+  (`PathBlock`): during the start phase 14 day marks (filled when he weighed), then a bar with the
+  June goal, the start value, today's plan value and where he is; weight, fat mass and lean mass tiles (mass needs weight and body fat in the same
   window, `bodySnapshot`); Tempo (`bodyTempo`: weight per month, the 7-day mean today against the
   one four weeks earlier, at least 3 readings in each week and from one scale only, so an old and
   a new scale never mix; Zu schnell below −0.8, Gutes Tempo to −0.3, Stabil, Steigt from +0.3;
   with the fat and lean split. Weight is the alarm, lean mass only context, because the scale's
   lean mass moves with water); trend chart (Körperfett/Gewicht, 4 Wochen / 3 Monate / Saison);
   dated measurement editor (any date up to today, empty field removes a value); the last five
-  measurements with "N× in 7 Tagen" (warning colour and a note below 3); a seven-day nutrition
+  measurements with "N× in 7 Tagen" (warning colour and a note below 3). Charts mark the scale
+  change ("neue Waage"), show old-scale values faintly only when they lie in view and draw the
+  plan as a dashed line instead of the flat 13 % line; a seven-day nutrition
   overview (traffic lights, protein hits, average); steps as a 7-day mean with the goal line;
   sleep & recovery with labelled rows (Schlaf, HRV, Puls). Manual entry is a text link, since
   the scale delivers automatically.
@@ -346,6 +359,9 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   dated weight/body-fat readings with current/previous seven-day means and sample counts,
   and nutrition: per-day `{proteinGrams, rating}` up to today plus `nutrition.last7Days` /
   `previous7Days` (target hits, average on logged days, rating counts) against the target.
+  `bodyGoal` carries the scale change (`newScaleSince`, last old reading) and the goal path (start
+  phase, or start value and date, end value, plan today, current mean, deviation, status, the
+  festive check); `trends.weeks` marks each week's scale.
   The early warning goes along: `body.weighInsLast7Days`, `body.tempo` and `steps` (7-day mean,
   goal, still needed today); the weekly report adds weigh-ins and tempo for its week. Settings →
   "Hintergrund für den Coach" holds his own background (for example his analysis of cuts and
