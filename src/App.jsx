@@ -1239,14 +1239,14 @@ function pathLine(gp) {
   return gp.status==='behind'?{text:`${gp.deviation.toFixed(1)} über Plan`,warn:true}:gp.status==='ahead'?{text:'vor dem Plan'}:{text:'auf Kurs ✓'};
 }
 // Steps as a 7-day mean: busy football days make up for quiet ones. Today counts with its
-// steps so far; needToday is what still brings the mean to the goal.
+// steps so far. It shows where he stands, not how many steps are still missing today.
 function stepsWeek(plan,dk,today=todayStr()) {
   const isToday=dk===today,days=Array.from({length:7},(_,i)=>{const date=daysBeforeStr(dk,6-i),v=plan[date]?.steps;
     return {date,steps:Number.isInteger(v)&&v>=0?v:null};});
   const known=days.filter(d=>d.steps!=null);
   if(!days.slice(0,6).some(d=>d.steps!=null)&&!days[6].steps)return null;
   const n=known.length+(isToday&&days[6].steps==null?1:0),sum=known.reduce((s,d)=>s+d.steps,0);
-  return {days,avg:Math.round(sum/n),daysWithData:n,goal:STEP_GOAL,needToday:isToday?Math.max(0,STEP_GOAL*n-sum):null};
+  return {days,avg:Math.round(sum/n),daysWithData:n,goal:STEP_GOAL};
 }
 const fmtSteps=v=>v.toLocaleString('de-CH');
 
@@ -1457,7 +1457,7 @@ function buildCoachContext(plan,playerName,viewKey,referenceDate=todayStr(),prot
       if(gp.phase==='start')return {scale,goalPath:{phase:'start',day:gp.day,of:START_DAYS,readings:gp.readings,minReadings:START_MIN,startValueOn:gp.readyOn}};
       return {scale,goalPath:{phase:'path',startValue:gp.start,startDate:gp.startDate,ratePerMonth:PATH_RATE,endValue:gp.end,endDate:gp.endDate,
         planToday:gp.planNow,current7DayMean:gp.current,asOf:gp.anchor,deviation:gp.deviation,status:gp.status,...(gp.festive?{festive:gp.festive}:{})}};})(),
-    steps:(s=>s?{last7DaysAverage:s.avg,daysWithData:s.daysWithData,goalAverage:s.goal,stillNeededToday:s.needToday}:null)(stepsWeek(plan,referenceDate,referenceDate)),
+    steps:(s=>s?{last7DaysAverage:s.avg,daysWithData:s.daysWithData,goalAverage:s.goal}:null)(stepsWeek(plan,referenceDate,referenceDate)),
     ...(coachText(extra.background,12000)?{athleteHistory:coachText(extra.background,12000)}:{}),
     load:(()=>{const st=loadStatus(plan,referenceDate);if(!st.ready)return {ready:false,daysOfWatchData:st.historyDays,acuteLoad:st.acute};
       const typical=typicalLoads(plan,referenceDate),planned=plannedLoad(plan,referenceDate,typical);
@@ -2437,7 +2437,7 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
   const bodyWarnText=weigh?.low?` Achtung: ${weigh.count===1?"eine Messung":weigh.count+" Messungen"} in 7 Tagen.`
     :tempoWarn?` Achtung: Gewicht ${signedKg(tempo.rate)} Kilo pro Monat, ${TEMPO_LABELS[tempo.status].toLowerCase()}.`:"";
   const steps=future?null:stepsWeek(plan,viewKey,today);
-  const stepsSub=!steps?"keine Daten":isToday?(steps.needToday?"noch "+fmtSteps(steps.needToday):"im Ziel ✓"):steps.avg>=STEP_GOAL?"im Ziel ✓":"Ø 7 Tage";
+  const stepsSub=!steps?"keine Daten":steps.avg>=STEP_GOAL?"im Ziel ✓":"Ø 7 Tage";
   return <section className="panel rings" aria-label="Tagesübersicht">
     {(advice||glance.length>0||children)&&<div className={"day-status "+((isToday?guide?.level:recovery?.level)||"")}>
       {(advice||glance.length>0)&&<div role="status">
@@ -2461,7 +2461,7 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
         {protein==null?"–":<>{protein}<small>g</small></>}
       </Ring>
       <Ring value={steps?.avg||0} max={STEP_GOAL} color="var(--social)" label="Schritte" sub={stepsSub} dialog disabled={!steps} onClick={()=>setSheet("steps")}
-        ariaLabel={steps?`Schritte: im Schnitt ${fmtSteps(steps.avg)} über 7 Tage, Ziel ${fmtSteps(STEP_GOAL)}.${isToday?steps.needToday?` Heute noch ${fmtSteps(steps.needToday)}.`:" Im Ziel.":""} Details öffnen`:"Schritte: keine Daten von der Uhr"}>
+        ariaLabel={steps?`Schritte: im Schnitt ${fmtSteps(steps.avg)} über 7 Tage, Ziel ${fmtSteps(STEP_GOAL)}.${steps.avg>=STEP_GOAL?" Im Ziel.":""} Details öffnen`:"Schritte: keine Daten von der Uhr"}>
         {steps?(steps.avg>=1000?Math.round(steps.avg/100)/10+"k":steps.avg):"–"}
       </Ring>
       <Ring value={bfArc.value} max={bfArc.max} color="var(--accent)" label="Körperfett" dialog={bfValue!=null}
@@ -2484,9 +2484,7 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
     {sheet==="body"&&bf&&<BodySheet plan={plan} dk={viewKey} bf={bf} onClose={()=>setSheet(null)} onOpenBody={()=>{setSheet(null);onOpenBody();}}/>}
     {sheet==="steps"&&steps&&<InfoSheet id="steps-sheet" eyebrow={(isToday?"Heute":shortDate(viewKey))+" · Bewegung"} title="Schritte" onClose={()=>setSheet(null)}>
       <p className="sheet-big">{fmtSteps(steps.avg)}<small> Ø 7 Tage</small></p>
-      <p className="sheet-lede">{isToday?(steps.needToday?`Heute noch ${fmtSteps(steps.needToday)} Schritte, dann liegt dein Schnitt bei ${fmtSteps(STEP_GOAL)}.`
-        :`Dein Schnitt liegt bei ${fmtSteps(STEP_GOAL)} oder mehr. Heute musst du nichts aufholen.`)
-        :steps.avg>=STEP_GOAL?"Im Ziel.":`${fmtSteps(STEP_GOAL-steps.avg)} unter dem Ziel.`}</p>
+      <p className="sheet-lede">{steps.avg>=STEP_GOAL?"Im Ziel.":"Unter dem Ziel."}</p>
       <StepsBars s={steps} today={isToday?viewKey:null}/>
       <p className="chart-caption">Ziel: im Schnitt {fmtSteps(STEP_GOAL)} pro Tag über 7 Tage (Linie). Fussballtage gleichen ruhige Tage aus.{isToday?" Heute zählt mit den Schritten bis jetzt.":""}</p>
     </InfoSheet>}
@@ -3736,7 +3734,7 @@ function BodyView({plan,updDay,proteinTarget,socialProps}) {
     {steps&&<section aria-label="Schritte der letzten sieben Tage">
       <div className="section-heading"><h2>Schritte</h2><span>Ø {fmtSteps(steps.avg)} · Ziel Ø {fmtSteps(STEP_GOAL)}</span></div>
       <div className="panel"><StepsBars s={steps} today={today}/></div>
-      <p className="chart-caption">{steps.needToday?`Heute noch ${fmtSteps(steps.needToday)} Schritte für den Schnitt von ${fmtSteps(STEP_GOAL)}.`:"Im Schnitt der letzten 7 Tage im Ziel."} Heute zählt mit den Schritten bis jetzt.</p>
+      <p className="chart-caption">Die Linie zeigt das Ziel. Fussballtage gleichen ruhige Tage aus. Heute zählt mit den Schritten bis jetzt.</p>
     </section>}
     {nights.some(n=>n.r)&&<section aria-label="Schlaf und Erholung der letzten sieben Tage">
       <div className="section-heading"><h2>Schlaf & Erholung</h2><span>{sleepAvg!=null?`Ø ${fmtHM(sleepAvg)} Schlaf`:"letzte 7 Tage"}</span></div>

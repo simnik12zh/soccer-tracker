@@ -57,15 +57,14 @@ test('steps: a 7-day mean, so busy days make up for quiet ones',()=>{
   const plan={};
   [13000,13000,13000,13000,13000,8000].forEach((v,i)=>{plan[day(6-i)]={steps:v};});
   const busy=app.stepsWeek(plan,TODAY,TODAY);
-  assert.equal(busy.needToday,0,'73’000 in six days: today needs nothing more');
+  assert.equal('needToday' in busy,false,'where he stands, not what is still missing');
   assert.equal(busy.avg,10429,'today counts with 0 steps so far');
   const quiet={};
   for(let i=1;i<=6;i++)quiet[day(i)]={steps:9000};
   quiet[TODAY]={steps:2000};
   assert.deepEqual(plain(app.stepsWeek(quiet,TODAY,TODAY)),{days:[...Array.from({length:6},(_,i)=>({date:day(6-i),steps:9000})),{date:TODAY,steps:2000}],
-    avg:8000,daysWithData:7,goal:10000,needToday:14000});
+    avg:8000,daysWithData:7,goal:10000});
   const past=app.stepsWeek(quiet,day(1),TODAY);
-  assert.equal(past.needToday,null,'only today has something left to do');
   assert.equal(past.daysWithData,6,'days without watch data do not count');
   assert.equal(app.stepsWeek({},TODAY,TODAY),null);
   assert.equal(app.stepsWeek({[TODAY]:{steps:0}},TODAY,TODAY),null,'no watch data yet');
@@ -77,7 +76,7 @@ test('the coach gets weigh-ins, tempo, steps and his own background',()=>{
   const ctx=app.buildCoachContext(plan,'Test',LATER,LATER,150,[],null,{background:'  Cuts über Bewegung, Rebounds über das Essen.  '});
   assert.equal(ctx.body.weighInsLast7Days,3);
   assert.deepEqual(plain(ctx.body.tempo),{weightKgPerMonth:-1.2,status:'fast',from:later(28),to:LATER,weightChangeKg:-1.1,fatMassChangeKg:-0.2,leanMassChangeKg:-0.9});
-  assert.deepEqual(plain(ctx.steps),{last7DaysAverage:11000,daysWithData:7,goalAverage:10000,stillNeededToday:0});
+  assert.deepEqual(plain(ctx.steps),{last7DaysAverage:11000,daysWithData:7,goalAverage:10000});
   assert.equal(ctx.athleteHistory,'Cuts über Bewegung, Rebounds über das Essen.');
   assert.equal('athleteHistory' in app.buildCoachContext(plan,'Test',LATER,LATER),false,'no background, no key');
   const coach=readFileSync(new URL('../api/coach.js',import.meta.url),'utf8');

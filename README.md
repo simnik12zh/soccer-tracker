@@ -46,7 +46,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   below. Then four rings: Erholung (the night only: watch values in their normal range, coloured and
   labelled Gut erholt / Eingeschränkt / Wenig erholt from `recoveryStatus`),
   Protein vs. target, Schritte (`stepsWeek`: the 7-day mean against Ø 10'000, today counting with its
-  steps so far; the line below says how many steps today still bring the mean to the goal) and
+  steps so far; it shows where he stands, never how many steps are still missing today) and
   Körperfett (7-day mean on the current scale; the arc follows his plan, `goalPath`: during the
   start phase the 14 days, then the way from the start value to the June goal, with "auf Kurs ✓",
   "vor dem Plan", "0.4 über Plan" or "Festtage +0.3" below; before the scale change it was the way
@@ -55,7 +55,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   7 days and the weight moves at a good pace, otherwise it shows "2× gewogen", "zu schnell" or
   "steigt" with an "!" (`weighIns`, `bodyTempo`). Each ring opens a sheet: Erholung lists sleep, HRV, resting HR and Body Battery with
   the last 7 nights against his normal range (tap a row for the nightly values); Protein has
-  +20/+30/+40 g with undo and a link to the meal card; Schritte shows the mean, today's remainder
+  +20/+30/+40 g with undo and a link to the meal card; Schritte shows the mean
   and the 7 days as bars with the goal line; Körperfett shows the change over 4 weeks,
   the goal bar, the weigh-in warning, the tempo and the last 4 weeks as a line, with a link to the Körper tab. Below the rings a
   sentence names what is still open (`dayChecklist`; past days say "nicht eingetragen", never
@@ -366,7 +366,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   phase, or start value and date, end value, plan today, current mean, deviation, status, the
   festive check); `trends.weeks` marks each week's scale.
   The early warning goes along: `body.weighInsLast7Days`, `body.tempo` and `steps` (7-day mean,
-  goal, still needed today); the weekly report adds weigh-ins and tempo for its week. Settings →
+  goal); the weekly report adds weigh-ins and tempo for its week. Settings →
   "Hintergrund für den Coach" holds his own background (for example his analysis of cuts and
   rebounds and his rules), stored only on the device under `coach-background` (part of backups)
   and sent as `athleteHistory`. Personal history never goes into the code: the repository is public.
