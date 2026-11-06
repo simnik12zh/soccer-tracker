@@ -101,10 +101,14 @@ test('a rejected token is renewed once; bad keys and ranges give clear errors',a
 
 test('Garmin activity types map to session types by pattern',()=>{
   const cases={strength_training:'Gym',running:'Easy run',trail_running:'Easy run',treadmill_running:'Easy run',walking:'Walking',casual_walking:'Walking',hiking:'Walking',
-    yoga:'Pilates',pilates:'Pilates',soccer:'soccer',mobility:'Mobility',breathwork:'Mobility',cycling:null,indoor_cardio:null,'':null};
+    yoga:'Pilates',pilates:'Pilates',soccer:'soccer',mobility:'Mobility',breathwork:'Mobility',indoor_cardio:null,'':null,
+    cycling:'Cycling',road_biking:'Cycling',mountain_biking:'Cycling',gravel_cycling:'Cycling',indoor_cycling:'Cycling',virtual_ride:'Cycling',e_bike_fitness:'Cycling',
+    cross_country_skiing_ws:'Cross-country skiing',skate_skiing_ws:'Cross-country skiing',resort_skiing_snowboarding_ws:null,backcountry_skiing:null,
+    padel:'Padel',lap_swimming:null};
   for(const [key,type] of Object.entries(cases))assert.equal(app.garminSessionType(key),type,key);
   assert.equal(app.garminLabel({type:'soccer'}),'Fussball');
-  assert.equal(app.garminLabel({type:'cycling',name:'Velo zur Arbeit'}),'Velo zur Arbeit');
+  assert.equal(app.garminLabel({type:'road_biking',name:'Velo zur Arbeit'}),'Velo');
+  assert.equal(app.garminLabel({type:'lap_swimming',name:'Seebad'}),'Seebad','unknown types keep their own name');
 });
 
 test('import marks planned days done, fills empty days and never undoes the player',()=>{

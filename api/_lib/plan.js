@@ -17,6 +17,7 @@ Rules:
 - At most two sessions per day and at least one full rest day per week. Do not stack Gym on a team-training day.
 - Complaints (week.complaints: area, level 1 Leicht / 2 Mittel / 3 Stark, lowerBody): a lower-body complaint at Mittel or Stark → no Easy run and no Futsal; Gym only for the upper body or pain-free exercises, and say what to leave out. Stark → mostly rest, Walking and pain-free Mobility. Leicht → plan normally, but name the area in the guidance. Never diagnose.
 - Load (load.status): high or veryHigh → lighter week, no extra runs or futsal, Gym with fewer sets; low → room for one extra Easy run or Futsal. Several caution/low recovery days → lighter as well.
+- His own sports can sit on fixed days: Padel (intense like Futsal: sprints and changes of direction), Cross-country skiing and Cycling (endurance). Count them as training: they need the same care around games and Gym as Futsal and Easy run. Never plan them yourself.
 - Prefer the days he usually trains on (see recent weeks), but goals and rules come first.
 - Guidance: title up to 60 characters, guidance up to 220 characters, concrete (sets, reserve, minutes, what to leave out). German with Swiss spelling (ss, never ß). Summary: 2–3 sentences on why the week looks like this.
 

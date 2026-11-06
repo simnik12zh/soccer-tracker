@@ -79,7 +79,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   and the day light of the next day (today for yesterday's session, tomorrow for today's).
   "Trainer fragen" opens the coach with the question filled in; the coach context carries the same
   comparisons for the last 7 days (`sessionReviews`). From three sessions of a kind; before that
-  the sheet shows the values only. Walks and mobility have no review.
+  the sheet shows the values only. Walks, mobility, Velo, Langlauf and Padel have no review.
 - **Nutrition (level A)** — per day, optional `protein` (grams via +20/+30/+40 quick-add,
   correctable, undo for the last add) and `nutrition` (`green` Im Plan / `amber` Gemischt /
   `red` Daneben: viel Süsses, Essen aus Lust statt Hunger, Fast Food). Not logged is never zero
@@ -200,7 +200,8 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   sync, first time 14 days). `applyGarminImport` applies each activity once by ID: a type that
   matches the day's plan (football → game, team training or futsal) marks the day done, an
   empty day is filled (unplanned football → Freizeitkick/Futsal), anything else is listed as
-  "nicht im Plan". It never un-ticks a day, never changes feelings or notes, and a day the
+  "nicht im Plan". Rides (`cycl`, `bik`, `ride`) map to Velo, `cross_country_skiing` and
+  `skate_skiing` to Langlauf (alpine skiing stays unmapped), `padel` to Padel. It never un-ticks a day, never changes feelings or notes, and a day the
   player un-ticked stays un-ticked. Per-day `steps` and `garmin` are optional fields
   (no key bump); `garminSync` is stored top-level. Today shows steps next to the date and
   recorded activities on the session card; Körper shows the last seven days of steps. The coach
@@ -287,7 +288,10 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   in Heute) for open days and guidance for fixed days ahead; "Rückgängig" restores the previous
   sessions and guidance only, so later logs, notes and food entries stay. Proposals are stored
   under `coach-plan-<weekStart>`. With a lower-body complaint at Mittel or Stark the server also
-  strips Easy run and Futsal from every open day.
+  strips Easy run and Futsal from every open day. Velo (`Cycling`), Langlauf (`Cross-country
+  skiing`) and Padel are his own sports: picked in "Was steht an?", they make a day fixed; the
+  planner counts them as load (Padel like Futsal) but never plans them. They count as hard
+  sessions for the day light (e.g. "Morgen ist Spiel. Padel heute locker halten").
 - **Complaints (Beschwerden)** — reported only when something hurts: "Beschwerde" next to Ändern /
   Notiz in Heute opens a sheet (body area → optional side for hip, groin, thighs, knee, calf,
   ankle, shoulder → Leicht / Mittel / Stark, which saves). An episode stays active until "Wieder
@@ -401,7 +405,8 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   Holidays and the summer break stay exempt. Only the explicitly reviewed date range
   above is rescheduled; target changes alone never regenerate a stored calendar.
   Display labels and built-in copy are German. Internal IDs remain unchanged (e.g. `Gym`
-  → Krafttraining, `Futsal` → Freizeitkick/Futsal, `Mobility` → Prävention/Reha).
+  → Krafttraining, `Futsal` → Freizeitkick/Futsal, `Mobility` → Prävention/Reha, `Cycling` → Velo,
+  `Cross-country skiing` → Langlauf).
   Session-specific card summaries cover both planned and completed days and two-session
   combinations. New coach replies are instructed to be German; existing notes and chats
   are preserved verbatim. The brand name Athlete stays English.

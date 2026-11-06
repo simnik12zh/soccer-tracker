@@ -277,6 +277,18 @@ const TIPS = {
     summary:'Bewegung ohne Trainingsdruck – komm an die Luft und lass den Körper erholen.',
     done:'Bewegung und Erholung verbunden. Auch diese ruhigen Einheiten zählen.',
     text:'Aktive Erholung. Bleib in Bewegung, ohne den Körper zusätzlich zu belasten.' },
+  'Cycling': { emoji:'🚴', label:'Velo', color:'#B3DCE2',
+    summary:'Ausdauer ohne Stösse: Die Beine arbeiten, die Gelenke werden geschont.',
+    done:'Velo gefahren. Ausdauer gesammelt, ohne Schläge auf die Gelenke.',
+    text:'Gleichmässig treten und ruhig atmen. Lange oder harte Fahrten ermüden die Beine wie ein Training, vor einem Spiel deshalb kurz und locker halten.' },
+  'Cross-country skiing': { emoji:'🎿', label:'Langlauf', color:'#B3DCE2',
+    summary:'Ausdauer im Schnee für den ganzen Körper, gelenkschonend und ideal im Winter.',
+    done:'Langlauf erledigt. Ausdauer für den ganzen Körper, ohne harte Stösse.',
+    text:'Ganzkörper-Ausdauer mit wenig Stossbelastung. Meist ruhig im Gesprächstempo, damit es Fussball und Krafttraining ergänzt statt ermüdet. Vor einem Spiel kurz und locker halten.' },
+  'Padel': { emoji:'🎾', label:'Padel', color:'#9CCBD3',
+    summary:'Kurze Antritte, schnelle Richtungswechsel und Reaktion: fordert Beine und Kopf.',
+    done:'Padel gespielt. Antritte und Richtungswechsel zählen als echte Belastung für die Beine.',
+    text:'Intensiv wie ein Freizeitkick: viele Stopps, Antritte und Seitwärtsschritte. Gut aufwärmen, besonders Waden und Adduktoren. Am Tag vor einem Spiel lieber auslassen.' },
   'Sick/Injured': { emoji:'🤒', label:'Krank/verletzt', color:'#B3DCE2',
     summary:'Heute hat Erholung Vorrang. Gib deinem Körper die nötige Ruhe.',
     done:'Erholung dokumentiert. Der Wiedereinstieg darf warten, bis du wieder bereit bist.',
@@ -295,6 +307,9 @@ function getTip(workout) {
   if (w.includes('pilates')) return TIPS['Pilates'];
   if (w.includes('easy run')) return TIPS['Easy run'];
   if (w.includes('walking')) return TIPS['Walking'];
+  if (w.includes('cycling')) return TIPS['Cycling'];
+  if (w.includes('cross-country')) return TIPS['Cross-country skiing'];
+  if (w.includes('padel')) return TIPS['Padel'];
   return null;
 }
 
@@ -302,7 +317,8 @@ function getTip(workout) {
 // Pitch sessions: Match and Pickup/Futsal both read as ⚽; Team Training is 👥.
 const EMOJI = {
   'Match':'⚽','Team Training':'👥','Futsal':'⚽','Gym':'🏋️',
-  'Pilates':'🤸','Mobility':'🦵','Walking':'🚶','Easy run':'🏃','Sick/Injured':'🤒',
+  'Pilates':'🤸','Mobility':'🦵','Walking':'🚶','Easy run':'🏃','Cycling':'🚴','Cross-country skiing':'🎿','Padel':'🎾',
+  'Sick/Injured':'🤒',
 };
 function sessionEmoji(w) {
   if (!w || !w.trim()) return '';
@@ -326,7 +342,8 @@ function getSessions(e) {
 const TYPE_LABELS = {
   'Match':'Spiel', 'Team Training':'Mannschaftstraining', 'Futsal':'Freizeitkick/Futsal',
   'Gym':'Krafttraining', 'Mobility':'Prävention/Reha', 'Pilates':'Pilates',
-  'Walking':'Spazieren', 'Easy run':'Lockerer Lauf', 'Sick/Injured':'Krank/verletzt',
+  'Walking':'Spazieren', 'Easy run':'Lockerer Lauf', 'Cycling':'Velo', 'Cross-country skiing':'Langlauf', 'Padel':'Padel',
+  'Sick/Injured':'Krank/verletzt',
 };
 function displayName(type) { return TYPE_LABELS[type] || type; }
 // Large titles: break compound words at the word joint (soft hyphen), not mid-syllable.
@@ -502,8 +519,10 @@ function reminderStatus(plan,today=todayStr(),target=DEFAULT_PROTEIN_TARGET,soci
 // Garmin type keys → session IDs by pattern (Garmin publishes no fixed list).
 // 'soccer' resolves against the day's plan: game, team training or futsal.
 const GARMIN_TYPES=[[/strength/,'Gym'],[/pilates|yoga/,'Pilates'],[/mobility|stretch|breath/,'Mobility'],
-  [/soccer|futsal|football/,'soccer'],[/run/,'Easy run'],[/walk|hik/,'Walking']];
+  [/soccer|futsal|football/,'soccer'],[/padel/,'Padel'],[/cross_country_ski|skate_ski|nordic_ski/,'Cross-country skiing'],
+  [/cycl|bik|ride/,'Cycling'],[/run/,'Easy run'],[/walk|hik/,'Walking']];
 const GARMIN_LABELS={Gym:'Krafttraining',Pilates:'Pilates/Yoga',Mobility:'Mobilität',soccer:'Fussball','Easy run':'Laufen',Walking:'Gehen',
+  Cycling:'Velo','Cross-country skiing':'Langlauf',Padel:'Padel',
   match:'Spiel',training:'Mannschaftstraining',futsal:'Freizeitkick'};
 function garminSessionType(typeKey) {
   const key=String(typeKey||'').toLowerCase();
@@ -748,7 +767,8 @@ function socialForCoach(list,holidays,today=todayStr(),now=new Date()) {
 // dosing training, not an injury predictor. Only activities recorded on the watch count.
 // Planned football is estimated by kind (games from games, team trainings from team trainings);
 // until two of a kind are recorded, from all football together.
-const LOAD_TYPE_FOR_SESSION={Gym:'Gym','Easy run':'Easy run',Walking:'Walking',Match:'match','Team Training':'training',Futsal:'futsal',Pilates:'Pilates',Mobility:'Mobility'};
+const LOAD_TYPE_FOR_SESSION={Gym:'Gym','Easy run':'Easy run',Walking:'Walking',Match:'match','Team Training':'training',Futsal:'futsal',Pilates:'Pilates',Mobility:'Mobility',
+  Cycling:'Cycling','Cross-country skiing':'Cross-country skiing',Padel:'Padel'};
 const LOAD_FALLBACK={match:'soccer',training:'soccer',futsal:'soccer'};
 function sessionLoad(typical,s) { const k=LOAD_TYPE_FOR_SESSION[s];return k?typical[k]??typical[LOAD_FALLBACK[k]]??0:0; }
 const LOAD_LABELS={low:'Unter deinem Bereich',optimal:'Im optimalen Bereich',high:'Über deinem Bereich',veryHigh:'Deutlich über deinem Bereich'};
@@ -823,7 +843,7 @@ function outlookLabel(upcoming) {
 // extra. Red: only easy or rest. The day before and the day after a game are never green.
 // dayLightRule finds the deciding reason; dayGuidance adds a second one and the factor line.
 const DAY_LABELS={good:'Bereit',caution:'Ruhiger Tag',low:'Erholungstag'};
-const HARD_SESSIONS=['Team Training','Futsal','Gym','Easy run'];
+const HARD_SESSIONS=['Team Training','Futsal','Gym','Easy run','Padel','Cross-country skiing','Cycling'];
 const joinWords=list=>list.length>1?list.slice(0,-1).join(', ')+' und '+list.at(-1):list[0]||'';
 function dayLightRule(plan,dk,complaints,status,recovery) {
   const e=plan[dk]||{},out=(level,advice,why=null)=>({level,label:level?DAY_LABELS[level]:null,advice,why});
@@ -1260,6 +1280,9 @@ const ALTS = [
   { emoji:'🦵', label:'Mobility' },
   { emoji:'🚶', label:'Walking' },
   { emoji:'🏃', label:'Easy run' },
+  { emoji:'🚴', label:'Cycling' },
+  { emoji:'🎿', label:'Cross-country skiing' },
+  { emoji:'🎾', label:'Padel' },
   { emoji:'🤒', label:'Sick/Injured' },
 ];
 
@@ -1513,6 +1536,9 @@ function Icon({name,size=22,...props}) {
     Mobility:<><path d="M12 3 5 6v5.5c0 4.4 3 7.9 7 9.5 4-1.6 7-5.1 7-9.5V6z"/><path d="M12 9v6M9 12h6"/></>,
     Walking:<><ellipse cx="7.5" cy="7.5" rx="2.7" ry="4.3"/><path d="M5.6 14.2h3.8v1.6a1.9 1.9 0 0 1-3.8 0z"/><ellipse cx="16.5" cy="10.5" rx="2.7" ry="4.3"/><path d="M14.6 17.2h3.8v1.6a1.9 1.9 0 0 1-3.8 0z"/></>,
     "Easy run":<><circle cx="15" cy="4.5" r="1.8"/><path d="M13.6 7.5 11 13l3 3 1.5 4.5M11 13l-2.5 3.5L5 17.5M13 8.5l3 2 2.5-1.5M13 8.5l-3 1.5-2-1.5"/></>,
+    Cycling:<><circle cx="5.5" cy="16.5" r="3.5"/><circle cx="18.5" cy="16.5" r="3.5"/><path d="M5.5 16.5 9.5 9.5l2.5 7H5.5M9.5 9.5H16l2.5 7M16 9.5l-4 7M16 9.5l-.8-2.5h2.3M9.5 9.5 9 7.5M7.6 7.5h2.8"/></>,
+    "Cross-country skiing":<><circle cx="16" cy="4.5" r="1.8"/><path d="M15 7.5 11.5 13l2.5 2.5 1.5 4.5M11.5 13l-3 2.5L5.5 20M14.5 8.5l3.5 2M14.5 8.5l-4.5 1M18 10.5l2 9M10 9.5 2.5 14M2.5 20.5h19"/></>,
+    Padel:<><g transform="rotate(-40 10 10)"><ellipse cx="10" cy="7.5" rx="5" ry="5.6"/><path d="M10 13.1V19M8.7 19h2.6"/><path d="M8.3 6h.01M11.7 6h.01M10 9h.01"/></g><circle cx="18.5" cy="5.5" r="2.2"/></>,
     "Sick/Injured":<g transform="rotate(-45 12 12)"><rect x="2.5" y="8.5" width="19" height="7" rx="3.5"/><path d="M9.5 8.5v7M14.5 8.5v7"/></g>,
     rest:<path d="M20 14A9 9 0 0 1 10 3a9 9 0 1 0 10 11Z"/>,
     custom:<path d="M3 12h4l2.5-6 5 12 2.5-6H21"/>,
