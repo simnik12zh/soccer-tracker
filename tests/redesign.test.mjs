@@ -46,7 +46,8 @@ test('redesign keeps the storage key, templates and legacy session IDs',()=>{
   assert.equal(api.SK,'soccer-v3');
   const plan=api.buildDefaultPlan();
   assert.deepEqual(plain(plan['2026-09-28'].sessions),['Gym','Mobility']);
-  assert.deepEqual(plain(plan['2026-09-29'].sessions),['Walking']);
+  assert.deepEqual(plain(plan['2026-09-29'].sessions),[],'a rest day, not a walking session');
+  assert.match(plan['2026-09-29'].coaching.text,/7'000 Schritte/);
   assert.equal(plan['2026-07-12'],undefined);
   assert.equal(plan['2027-07-05'],undefined);
   assert.deepEqual(plain(api.getSessions({workout:'Futsal',completed:true})),['Futsal']);
@@ -76,7 +77,7 @@ test('every session type has distinct German planned and completed card copy',()
   assert.equal(api.sessionSubtitle(combo),api.sessionSubtitle({sessions:['Mobility','Gym']}));
   assert.equal(api.sessionSubtitle({sessions:['Match','Walking']}),api.TIPS.Match.summary+' '+api.TIPS.Walking.summary);
   assert.match(api.sessionSubtitle({sessions:['⋯ Schwimmen']}),/Schwimmen/);
-  assert.equal(api.sessionSubtitle({sessions:[]}),'Erholung gehört zum Training.');
+  assert.equal(api.sessionSubtitle({sessions:[]}),'Kein Training, aber in Bewegung bleiben: locker gehen, verteilt über den Tag.');
   assert.deepEqual(combo,{sessions:['Gym','Mobility']},'no plan mutation');
 });
 
@@ -135,7 +136,7 @@ test('new calendars use real fixtures instead of recurring Saturday matches',()=
   assert.deepEqual(matches,plain(api.MATCH_SCHEDULE.map(m=>m.date).sort()));
   assert.deepEqual(plain(plan['2026-10-12'].sessions),['Match'],'open Monday gym and rehab replaced');
   assert.deepEqual(plain(plan['2026-11-12'].sessions),['Match'],'open Thursday team training replaced');
-  assert.deepEqual(plain(plan['2026-10-03'].sessions),['Walking'],'recovery instead of Saturday match');
+  assert.deepEqual(plain(plan['2026-10-03'].sessions),[],'a rest day instead of Saturday match');
   assert.equal(plan['2027-04-10'],undefined,'spring fixture dates are unknown, not invented');
 });
 
@@ -231,7 +232,7 @@ test('match recovery, light pre-match gym and season-end deload are explicit',()
   for(const match of api.MATCH_SCHEDULE){
     const date=new Date(match.date+'T12:00:00');date.setDate(date.getDate()+1);
     const next=date.toISOString().slice(0,10);
-    assert.deepEqual(plain(plan[next].sessions),['Walking'],next+' no futsal or gym after match');
+    assert.deepEqual(plain(plan[next].sessions),[],next+' rest day, no futsal or gym after match');
   }
   for(const dk of ['2026-10-14','2026-10-18','2026-10-28','2026-10-30','2026-11-11','2026-11-14']){
     assert.ok(plan[dk].sessions.includes('Gym'));

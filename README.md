@@ -165,7 +165,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   slots. The already-started week is not retroactively filled. Thursday team sessions
   continue through the last known game (12 November, replacing training); there are no
   team sessions after that assumed club shutdown. Games and completed logs take priority.
-  Day-after-match plans are walks, not futsal or heavy strength. Double-game weeks use
+  Day-after-match plans are rest days, not futsal or heavy strength. Double-game weeks use
   light upper-body/core Gym visits; pre-game Thursday training explicitly asks for a
   reduced session agreed with the team coach. These are targets, not instructions to
   train through fatigue or pain. 16–22 November and 14–20 December are lower-volume
@@ -184,6 +184,16 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
 - **Retired features** — Hip/Legs check-ins, Mediale Kette and the Routine tab are removed.
   Existing check-ins and top-level rehab fields remain untouched in stored data and backups,
   but are no longer shown or sent to the coach. Exercise image source files are retained.
+- **Rest days (Ruhetag)** — a day without sessions means no training, but at least
+  `REST_STEPS` (7'000) easy steps over the day. Walking is no longer a session to tick off
+  ("Spazieren" left the picker and the planner): the watch's step count decides (`restDay`).
+  The Today card shows a bar with "3'200 von 7'000 Schritten" and "7'400 Schritte ✓" once
+  reached; the week list shows the same line, future rest days "mind. 7'000 Schritte". Nothing
+  is ticked off and "Noch offen" stays unchanged. Sick days have no goal. A recorded walk or
+  hike never ticks or fills a day; it counts through the steps and is not "nicht im Plan".
+  `migrateRestDays` (once, `restDaysVersion`) turns open walking days into rest days and gives
+  the old rest guidance the step goal; logged walks stay as history. The coach and the weekly
+  planner know the rule.
 - **Garmin import** — the server pulls the Garmin Connect Personal API (read-only, own
   account) via `GET /api/garmin?from&to` (max 28 days): activity summaries
   (`/activitylist-service/activities/search/activities`) and daily steps
@@ -282,7 +292,7 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   asks Claude Opus 5.5 (structured output, server-side fallback) to plan the open days from the
   coach context (goals, load, recovery, recent weeks). `enforcePlanRules` then applies the hard
   rules in code: fixed days keep their sessions, only known session ids, at most two per day, no
-  added games or team training, only Walking/Mobility the day after a game (also after a Sunday
+  added games or team training, only a rest day or Mobility the day after a game (also after a Sunday
   game), no run or futsal the day before, no Gym on consecutive days. The card shows each day
   (fixed / changed with "bisher"), "Übernehmen" writes sessions and guidance (`coaching`, shown
   in Heute) for open days and guidance for fixed days ahead; "Rückgängig" restores the previous

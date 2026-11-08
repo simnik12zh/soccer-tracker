@@ -126,9 +126,9 @@ const COACHED_PLAN_VERSION = 'autumn-winter-2026-v2';
 const COACHED_START = '2026-09-27';
 const COACHED_END = '2026-12-31';
 const COACHED_SESSIONS = {
-  rest: {sessions:[],title:'Trainingsfrei',text:'Erholung ist heute der Plan. Schlaf und regelmässige Mahlzeiten priorisieren; keine ausgefallenen Einheiten nachholen.'},
-  recover: {sessions:['Walking'],title:'Erholung nach dem Spiel',text:'Nur entspannt spazieren, wenn es dir guttut. Kein Futsal, keine Intervalle, kein schweres Beintraining. Bei Beschwerden lieber Ruhe und fachlich abklären lassen.'},
-  walk: {sessions:['Walking'],title:'Locker bewegen',text:'Entspannt spazieren. Kein zusätzlicher Trainingsreiz nötig; Krafttraining und Fussball haben Vorrang.'},
+  rest: {sessions:[],title:'Trainingsfrei',text:"Ruhetag: kein Training, aber locker in Bewegung, mindestens 7'000 Schritte über den Tag. Schlaf und regelmässige Mahlzeiten priorisieren; keine ausgefallenen Einheiten nachholen."},
+  recover: {sessions:[],title:'Erholung nach dem Spiel',text:"Ruhetag: Lockeres Gehen hilft den Beinen, mindestens 7'000 Schritte über den Tag verteilt. Kein Futsal, keine Intervalle, kein schweres Beintraining. Bei Beschwerden lieber Ruhe und fachlich abklären lassen."},
+  walk: {sessions:[],title:'Locker bewegen',text:"Ruhetag ohne Trainingsreiz, aber mindestens 7'000 Schritte, zum Beispiel ein Spaziergang am Mittag und eine Runde auf dem Laufband. Krafttraining und Fussball haben Vorrang."},
   prehab: {sessions:['Mobility'],title:'Sanfte Prävention und Mobilität',text:'Nur vertraute, schmerzfreie Übungen mit geringer Belastung. Keine ermüdenden Kraftübungen oder neuen Reize kurz vor dem Spiel.'},
   gym: {sessions:['Gym','Mobility'],title:'Ganzkörperkraft · kontrollierter Aufbau',text:'Vertraute Kniebeuge-/Ausfallschritt-, Hüftstreck-, Zug- und Druckbewegungen: je 2–3 saubere Sätze, 2–3 Wiederholungen Reserve. Danach dosierte Prävention. Bei Restmüdigkeit Beinumfang reduzieren; kein Muskelversagen.'},
   upper: {sessions:['Gym','Mobility'],title:'Oberkörper & Rumpf · Beine entlasten',text:'Kurze Einheit mit kontrolliertem Ziehen, Drücken und Rumpfstabilität. Je 1–2 leichte bis moderate Sätze, mindestens 3 Wiederholungen Reserve. Keine schweren Beine, Sprünge oder Sprints; Prävention heute nur sanft.'},
@@ -185,6 +185,23 @@ function applyCoachedPlan(plan,from=COACHED_START) {
       coaching:{...prescription,sessions:[...prescription.sessions]}};
   }
   return {plan:next,previousEntries};
+}
+// Walking is no longer a session to tick off: an open walking day becomes a rest day (no training,
+// at least REST_STEPS steps), and the old rest guidance gets the step goal. Logged days keep their history.
+const REST_DAYS_VERSION=1;
+const REST_GUIDANCE={'Erholung nach dem Spiel':'recover','Locker bewegen':'walk','Trainingsfrei':'rest'};
+function migrateRestDays(data) {
+  if(data.restDaysVersion===REST_DAYS_VERSION)return data;
+  const plan={...data.plan};
+  for(const [dk,e] of Object.entries(plan)){
+    if(!e||typeof e!=='object'||e.completed)continue;
+    const sessions=getSessions(e),rest=sessions.filter(x=>x!=='Walking'),guide=coachingFor(e);
+    const slot=!rest.length&&guide?REST_GUIDANCE[guide.title]:null;
+    if(rest.length===sessions.length&&!slot)continue;
+    const coaching=slot?{...COACHED_SESSIONS[slot],sessions:[]}:guide?{...guide,sessions:rest}:e.coaching??null;
+    plan[dk]={...e,sessions:rest,workout:'',coaching};
+  }
+  return {...data,plan,restDaysVersion:REST_DAYS_VERSION};
 }
 function migrateCoachedPlan(data,from=todayStr()) {
   if(data.coachedPlanVersion===COACHED_PLAN_VERSION)return data;
@@ -363,7 +380,7 @@ function sessionsEmojiStr(e) { return getSessions(e).map(sessionEmoji).join('');
 // Short card copy is derived from all selected types, never stored in the plan.
 function sessionSubtitle(entry) {
   const sessions=getSessions(entry);
-  if (!sessions.length) return 'Erholung gehört zum Training.';
+  if (!sessions.length) return 'Kein Training, aber in Bewegung bleiben: locker gehen, verteilt über den Tag.';
   if (sessions.length===2&&sessions.includes('Gym')&&sessions.includes('Mobility')) {
     return entry.completed
       ? 'Kraft und Stabilität trainiert, mit Mobilität abgeschlossen – ein kompletter Aufbau-Tag.'
@@ -570,8 +587,8 @@ function applyGarminImport(plan,data,today=todayStr()) {
       continue;
     }
     const type=garminSessionType(a.type),sessions=getSessions(e);
-    const planned=type==='soccer'?sessions.find(s=>['Match','Team Training','Futsal'].includes(s))||null:type&&sessions.includes(type)?type:null;
-    const fill=!planned&&!!type&&!sessions.length;
+    const planned=type==='soccer'?sessions.find(s=>['Match','Team Training','Futsal'].includes(s))||null:type&&type!=='Walking'&&sessions.includes(type)?type:null;
+    const fill=!planned&&!!type&&type!=='Walking'&&!sessions.length;
     const item={id:a.id,type:String(a.type||'other').slice(0,40),name:typeof a.name==='string'?a.name.slice(0,80):'',
       start:typeof a.start==='string'?a.start.slice(0,5):null,minutes:num(a.minutes),avgHr:num(a.avgHr),...metrics(a),matched:!!planned||fill};
     const patch={garmin:[...seen,item]};
@@ -1103,13 +1120,14 @@ function loadOutlookText(plan,dk,series,status,typical=typicalLoads(plan,dk)) {
 // Fixed: games, team training, sick days, own custom sessions, finished or past days.
 // Applying changes only open days (and guidance on fixed days still ahead); the previous
 // sessions/guidance are kept so the whole proposal can be undone.
-const PLAN_SESSIONS=['Match','Team Training','Futsal','Gym','Pilates','Mobility','Walking','Easy run'];
+const PLAN_SESSIONS=['Match','Team Training','Futsal','Gym','Pilates','Mobility','Easy run'];
 function planWeekInput(plan,weekStart,today=todayStr(),complaints=[]) {
   const days=Array.from({length:7},(_,i)=>daysBeforeStr(weekStart,-i));
   return {weekStart,matchDayBefore:isMatchDay(plan[daysBeforeStr(weekStart,1)]),
     complaints:activeComplaints(complaints,today).map(c=>({area:complaintLabel(c),level:c.level,lowerBody:complaintArea(c.area).lower})),
     days:days.map(date=>{
-      const e=plan[date]||{},sessions=getSessions(e),locked=date<today||!!e.completed;
+      // An old open walking day is a rest day: the planner never sees walking as a session.
+      const e=plan[date]||{},locked=date<today||!!e.completed,sessions=getSessions(e).filter(x=>locked||x!=='Walking');
       const fixed=locked||isMatchDay(e)||sessions.some(x=>x==='Team Training'||x==='Sick/Injured'||!PLAN_SESSIONS.includes(x));
       return {date,sessions,fixed,locked,completed:!!e.completed,match:e.match?{opponent:e.match.opponent,kickoff:e.match.kickoff}:null,currentTitle:coachingFor(e)?.title||''};
     })};
@@ -1269,6 +1287,18 @@ function stepsWeek(plan,dk,today=todayStr()) {
   return {days,avg:Math.round(sum/n),daysWithData:n,goal:STEP_GOAL};
 }
 const fmtSteps=v=>v.toLocaleString('de-CH');
+// A rest day: no training, but at least REST_STEPS easy steps over the day. The watch's step
+// count decides; nothing to tick off. Days with a session (sick days included) have no goal.
+const REST_STEPS=7000;
+function restDay(entry,dk,today=todayStr()) {
+  if(getSessions(entry).length||isMatchDay(entry))return null;
+  const v=entry?.steps,steps=dk<=today&&Number.isInteger(v)&&v>0?v:null;
+  return {goal:REST_STEPS,steps,met:steps!=null&&steps>=REST_STEPS,future:dk>today};
+}
+function restDayText(r) {
+  if(r.steps==null)return `mind. ${fmtSteps(r.goal)} Schritte`;
+  return r.met?`${fmtSteps(r.steps)} Schritte ✓`:`${fmtSteps(r.steps)} von ${fmtSteps(r.goal)} Schritten`;
+}
 
 // Bottom-sheet options. Every change is a draft until Save, including Ruhetag.
 const ALTS = [
@@ -1278,7 +1308,6 @@ const ALTS = [
   { emoji:'🏋️', label:'Gym' },
   { emoji:'🤸', label:'Pilates' },
   { emoji:'🦵', label:'Mobility' },
-  { emoji:'🚶', label:'Walking' },
   { emoji:'🏃', label:'Easy run' },
   { emoji:'🚴', label:'Cycling' },
   { emoji:'🎿', label:'Cross-country skiing' },
@@ -1649,6 +1678,10 @@ button,a,input,summary{touch-action:manipulation}h1,h2,h3,p{margin:0}h1,h2,h3{fo
 .day-chip small{font-size:11px;color:var(--muted);letter-spacing:.06em}.day-chip[aria-pressed=true] small{color:#233B47}
 .day-marker{height:12px;width:auto;min-width:5px;background:none!important;font-size:14px;line-height:10px}
 .session-top{display:flex;justify-content:space-between;align-items:center;gap:12px}.session-subtitle{font-size:13px;color:var(--muted);line-height:1.6}
+.rest-steps{display:flex;flex-direction:column;gap:8px;margin-top:14px}.rest-bar{display:block;height:6px;border-radius:var(--r-pill);background:var(--track);overflow:hidden}
+.rest-bar span{display:block;height:100%;width:calc(var(--p) * 100%);border-radius:inherit;background:var(--social)}.rest-steps.met .rest-bar span{background:var(--good)}
+.rest-text{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text);font-weight:500}.rest-text small{color:var(--muted);font-weight:400;font-size:12px}
+.rest-steps.met .rest-text{color:var(--good-soft)}
 .session-actions>div{display:flex;gap:12px;flex-wrap:wrap}.session-actions .text-btn{font-size:11px}
 .notes{background:transparent;padding:0;border:0}.notes textarea{width:100%;display:block;margin-top:10px;padding:12px;color:var(--text);background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--r-s);resize:vertical}
 .saved-note{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.6;color:var(--muted);border-top:1px solid var(--line);padding-top:16px;margin-top:16px}
@@ -3243,10 +3276,14 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,onOpen
         </button>}
       </div>
       <p className="session-subtitle">{sessionSubtitle(e)}</p>
+      {(r=>r&&<div className={"rest-steps"+(r.met?" met":"")} role="status" aria-label={"Ruhetag: "+restDayText(r)}>
+        {!r.future&&<span className="rest-bar" aria-hidden="true"><span style={{"--p":Math.min(1,(r.steps||0)/r.goal)}}/></span>}
+        <span className="rest-text">{r.met&&<Icon name="check" size={15}/>}{restDayText(r)}{!r.met&&!r.future&&<small> · Ziel am Ruhetag</small>}</span>
+      </div>)(restDay(e,viewKey,todayStr()))}
       {Array.isArray(e.garmin)&&e.garmin.length>0&&<ul className="watch-list" aria-label="Von Garmin">{e.garmin.map(g=>{
         const row=<><Icon name="watch" size={16}/><span>{garminLabel(g)}{g.minutes!=null?` · ${g.minutes} min`:""}{g.avgHr?` · Ø ${g.avgHr} bpm`:""}
           {garminSessionType(g.type)==="soccer"&&garminStats(g)&&<em className="watch-stats">{garminStats(g).split(" · ").map((part,i)=><Fragment key={i}>{i?" · ":""}<i>{part}</i></Fragment>)}</em>}</span>
-          {!g.matched&&<small>nicht im Plan</small>}</>;
+          {!g.matched&&garminSessionType(g.type)!=="Walking"&&<small>nicht im Plan</small>}</>;
         // Comparable sessions (games, trainings, runs, strength) open their review.
         return <li key={g.id}>{reviewKind(e,g)?<button className="watch-row" aria-haspopup="dialog" onClick={()=>setReview(g.id)}>{row}
           <span className="watch-more">Auswertung<Icon name="chevron" size={14}/></span></button>:row}</li>;})}</ul>}
@@ -3317,7 +3354,7 @@ function WeekView({today,plan,wkOff,setWkOff,onGoToDay,updDay,onSwapDays,planner
             <strong>{e.match?"Gegen "+e.match.opponent:sessionsLabel(e)||"Ruhetag"}</strong>
             {e.match&&getSessions(e).some(s=>s!=="Match")&&<span className="fixture-existing">{sessionsLabel(e)}</span>}
             {guidanceTitle(e)&&<span className="week-plan-focus">{guidanceTitle(e)}</span>}
-            <small><SessionMarks entry={e}/>{calendarStatus(e)}</small></span>
+            <small><SessionMarks entry={e}/>{(r=>r?restDayText(r):calendarStatus(e))(restDay(e,dk,today))}</small></span>
           {calendarDone(e)&&<span style={{color:C.accent}}><Chk size={16} color={C.accent}/></span>}
         </button>
         <button className="icon-btn week-edit" aria-label={"Training ändern oder tauschen: "+shortDate(dk)} onClick={()=>{setSwapFrom(null);setSheetDk(dk);}}><Icon name="edit" size={17}/></button>
@@ -4078,7 +4115,7 @@ export default function App() {
         if(stored){
           const d=JSON.parse(stored);
           if(!d||typeof d!=="object"||!d.plan||Array.isArray(d.plan)||typeof d.plan!=="object")throw Error("invalid");
-          const updated=migrateCoachedPlan(migrateMatchSchedule(d));
+          const updated=migrateRestDays(migrateCoachedPlan(migrateMatchSchedule(d)));
           const {playerName:name,plan:savedPlan,proteinTarget:storedTarget,...extras}=updated;
           storedExtras.current=extras;
           setComplaints(Array.isArray(extras.complaints)?extras.complaints:[]);
@@ -4087,7 +4124,7 @@ export default function App() {
           const target=validProteinTarget(storedTarget)?storedTarget:null;
           setPlayerName(typeof name==="string"?name:"");setPlan(savedPlan);setProteinSetting(target);setScreen(name?"main":"setup");
           if(previous||updated!==d)localStorage.setItem(SK,JSON.stringify({...extras,playerName:name||"",...(target!=null?{proteinTarget:target}:{}),plan:savedPlan}));
-        }else{storedExtras.current={matchScheduleVersion:MATCH_SCHEDULE_VERSION,coachedPlanVersion:COACHED_PLAN_VERSION};setPlan(buildDefaultPlan());setScreen("setup");}
+        }else{storedExtras.current={matchScheduleVersion:MATCH_SCHEDULE_VERSION,coachedPlanVersion:COACHED_PLAN_VERSION,restDaysVersion:REST_DAYS_VERSION};setPlan(buildDefaultPlan());setScreen("setup");}
       }catch{setLoadError(true);}
       setLoading(false);
     })();

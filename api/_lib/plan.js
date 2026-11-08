@@ -4,18 +4,19 @@ import { accessDenied } from "./access.js";
 // Weekly plan proposal: the model plans the open days of one week; hard rules are then
 // enforced here in code, whatever the model returned. Nothing is stored server-side.
 export const PLAN_MODEL = "claude-opus-5-5";
-export const SESSION_IDS = ["Match", "Team Training", "Futsal", "Gym", "Pilates", "Mobility", "Walking", "Easy run"];
+export const SESSION_IDS = ["Match", "Team Training", "Futsal", "Gym", "Pilates", "Mobility", "Easy run"];
 const LABELS = { Match: "Spiel", "Team Training": "Mannschaftstraining", Futsal: "Freizeitkick/Futsal", Gym: "Krafttraining",
-  Pilates: "Pilates", Mobility: "Prävention/Reha", Walking: "Spazieren", "Easy run": "Lockerer Lauf" };
+  Pilates: "Pilates", Mobility: "Prävention/Reha", "Easy run": "Lockerer Lauf" };
 
 export const PLAN_SYSTEM_PROMPT = `You are the athletic coach of a 35-year-old amateur defender in Switzerland and plan his training week. You get the week's seven days (some fixed), his goals, recent training, load, recovery and upcoming games as data. Return the whole week.
 
 Rules:
 - Days marked fixed are given (games, team training, finished or past days): return their sessions unchanged. You may add short guidance for fixed days that are still ahead (e.g. how to dose team training before a game).
 - Weekly goals in active phases: 2× Gym (Krafttraining) and 2× Mobility (Prävention/Reha), counting what is already done this week. Gym and Mobility fit well on the same day. Leave at least 48 hours between two Gym days.
-- Day after a game: only Walking or rest. Day before a game: no Easy run, no Futsal; Gym only as a short upper-body session, and say so in the guidance.
+- Rest days (empty sessions) mean no training, but at least 7,000 easy steps over the day (walks, treadmill); there is no walking session. Use the guidance of a rest day to say so when it helps.
+- Day after a game: a rest day or Mobility only. Day before a game: no Easy run, no Futsal; Gym only as a short upper-body session, and say so in the guidance.
 - At most two sessions per day and at least one full rest day per week. Do not stack Gym on a team-training day.
-- Complaints (week.complaints: area, level 1 Leicht / 2 Mittel / 3 Stark, lowerBody): a lower-body complaint at Mittel or Stark → no Easy run and no Futsal; Gym only for the upper body or pain-free exercises, and say what to leave out. Stark → mostly rest, Walking and pain-free Mobility. Leicht → plan normally, but name the area in the guidance. Never diagnose.
+- Complaints (week.complaints: area, level 1 Leicht / 2 Mittel / 3 Stark, lowerBody): a lower-body complaint at Mittel or Stark → no Easy run and no Futsal; Gym only for the upper body or pain-free exercises, and say what to leave out. Stark → mostly rest days and pain-free Mobility. Leicht → plan normally, but name the area in the guidance. Never diagnose.
 - Load (load.status): high or veryHigh → lighter week, no extra runs or futsal, Gym with fewer sets; low → room for one extra Easy run or Futsal. Several caution/low recovery days → lighter as well.
 - His own sports can sit on fixed days: Padel (intense like Futsal: sprints and changes of direction), Cross-country skiing and Cycling (endurance). Count them as training: they need the same care around games and Gym as Futsal and Easy run. Never plan them yourself.
 - Prefer the days he usually trains on (see recent weeks), but goals and rules come first.
@@ -67,7 +68,7 @@ export function enforcePlanRules(input, raw) {
     let sessions = day.fixed ? [...day.sessions]
       : [...new Set((Array.isArray(proposed.sessions) ? proposed.sessions : []).filter((s) => SESSION_IDS.includes(s) && s !== "Match" && s !== "Team Training"))].slice(0, 2);
     if (!day.fixed) {
-      if (matchOn(nextDay(day.date, -1))) sessions = sessions.filter((s) => s === "Walking" || s === "Mobility").slice(0, 1);
+      if (matchOn(nextDay(day.date, -1))) sessions = sessions.filter((s) => s === "Mobility").slice(0, 1);
       if (matchOn(nextDay(day.date, 1)) || legsRestricted) sessions = sessions.filter((s) => s !== "Easy run" && s !== "Futsal");
     }
     const keepText = !day.locked;

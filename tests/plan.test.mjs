@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {planHandler,enforcePlanRules,validatePlanInput,PLAN_MODEL,PLAN_SYSTEM_PROMPT} from '../api/_lib/plan.js';
+import {planHandler,enforcePlanRules,validatePlanInput,PLAN_MODEL,PLAN_SYSTEM_PROMPT,SESSION_IDS} from '../api/_lib/plan.js';
 
 const plain=value=>JSON.parse(JSON.stringify(value));
 const source=readFileSync(new URL('../src/App.jsx',import.meta.url),'utf8');
@@ -58,13 +58,15 @@ test('hard rules hold whatever the model proposes',()=>{
   assert.equal(out.summary,'Leichte Woche wegen hoher Belastung. ss-Test');
 });
 
-test('only walking or mobility the day after a game, including a game on the previous Sunday',()=>{
+test('only a rest day or mobility the day after a game, including a game on the previous Sunday',()=>{
   const plan=basePlan();plan['2026-11-01']={sessions:['Match'],match:{opponent:'X',home:false,kickoff:'15:00'}};
   const input=validatePlanInput(app.planWeekInput(plan,WEEK,'2026-11-02'));
   assert.equal(input.matchDayBefore,true);
   input.days[0]={...input.days[0],fixed:false,locked:false};
   const out=enforcePlanRules(input,{summary:'',days:[{date:'2026-11-02',sessions:['Gym','Walking'],title:'',guidance:''}]});
-  assert.deepEqual(plain(out.days[0].sessions),['Walking']);
+  assert.deepEqual(plain(out.days[0].sessions),[],'walking is no session any more: a rest day');
+  const mob=enforcePlanRules(input,{summary:'',days:[{date:'2026-11-02',sessions:['Gym','Mobility'],title:'',guidance:''}]});
+  assert.deepEqual(plain(mob.days[0].sessions),['Mobility']);
 });
 
 test('applying changes only open days and can be undone without losing later entries',()=>{
@@ -109,5 +111,7 @@ test('the plan endpoint calls Opus 5.5 with a schema and returns the enforced we
   const denied={code:200,status(n){this.code=n;return this;},json(o){this.body=o;return this;},setHeader(){}};
   await planHandler({env:{APP_ACCESS_CODE:'c'},client})({method:'POST',body,headers:{}},denied);
   assert.equal(denied.code,401);
-  assert.match(PLAN_SYSTEM_PROMPT,/Day after a game: only Walking or rest/);
+  assert.match(PLAN_SYSTEM_PROMPT,/Day after a game: a rest day or Mobility only/);
+  assert.match(PLAN_SYSTEM_PROMPT,/Rest days \(empty sessions\) mean no training, but at least 7,000 easy steps/);
+  assert.ok(!SESSION_IDS.includes('Walking'),'the planner cannot plan walking');
 });
