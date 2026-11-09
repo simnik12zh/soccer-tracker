@@ -40,7 +40,8 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   The season plan is generated from hard-coded `PHASES` +
   per-phase weekly `TEMPLATES` (with Ibiza and Tuscany holiday overrides) by
   `buildDefaultPlan()`, spanning 2026-06-29 → 2027-08-05.
-- **Heute** — compact day strip (‹ › jump a week, swipe moves a day). The ring card opens with
+- **Heute** — compact day strip (‹ › jump a week, swipe moves a day); each day shows its
+  session icons (up to two, the pitch on game days, a check once logged). The ring card opens with
   the first glance: for today the day light (`dayGuidance`, see Training load) with its colour,
   name and one sentence; past days show sleep, Garmin sleep score and HRV instead
   (`recoveryGlance`), future days nothing. Active complaints sit right

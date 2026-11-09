@@ -1678,6 +1678,8 @@ button,a,input,summary{touch-action:manipulation}h1,h2,h3,p{margin:0}h1,h2,h3{fo
 .header-subtitle{color:var(--muted);font-size:15px;line-height:1.6}.app-header h1{white-space:pre-line}
 .day-chip small{font-size:11px;color:var(--muted);letter-spacing:.06em}.day-chip[aria-pressed=true] small{color:#233B47}
 .day-marker{height:12px;width:auto;min-width:5px;background:none!important;font-size:14px;line-height:10px}
+.day-marker{display:flex;align-items:center;justify-content:center;gap:2px}.day-marker svg{flex:none;color:var(--accent)}
+.day-chip.match-day .day-marker svg,.day-chip[aria-pressed=true] .day-marker svg{color:inherit}
 .session-top{display:flex;justify-content:space-between;align-items:center;gap:12px}.session-subtitle{font-size:13px;color:var(--muted);line-height:1.6}
 .rest-steps{display:flex;flex-direction:column;gap:8px;margin-top:14px}.rest-bar{display:block;height:6px;border-radius:var(--r-pill);background:var(--track);overflow:hidden}
 .rest-bar span{display:block;height:100%;width:calc(var(--p) * 100%);border-radius:inherit;background:var(--social)}.rest-steps.met .rest-bar span{background:var(--good)}
@@ -3245,9 +3247,9 @@ function TodayView({plan,updDay,dayOff,setDayOff,proteinTarget,onOpenPlan,onOpen
       <button className="week-step" aria-label="Vorherige Woche" onClick={()=>navDay(-7)}>‹</button>
       <div className="day-strip" aria-label="Tag auswählen">
         {weekAround(viewKey).map((dk,i)=><button key={dk} className={"day-chip"+(isMatchDay(plan[dk])?" match-day":"")} aria-pressed={dk===viewKey}
-          aria-label={shortDate(dk)+(plan[dk]?.match?" · "+entryDescription(plan[dk]):"")+(calendarDone(plan[dk])?" · erledigt":"")} onClick={()=>go(dk)}>
+          aria-label={shortDate(dk)+(plan[dk]?.match?" · "+entryDescription(plan[dk]):getSessions(plan[dk]).length?" · "+getSessions(plan[dk]).map(displayName).join(" + "):"")+(calendarDone(plan[dk])?" · erledigt":"")} onClick={()=>go(dk)}>
           <small>{DN[i]}</small><strong>{Number(dk.slice(-2))}</strong>
-          <span className="day-marker">{calendarDone(plan[dk])?"✓":isMatchDay(plan[dk])?<Icon name="Match" size={13}/>:getSessions(plan[dk]).length?"·":" "}</span>
+          <span className="day-marker">{calendarDone(plan[dk])?"✓":isMatchDay(plan[dk])?<Icon name="Match" size={13}/>:getSessions(plan[dk]).slice(0,2).map(x=><Icon key={x} name={x} size={13}/>)}</span>
         </button>)}
       </div>
       <button className="week-step" aria-label="Nächste Woche" onClick={()=>navDay(7)}>›</button>
