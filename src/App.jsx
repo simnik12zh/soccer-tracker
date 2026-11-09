@@ -1558,17 +1558,17 @@ function Icon({name,size=22,...props}) {
     close:<path d="m6 6 12 12M6 18 18 6"/>,
     swap:<path d="M7 20V4m-4 4 4-4 4 4M17 4v16m-4-4 4 4 4-4"/>,
     // One distinct icon per session type; Futsal and team training share the ball.
-    Match:<><rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M12 5v14"/><circle cx="12" cy="12" r="2.6"/><path d="M2.5 9.5H5v5H2.5M21.5 9.5H19v5h2.5"/></>,
-    ball:<><circle cx="12" cy="12" r="9"/><path d="m12 8.2 3.6 2.6-1.4 4.2H9.8l-1.4-4.2z"/><path d="M12 3v5.2M15.6 10.8l4.9-1.6M14.2 15l3 4.2M9.8 15l-3 4.2M8.4 10.8 3.5 9.2"/></>,
-    Gym:<><path d="M7 12h10M2 10v4M22 10v4"/><rect x="4" y="7" width="3" height="10" rx="1"/><rect x="17" y="7" width="3" height="10" rx="1"/></>,
-    Pilates:<><circle cx="6.5" cy="8" r="2"/><path d="M2 20h20M8 11.5l3.5 7.5 6.5-9M9 13.5l6.5-3.5"/></>,
-    Mobility:<><path d="M12 3 5 6v5.5c0 4.4 3 7.9 7 9.5 4-1.6 7-5.1 7-9.5V6z"/><path d="M12 9v6M9 12h6"/></>,
+    Match:<><rect x="2" y="5.5" width="20" height="13" rx="2.5"/><path d="M12 5.5v13"/><circle cx="12" cy="12" r="2.4"/><path d="M2 9.3h3.2v5.4H2M22 9.3h-3.2v5.4H22"/></>,
+    ball:<><circle cx="12" cy="12" r="9"/><path fill="currentColor" stroke="none" d="M12 8.7 15.14 10.98 13.94 14.67 10.06 14.67 8.86 10.98z"/><path strokeWidth="1" d="M12 8.7 15.14 10.98 13.94 14.67 10.06 14.67 8.86 10.98z"/><path d="M12 8.7 12 5M15.14 10.98 18.66 9.84M13.94 14.67 16.11 17.66M10.06 14.67 7.89 17.66M8.86 10.98 5.34 9.84"/><path fill="currentColor" stroke="none" d="M12 5.5 8.84 4.54 9.62 3.11 14.38 3.11 15.16 4.54zM18.18 9.99 18.11 6.69 19.72 6.99 21.19 11.52 20.07 12.71zM15.82 17.26 18.94 16.17 19.15 17.79 15.3 20.59 13.82 19.89zM8.18 17.26 10.18 19.89 8.7 20.59 4.85 17.79 5.06 16.17zM5.82 9.99 3.93 12.71 2.81 11.52 4.28 6.99 5.89 6.69z"/></>,
+    Gym:<><g fill="currentColor" stroke="none"><rect x="1" y="8.7" width="2.6" height="6.6" rx="1.3"/><rect x="4.2" y="5.6" width="3.1" height="12.8" rx="1.55"/><rect x="7.3" y="10.9" width="9.4" height="2.2"/><rect x="16.7" y="5.6" width="3.1" height="12.8" rx="1.55"/><rect x="20.4" y="8.7" width="2.6" height="6.6" rx="1.3"/></g></>,
+    Pilates:<><circle fill="currentColor" stroke="none" cx="6" cy="6.6" r="2.05"/><path strokeWidth="3.6" d="M7.9 10.3C7.6 13 8.6 15 10.9 15.6"/><path strokeWidth="2.4" d="M10.9 15.6 21.4 8.4"/><path strokeWidth="1.6" d="M8.9 11 15.1 8.5"/><path d="M2.5 18.8H21.5"/></>,
+    Mobility:<><path d="M12 2.8 4.5 5.8v5.7c0 4.6 3.1 8.1 7.5 9.7 4.4-1.6 7.5-5.1 7.5-9.7V5.8z"/><path strokeWidth="2.3" d="M12 8v6.6M8.7 11.3h6.6"/></>,
     Walking:<><ellipse cx="7.5" cy="7.5" rx="2.7" ry="4.3"/><path d="M5.6 14.2h3.8v1.6a1.9 1.9 0 0 1-3.8 0z"/><ellipse cx="16.5" cy="10.5" rx="2.7" ry="4.3"/><path d="M14.6 17.2h3.8v1.6a1.9 1.9 0 0 1-3.8 0z"/></>,
-    "Easy run":<><circle cx="15" cy="4.5" r="1.8"/><path d="M13.6 7.5 11 13l3 3 1.5 4.5M11 13l-2.5 3.5L5 17.5M13 8.5l3 2 2.5-1.5M13 8.5l-3 1.5-2-1.5"/></>,
-    Cycling:<><circle cx="5.5" cy="16.5" r="3.5"/><circle cx="18.5" cy="16.5" r="3.5"/><path d="M5.5 16.5 9.5 9.5l2.5 7H5.5M9.5 9.5H16l2.5 7M16 9.5l-4 7M16 9.5l-.8-2.5h2.3M9.5 9.5 9 7.5M7.6 7.5h2.8"/></>,
-    "Cross-country skiing":<><circle cx="16" cy="4.5" r="1.8"/><path d="M15 7.5 11.5 13l2.5 2.5 1.5 4.5M11.5 13l-3 2.5L5.5 20M14.5 8.5l3.5 2M14.5 8.5l-4.5 1M18 10.5l2 9M10 9.5 2.5 14M2.5 20.5h19"/></>,
-    Padel:<><g transform="rotate(-40 10 10)"><ellipse cx="10" cy="7.5" rx="5" ry="5.6"/><path d="M10 13.1V19M8.7 19h2.6"/><path d="M8.3 6h.01M11.7 6h.01M10 9h.01"/></g><circle cx="18.5" cy="5.5" r="2.2"/></>,
-    "Sick/Injured":<g transform="rotate(-45 12 12)"><rect x="2.5" y="8.5" width="19" height="7" rx="3.5"/><path d="M9.5 8.5v7M14.5 8.5v7"/></g>,
+    "Easy run":<><circle fill="currentColor" stroke="none" cx="15.9" cy="4.2" r="2.1"/><path strokeWidth="2.9" d="M13.6 7.4 10.9 12.5"/><path strokeWidth="1.6" d="M13.3 7.9 16.2 9.7 19.2 8.1M12.4 7.5 9 7.1 7 10"/><path strokeWidth="2.2" d="M10.9 12.7 15.6 14.8 12.4 19.2M10.9 12.7 7.9 17.1 3.9 21.3"/></>,
+    Cycling:<><circle cx="5.2" cy="15.9" r="3.9"/><circle cx="18.8" cy="15.9" r="3.9"/><path strokeWidth="1.3" d="M5.2 15.9 8.1 11.1 15.9 10.7 18.8 15.9M15.9 10.7 11 15.9H5.2M15.9 10.7 16.5 9.5H18.3"/><circle fill="currentColor" stroke="none" cx="16.2" cy="5.3" r="1.65"/><path strokeWidth="2.5" d="M9.4 9.4C10.8 7.6 12.6 7 14.4 7.4"/><path strokeWidth="1.5" d="M14.4 7.6 15.7 9.9 18.3 9.5"/><path strokeWidth="2.3" d="M9.4 9.6 12.4 12.5"/><path strokeWidth="1.9" d="M12.4 12.5 10.8 15.6"/></>,
+    "Cross-country skiing":<><circle fill="currentColor" stroke="none" cx="16.7" cy="5" r="1.95"/><path strokeWidth="3.4" d="M15.3 7.8 13.6 12.2"/><path strokeWidth="1.6" d="M15.6 8.1 20.8 8.3M14.9 8.5 10.4 11.6"/><path strokeWidth="1.1" d="M20.4 8.5 17.8 17.8M10.4 11.6 2.2 17.2"/><path strokeWidth="2.3" d="M13.6 12.4 16.4 14.5 15.9 18.4M13.6 12.4 11.6 15.6 7.6 18.4"/><path d="M1.5 19.6H22.5"/></>,
+    Padel:<><g transform="translate(-3.2 .4) rotate(35 12 12)"><path fill="currentColor" stroke="none" fillRule="evenodd" d="M6.8 7.6a5.2 5.7 0 1 0 10.4 0a5.2 5.7 0 1 0 -10.4 0zM10.22 4.2a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0zM12.42 4.2a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0zM9.12 5.9a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0zM11.32 5.9a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0zM13.52 5.9a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0zM8.02 7.6a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0zM10.22 7.6a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0zM12.42 7.6a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0zM14.62 7.6a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0zM9.12 9.3a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0zM11.32 9.3a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0zM13.52 9.3a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0zM10.22 11a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0zM12.42 11a0.68 0.68 0 1 0 1.36 0a0.68 0.68 0 1 0 -1.36 0z"/><path fill="currentColor" stroke="none" fillRule="evenodd" d="M8.4 12 15.6 12 13.1 16 10.9 16z M12 13.6 12.85 15 11.15 15z"/><rect fill="currentColor" stroke="none" x="10.85" y="15.6" width="2.3" height="6" rx="1.15"/></g><circle fill="currentColor" stroke="none" cx="20.6" cy="9.6" r="2"/></>,
+    "Sick/Injured":<><g transform="rotate(-40 12 12)"><rect x="2.5" y="8.3" width="19" height="7.4" rx="3.7"/><path strokeWidth="1.6" d="M9.3 9.9v4.2M14.7 9.9v4.2"/><g fill="currentColor" stroke="none"><circle cx="10.9" cy="10.9" r=".55"/><circle cx="13.1" cy="10.9" r=".55"/><circle cx="12" cy="12" r=".55"/><circle cx="10.9" cy="13.1" r=".55"/><circle cx="13.1" cy="13.1" r=".55"/></g></g></>,
     rest:<path d="M20 14A9 9 0 0 1 10 3a9 9 0 1 0 10 11Z"/>,
     custom:<path d="M3 12h4l2.5-6 5 12 2.5-6H21"/>,
     settings:<><circle cx="12" cy="12" r="3"/><path d="m9 2-1 3-3 1-3 3 2 3-2 3 3 3 3 1 1 3h6l1-3 3-1 3-3-2-3 2-3-3-3-3-1-1-3z"/></>,
@@ -1590,7 +1590,8 @@ function Icon({name,size=22,...props}) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>{paths[resolved]||paths.custom}</svg>;
 }
 function SessionMarks({entry,size=16}) {
-  return <span className="session-marks">{getSessions(entry).map(s=><Icon key={s} name={s} size={size}/>)}</span>;
+  const sessions=getSessions(entry);
+  return sessions.length?<span className="session-marks">{sessions.map(s=><Icon key={s} name={s} size={size}/>)}</span>:null;
 }
 // The runner from the app icon and the Athlete wordmark, both in the accent ice blue.
 function BrandLogo() {
@@ -1707,7 +1708,7 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .trend-panel{padding:22px}.metric-switch{display:flex;gap:8px;margin:16px 0}.metric-switch button{padding:10px 16px;min-height:44px;border:1px solid var(--line);border-radius:var(--r-pill);background:transparent;font-size:12px;color:var(--muted)}
 .metric-switch button[aria-pressed=true]{background:var(--raised);border-color:var(--accent);color:var(--text)}.trend-value{font-size:32px;letter-spacing:-.04em}.trend-value span{font-size:16px;color:var(--muted)}
 .chart-caption{font-size:12px;color:var(--muted);line-height:1.5;margin-top:10px}
-.sheet-handle{width:32px;height:4px;background:var(--edge);border-radius:4px;margin:0 auto 18px}.sheet h2{margin-top:8px}.option-check{position:absolute;right:7px;top:5px;color:var(--accent-ink)}
+.sheet-handle{width:32px;height:4px;background:var(--edge);border-radius:4px;margin:0 auto 18px}.sheet h2{margin-top:8px}.option-check{position:absolute;right:7px;top:7px;color:var(--accent-ink)}.session-option>svg:first-child{color:var(--accent)}
 .settings-card{padding:22px}.settings-backup>.secondary{display:block;width:100%;margin-top:12px}.settings-backup{margin-top:30px}
 .settings-screen{padding-bottom:calc(40px + env(safe-area-inset-bottom))}.loading-state{padding:80px 24px;color:var(--muted);text-align:center}
 .milestone-toast{display:flex;align-items:center;gap:12px;max-width:520px;width:90vw}.milestone-toast>span{font-size:26px}.milestone-toast strong{font-size:14px}.milestone-toast p{font-size:12px;line-height:1.6;color:#B6C9D5;margin-top:3px}
@@ -2399,7 +2400,7 @@ function WorkoutSheet({dateKey:dk,entry,updDay,onClose,onReportComplaint,onSwap}
       :<><p className="helper-text">Bis zu zwei Einheiten. Speichern ändert nur den Plan. Über FERTIG trägst du das absolvierte Training ein.</p>
         <div className="sheet-grid">{options.map(opt=><button key={opt.label} className="session-option" onClick={()=>toggle(opt.label)}
           aria-pressed={selected.includes(opt.label)} disabled={(fixedMatch&&opt.label==="Match")||(!selected.includes(opt.label)&&selected.length>=SHEET_MAX)}>
-          <Icon name={opt.label} size={25}/><span>{sheetLabel(displayName(opt.label))}</span>{selected.includes(opt.label)&&<span className="option-check">✓</span>}
+          <Icon name={opt.label} size={32}/><span>{sheetLabel(displayName(opt.label))}</span>{selected.includes(opt.label)&&<Icon name="check" size={16} className="option-check"/>}
         </button>)}</div>
         {selected.includes("Sick/Injured")&&onReportComplaint&&<button className="sheet-link" onClick={()=>{save();onReportComplaint();}}>
           <Icon name="alert" size={18}/><span>Verletzt? Speichern und melden, wo es weh tut</span><Icon name="arrow" size={16}/></button>}

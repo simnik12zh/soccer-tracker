@@ -33,7 +33,8 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   `--muted`, `--faint`, `--accent*`, `--good`, `--warn`, `--bad`, `--gold*`; radii `--r-s` 12,
   `--r-m` 14, `--r-l` 22, `--r-pill`), legacy inline styles still use `C`. Text is at least
   11 px (labels), explanations 12 px. Inline SVG icons only (games use the pitch icon, no
-  emoji), reduced-motion support and a keyboard-accessible session sheet. Sections on Plan,
+  emoji). Sport icons are pictograms: run, Velo, Langlauf and Pilates are solid figures, the
+  rest bold outlines, shown at 32 px in ice blue in the session sheet. Reduced-motion support and a keyboard-accessible session sheet. Sections on Plan,
   Körper and Saison use one heading pattern (`.section-heading` above the card); cards on
   Heute carry their own small eyebrow. No extra UI dependencies.
   The season plan is generated from hard-coded `PHASES` +
