@@ -564,7 +564,9 @@ function applyGarminImport(plan,data,today=todayStr()) {
   const metrics=a=>({distanceKm:dec(a.distanceKm),maxSpeedKmh:dec(a.maxSpeedKmh),load:num(a.load),highHrMin:num(a.highHrMin)});
   for(const day of Array.isArray(data?.steps)?data.steps:[]){
     if(!day||!validCoachDate(day.date)||day.date>today||!Number.isInteger(day.steps)||day.steps<0)continue;
-    if(next[day.date]?.steps!==day.steps)next[day.date]={...next[day.date],steps:day.steps};
+    const cur=next[day.date];
+    if(cur?.stepsManual){if(cur.stepsGarmin!==day.steps)next[day.date]={...cur,stepsGarmin:day.steps};continue;}
+    if(cur?.steps!==day.steps)next[day.date]={...cur,steps:day.steps};
   }
   const RECOVERY_FIELDS=['sleepMin','sleepScore','hrv','hrvWeekly','hrvLow','hrvHigh','hrvFloor','restingHr','bodyBattery'];
   for(const day of Array.isArray(data?.recovery)?data.recovery:[]){
@@ -1287,6 +1289,19 @@ function stepsWeek(plan,dk,today=todayStr()) {
   return {days,avg:Math.round(sum/n),daysWithData:n,goal:STEP_GOAL};
 }
 const fmtSteps=v=>v.toLocaleString('de-CH');
+// Steps typed in by hand, for a day without the watch: they count instead of Garmin until
+// cleared, and Garmin's own number is kept beside them to go back to.
+function parseSteps(text) {
+  const t=String(text??'').replace(/['’\s.,]/g,'');
+  return /^\d{1,5}$/.test(t)&&Number(t)>0?Number(t):null;
+}
+function manualStepsPatch(entry,steps) {
+  const garmin=entry?.stepsManual?entry.stepsGarmin:entry?.steps;
+  return {steps,stepsManual:true,stepsGarmin:Number.isInteger(garmin)?garmin:undefined};
+}
+function clearManualStepsPatch(entry) {
+  return {steps:Number.isInteger(entry?.stepsGarmin)?entry.stepsGarmin:undefined,stepsManual:undefined,stepsGarmin:undefined};
+}
 // A rest day: no training, but at least REST_STEPS easy steps over the day. The watch's step
 // count decides; nothing to tick off. Days with a session (sick days included) have no goal.
 const REST_STEPS=7000;
@@ -1812,7 +1827,13 @@ progress::-webkit-progress-bar{background:var(--line)}progress::-webkit-progress
 .ring-warn{color:var(--warn)}.section-heading>span.warn{color:var(--warn)}
 .weigh-note{font-size:12px;line-height:1.5;color:var(--warn);margin:-6px 0 12px}.weigh-note.sheet-warn{margin:14px 0 0;font-size:13px}.weigh-note strong{font-weight:600}
 .steps-goal{position:relative}.steps-goal:before{content:"";position:absolute;left:8px;right:8px;top:calc(16px + 64px * (1 - var(--g)));border-top:1px dashed var(--faint);pointer-events:none}
-.steps-goal .steps-bar span{background:var(--social)}.steps-day.today .steps-bar span{opacity:.55}
+.steps-goal .steps-bar span{background:var(--social)}.steps-goal .steps-bar span.manual{background:repeating-linear-gradient(-45deg,var(--social) 0 3px,transparent 3px 5px)}
+button.steps-day{border:0;background:none;padding:0;font:inherit;font-size:11px;color:var(--muted)}
+button.steps-day[aria-pressed=true] .steps-bar{box-shadow:0 0 0 2px var(--accent-ink)}button.steps-day[aria-pressed=true] small{color:var(--text);font-weight:600}
+.steps-edit{border-top:1px solid var(--line-soft);margin-top:14px;padding-top:14px}
+.steps-edit label{display:flex;flex-direction:column;gap:2px;font-size:14px}.steps-edit label span{font-size:12px;color:var(--muted)}
+.steps-edit-row{display:flex;gap:8px;margin-top:10px}.steps-edit-row .modal-input{margin:0;flex:1}.steps-edit-row .secondary{flex:none;width:auto;margin:0;padding:0 18px}
+.steps-edit .helper-text{margin:10px 0 4px}.steps-day.today .steps-bar span{opacity:.55}
 .background-input{display:block;margin:12px 0 0;resize:vertical;line-height:1.5;min-height:180px}.background-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px}.background-foot small{font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
 .body-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
 .body-tile{padding:14px 12px;border-radius:var(--r-m);min-width:0}.body-tile small{display:block;font-size:11px;color:var(--muted);letter-spacing:.04em}.body-tile strong{display:block;font-size:20px;font-weight:500;margin-top:6px;letter-spacing:-.03em;font-variant-numeric:tabular-nums}.body-tile strong span{font-size:11px;color:var(--muted);letter-spacing:0}.body-tile em{display:block;font-style:normal;font-size:11px;color:var(--faint);margin-top:4px}
@@ -2522,7 +2543,7 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
         onClick={()=>future?scrollToId("today-nutrition"):setSheet("protein")}>
         {protein==null?"–":<>{protein}<small>g</small></>}
       </Ring>
-      <Ring value={steps?.avg||0} max={STEP_GOAL} color="var(--social)" label="Schritte" sub={stepsSub} dialog disabled={!steps} onClick={()=>setSheet("steps")}
+      <Ring value={steps?.avg||0} max={STEP_GOAL} color="var(--social)" label="Schritte" sub={stepsSub} dialog disabled={future} onClick={()=>setSheet("steps")}
         ariaLabel={steps?`Schritte: im Schnitt ${fmtSteps(steps.avg)} über 7 Tage, Ziel ${fmtSteps(STEP_GOAL)}.${steps.avg>=STEP_GOAL?" Im Ziel.":""} Details öffnen`:"Schritte: keine Daten von der Uhr"}>
         {steps?(steps.avg>=1000?Math.round(steps.avg/100)/10+"k":steps.avg):"–"}
       </Ring>
@@ -2544,23 +2565,47 @@ function DayRings({plan,viewKey,target,complaints,updDay,onOpenPlan,onOpenBody,c
     {sheet==="protein"&&<ProteinSheet entry={e} dk={viewKey} target={target} updDay={updDay} onClose={()=>setSheet(null)}
       onMeals={()=>{setSheet(null);requestAnimationFrame(()=>scrollToId("today-nutrition"));}}/>}
     {sheet==="body"&&bf&&<BodySheet plan={plan} dk={viewKey} bf={bf} onClose={()=>setSheet(null)} onOpenBody={()=>{setSheet(null);onOpenBody();}}/>}
-    {sheet==="steps"&&steps&&<InfoSheet id="steps-sheet" eyebrow={(isToday?"Heute":shortDate(viewKey))+" · Bewegung"} title="Schritte" onClose={()=>setSheet(null)}>
-      <p className="sheet-big">{fmtSteps(steps.avg)}<small> Ø 7 Tage</small></p>
-      <p className="sheet-lede">{steps.avg>=STEP_GOAL?"Im Ziel.":"Unter dem Ziel."}</p>
-      <StepsBars s={steps} today={isToday?viewKey:null}/>
-      <p className="chart-caption">Ziel: im Schnitt {fmtSteps(STEP_GOAL)} pro Tag über 7 Tage (Linie). Fussballtage gleichen ruhige Tage aus.{isToday?" Heute zählt mit den Schritten bis jetzt.":""}</p>
-    </InfoSheet>}
+    {sheet==="steps"&&!future&&<StepsSheet plan={plan} dk={viewKey} s={steps} updDay={updDay} onClose={()=>setSheet(null)}/>}
   </section>;
 }
 const signedKg=v=>(v>0?"+":v<0?"−":"±")+Math.abs(v).toFixed(1);
 // The last 7 days of steps with the goal as a dashed line; today's bar is still growing.
-function StepsBars({s,today}) {
+function StepsBars({s,today,plan,selected,onSelect}) {
   const max=Math.max(s.goal,...s.days.map(d=>d.steps||0));
-  return <div className="steps-week steps-goal" style={{"--g":(s.goal/max).toFixed(3)}}>{s.days.map(d=>
-    <div key={d.date} className={"steps-day"+(d.date===today?" today":"")} role="img"
-      aria-label={shortDate(d.date)+": "+(d.steps!=null?fmtSteps(d.steps)+" Schritte":"keine Daten")+(d.date===today?" bis jetzt":"")}>
-      <span className="steps-bar"><span style={{height:(d.steps!=null?Math.max(4,d.steps/max*100):0)+"%"}}/></span>
-      <b>{d.steps!=null?(d.steps>=1000?Math.round(d.steps/100)/10+"k":d.steps):"–"}</b><small>{DN[dow0(new Date(d.date+"T12:00:00"))]}</small></div>)}</div>;
+  return <div className="steps-week steps-goal" style={{"--g":(s.goal/max).toFixed(3)}}>{s.days.map(d=>{
+    const manual=!!plan?.[d.date]?.stepsManual,Tag=onSelect?"button":"div";
+    const label=shortDate(d.date)+": "+(d.steps!=null?fmtSteps(d.steps)+" Schritte":"keine Daten")+(manual?", von Hand":"")+(d.date===today?" bis jetzt":"");
+    return <Tag key={d.date} className={"steps-day"+(d.date===today?" today":"")} {...(onSelect?{type:"button","aria-pressed":d.date===selected,onClick:()=>onSelect(d.date)}:{role:"img"})}
+      aria-label={label}>
+      <span className="steps-bar"><span className={manual?"manual":undefined} style={{height:(d.steps!=null?Math.max(4,d.steps/max*100):0)+"%"}}/></span>
+      <b>{d.steps!=null?(d.steps>=1000?Math.round(d.steps/100)/10+"k":d.steps):"–"}</b><small>{DN[dow0(new Date(d.date+"T12:00:00"))]}</small></Tag>;})}</div>;
+}
+// The step sheet: the 7-day mean, and a field to type in a day's steps when the watch stayed home.
+function StepsSheet({plan,dk,s,updDay,onClose}) {
+  const today=todayStr(),isToday=dk===today,[day,setDay]=useState(dk),[text,setText]=useState("");
+  const week=s||{days:Array.from({length:7},(_,i)=>({date:daysBeforeStr(dk,6-i),steps:null})),goal:STEP_GOAL};
+  const e=plan[day]||{},value=parseSteps(text),garmin=e.stepsManual?e.stepsGarmin:e.steps;
+  const dayName=day===today?"heute":new Date(day+"T12:00:00").toLocaleDateString("de-CH",{weekday:"short",day:"numeric",month:"short"});
+  const pick=d=>{setDay(d);setText("");};
+  const save=()=>{if(value==null)return;updDay(day,manualStepsPatch(e,value));setText("");};
+  const anyManual=week.days.some(d=>plan[d.date]?.stepsManual);
+  return <InfoSheet id="steps-sheet" eyebrow={(isToday?"Heute":shortDate(dk))+" · Bewegung"} title="Schritte" onClose={onClose}>
+    <p className="sheet-big">{s?fmtSteps(s.avg):"–"}<small> Ø 7 Tage</small></p>
+    <p className="sheet-lede">{!s?"Noch keine Schritte in diesen 7 Tagen.":s.avg>=STEP_GOAL?"Im Ziel.":"Unter dem Ziel."}</p>
+    <StepsBars s={week} today={isToday?dk:null} plan={plan} selected={day} onSelect={pick}/>
+    <p className="chart-caption">Ziel: im Schnitt {fmtSteps(STEP_GOAL)} pro Tag über 7 Tage (Linie). Fussballtage gleichen ruhige Tage aus.{isToday?" Heute zählt mit den Schritten bis jetzt.":""}{anyManual?" Gestreift: von Hand eingetragen.":""}</p>
+    <div className="steps-edit">
+      <label htmlFor="steps-input"><strong>Schritte {day===today?"heute":"am "+dayName}</strong>
+        <span>{e.stepsManual?`Von Hand ${fmtSteps(e.steps)}`+(Number.isInteger(garmin)?` · Garmin ${fmtSteps(garmin)}`:""):Number.isInteger(garmin)?`Garmin ${fmtSteps(garmin)}`:"Keine Daten von Garmin"}</span></label>
+      <div className="steps-edit-row">
+        <input id="steps-input" className="modal-input" type="text" inputMode="numeric" autoComplete="off" maxLength={7} value={text}
+          placeholder={e.stepsManual?fmtSteps(e.steps):"z. B. 9'800"} onChange={ev=>setText(ev.target.value)} onKeyDown={ev=>{if(ev.key==="Enter")save();}}/>
+        <button className="secondary" disabled={value==null} onClick={save}>Eintragen</button></div>
+      <p className="helper-text">Ohne Uhr unterwegs? Die Zahl steht in Apple Health unter Schritte. Sie zählt dann statt Garmin.</p>
+      {e.stepsManual&&<button className="text-btn" onClick={()=>updDay(day,clearManualStepsPatch(e))}>
+        {Number.isInteger(e.stepsGarmin)?"Wieder Garmin verwenden":"Eintrag löschen"}</button>}
+    </div>
+  </InfoSheet>;
 }
 // Weight per month over four weeks against the pace that kept his lean mass: about 0.5 kg,
 // never more than 0.8. Lean mass is shown, but the alarm comes from the weight.

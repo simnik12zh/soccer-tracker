@@ -58,7 +58,10 @@ npx vercel dev   # serves the UI AND /api/coach (needs ANTHROPIC_API_KEY in .env
   "steigt" with an "!" (`weighIns`, `bodyTempo`). Each ring opens a sheet: Erholung lists sleep, HRV, resting HR and Body Battery with
   the last 7 nights against his normal range (tap a row for the nightly values); Protein has
   +20/+30/+40 g with undo and a link to the meal card; Schritte shows the mean
-  and the 7 days as bars with the goal line; Körperfett shows the change over 4 weeks,
+  and the 7 days as bars with the goal line; tap a bar to type in that day's steps by hand
+  (a day with the IWC instead of the Garmin, number from Apple Health). A typed count is
+  striped, counts everywhere instead of Garmin's (`stepsManual`), and a Garmin sync only
+  updates `stepsGarmin` beside it until "Wieder Garmin verwenden" restores it; Körperfett shows the change over 4 weeks,
   the goal bar, the weigh-in warning, the tempo and the last 4 weeks as a line, with a link to the Körper tab. Below the rings a
   sentence names what is still open (`dayChecklist`; past days say "nicht eingetragen", never
   "skipped") plus Wochenziele x/4, which opens the plan. The session card keeps FERTIG next to the
